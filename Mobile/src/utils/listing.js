@@ -1,5 +1,6 @@
 import { NEPAL_LOCATIONS, haversineKm } from './locations';
 import { formatListingPrice } from './listingVariants';
+import { getApiBaseUrlCandidates } from '../config/apiUrl';
 
 const CATEGORY_ICONS = {
   Mobiles: 'phone-portrait-outline',
@@ -10,6 +11,38 @@ const CATEGORY_ICONS = {
   'Sports & Fitness': 'bicycle-outline',
   Fashion: 'shirt-outline',
 };
+
+export function resolveMediaUrl(url) {
+  if (!url || typeof url !== 'string') return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('data:') || trimmed.startsWith('file:') || trimmed.startsWith('content:')) {
+    return trimmed;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.pathname.startsWith('/uploads/')) {
+        const base = (
+          process.env.EXPO_PUBLIC_API_URL ||
+          getApiBaseUrlCandidates()?.[0] ||
+          ''
+        ).replace(/\/$/, '');
+        return base ? `${base}${parsed.pathname}` : trimmed;
+      }
+    } catch {
+      /* keep */
+    }
+    return trimmed;
+  }
+  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const base = (
+    process.env.EXPO_PUBLIC_API_URL ||
+    getApiBaseUrlCandidates()?.[0] ||
+    ''
+  ).replace(/\/$/, '');
+  return base ? `${base}${path}` : path;
+}
 
 export function formatPrice(price) {
   const amount = Number(price) || 0;
@@ -136,7 +169,7 @@ export function toCardItem(listing) {
     location: listing.location || '',
     icon: categoryIcon(listing.category),
     imageColor: 'iconBackground',
-    photo: listing.photos?.[0] || '',
+    photo: resolveMediaUrl(listing.photos?.[0] || ''),
     views: Number(listing.views) || 0,
     distanceKm: listing.distanceKm != null ? Number(listing.distanceKm) : null,
     distanceLabel: formatDistanceLabel(listing.distanceKm),
@@ -162,7 +195,12 @@ export function toDetailItem(listing) {
     posted: timeAgo(listing.createdAt),
     seller: seller.name || 'Seller',
     sellerId: seller.id,
-    sellerData: seller,
+    sellerData: seller
+      ? {
+          ...seller,
+          avatarUrl: resolveMediaUrl(seller.avatarUrl || ''),
+        }
+      : seller,
     sellerType: listing.sellerType || 'individual',
     shopId: listing.shopId || null,
     rating:
@@ -171,7 +209,7 @@ export function toDetailItem(listing) {
         : '',
     description: listing.description || '',
     mapAddress: listing.location || '',
-    photos: listing.photos || [],
+    photos: (listing.photos || []).map(resolveMediaUrl).filter(Boolean),
     listing,
   };
 }

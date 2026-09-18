@@ -22,6 +22,7 @@ import EmptyState from '../components/EmptyState';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import VariantEditor from '../components/VariantEditor';
 import { api } from '../services/api';
+import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
@@ -448,6 +449,20 @@ export default function EditListingScreen({ navigation, route }) {
     if (!listingId || submitting) return;
 
     setSubmitting(true);
+    const localPhotos = mediaUrisFromSlots(photos);
+    const uploaded = await uploadMediaUris(localPhotos, 'listings');
+    if (uploaded.error) {
+      setSubmitting(false);
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Photo Upload Failed',
+          message: uploaded.error,
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+
     const parsedBasePrice = Number(String(price).replace(/[^\d]/g, '')) || 0;
     const payload = {
       title: title.trim(),
@@ -455,7 +470,7 @@ export default function EditListingScreen({ navigation, route }) {
       category,
       condition,
       price,
-      photos: mediaUrisFromSlots(photos),
+      photos: uploaded.urls,
       markSold,
     };
 

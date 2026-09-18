@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { adminPath } from '../routes';
 import { BRAND_TAGLINE } from '../../content/brand';
+import { BRAND_ICON_SRC } from '../../content/brandAssets';
 
 const Layout = () => {
   const { user, logout } = useAuth();
@@ -69,7 +70,7 @@ const Layout = () => {
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
           <div className="logo">
-            <img src="/app-icon.png" alt="" className="logo-mark" />
+            <img src={BRAND_ICON_SRC} alt="" className="logo-mark" />
             <div>
               <h1>KinBech</h1>
               <p className="logo-tagline">{BRAND_TAGLINE}</p>

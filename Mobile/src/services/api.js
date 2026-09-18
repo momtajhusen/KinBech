@@ -95,15 +95,23 @@ async function requestWithTimeout(url, options, timeoutMs) {
 
 async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
   const url = safeUrl(baseUrl, path);
+  const isFormData =
+    typeof FormData !== 'undefined' && options?.body && options.body instanceof FormData;
+
+  const headers = {
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    ...(extraHeaders || {}),
+  };
+  // Let fetch set multipart boundary for FormData — never force JSON content-type.
+  if (!isFormData && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+
   const { response } = await requestWithTimeout(
     url,
     {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        ...(extraHeaders || {}),
-      },
+      headers,
     },
     timeoutMs
   );
@@ -154,8 +162,8 @@ function buildCandidates() {
 }
 
 async function request(path, options = {}) {
-  const { headers: extraHeaders, ...rest } = options;
-  const initialTimeoutMs = 8000;
+  const { headers: extraHeaders, timeoutMs: overrideTimeout, ...rest } = options;
+  const initialTimeoutMs = overrideTimeout || 8000;
 
   let lastData = null;
   let lastNonNetworkError = null;
@@ -283,6 +291,12 @@ export const api = {
     request('/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
   updateProfile: (payload) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify({ ...payload, profileComplete: true }) }),
+  uploadMedia: (formData, folder = 'misc') =>
+    request(`/media/upload?folder=${encodeURIComponent(folder)}`, {
+      method: 'POST',
+      body: formData,
+      timeoutMs: 60000,
+    }),
   getListings: (params = {}) => request(`/listings${toQuery(params)}`),
   searchListings: (params = {}) => request(`/listings/search${toQuery(params)}`),
   getMyListings: () => request('/listings/mine'),

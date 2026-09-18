@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
+import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
@@ -359,13 +360,27 @@ export default function IndividualPostListingScreen({ navigation }) {
     if (!validateStep3() || submitting) return;
     setSubmitting(true);
 
+    const localPhotos = photos.filter((item) => item?.uri).map((item) => item.uri);
+    const uploaded = await uploadMediaUris(localPhotos, 'listings');
+    if (uploaded.error) {
+      setSubmitting(false);
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Photo Upload Failed',
+          message: uploaded.error,
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+
     const { data, error } = await api.createListing({
       title: title.trim(),
       description: description.trim(),
       price,
       category,
       condition,
-      photos: photos.filter((item) => item?.uri).map((item) => item.uri),
+      photos: uploaded.urls,
       location: location.trim(),
       meetupOption: meetup,
       sellerType: 'individual',

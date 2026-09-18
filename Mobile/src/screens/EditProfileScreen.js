@@ -19,6 +19,8 @@ import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { uploadMediaUri } from '../utils/mediaUpload';
+import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { formatCityDistrict } from '../utils/locations';
 
@@ -193,7 +195,7 @@ export default function EditProfileScreen({ navigation }) {
     if (user?.coordinates && user.coordinates.latitude != null) return user.coordinates;
     return null;
   });
-  const [avatarUri, setAvatarUri] = useState(user?.avatarUrl || '');
+  const [avatarUri, setAvatarUri] = useState(resolveMediaUrl(user?.avatarUrl || '') || user?.avatarUrl || '');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
@@ -278,10 +280,27 @@ export default function EditProfileScreen({ navigation }) {
     }
     setLoading(true);
     try {
+      let avatarUrl = avatarUri || '';
+      if (avatarUrl) {
+        const uploaded = await uploadMediaUri(avatarUrl, 'avatars');
+        if (uploaded.error) {
+          setLoading(false);
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Photo Upload Failed',
+              message: uploaded.error,
+              onConfirm: () => setAlertConfig(null),
+            })
+          );
+          return;
+        }
+        avatarUrl = uploaded.url;
+      }
+
       const payload = {
         name: name.trim(),
         location: location.trim(),
-        avatarUrl: avatarUri,
+        avatarUrl,
         bio: bio.trim(),
       };
       if (coordinates && coordinates.latitude != null) {
@@ -354,7 +373,7 @@ export default function EditProfileScreen({ navigation }) {
             <View style={styles.avatarSection}>
               <Pressable onPress={pickImage} style={styles.avatarContainer}>
                 {avatarUri ? (
-                  <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                  <Image source={{ uri: resolveMediaUrl(avatarUri) || avatarUri }} style={styles.avatarImage} />
                 ) : (
                   <View style={styles.avatarEmpty}>
                     <Ionicons name="person" size={40} color={colors.textMuted} />

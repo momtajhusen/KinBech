@@ -20,7 +20,7 @@ import {
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import LogoutConfirmModal from '../components/LogoutConfirmModal';
-import { formatPrice } from '../utils/listing';
+import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -240,7 +240,7 @@ export default function ProfileScreen({ navigation }) {
             <View style={styles.avatarContainer}>
               <View style={styles.avatar}>
                 {user?.avatarUrl ? (
-                  <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
+                  <Image source={{ uri: resolveMediaUrl(user.avatarUrl) }} style={styles.avatarImage} />
                 ) : (
                   <View
                     style={{

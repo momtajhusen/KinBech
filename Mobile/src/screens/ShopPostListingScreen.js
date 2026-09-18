@@ -18,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
+import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { AlertModal, showErrorAlert } from '../components/AlertModal';
@@ -302,6 +303,20 @@ export default function ShopPostListingScreen({ navigation }) {
     if (submitting) return;
     setSubmitting(true);
 
+    const localPhotos = photos.map((photo) => photo?.uri).filter(Boolean);
+    const uploaded = await uploadMediaUris(localPhotos, 'listings');
+    if (uploaded.error) {
+      setSubmitting(false);
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Photo Upload Failed',
+          message: uploaded.error,
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+
     const parsedBasePrice = Number(String(price).replace(/[^\d]/g, '')) || 0;
     const payload = {
       title: title.trim(),
@@ -309,7 +324,7 @@ export default function ShopPostListingScreen({ navigation }) {
       price,
       category,
       condition,
-      photos: photos.map((photo) => photo?.uri).filter(Boolean),
+      photos: uploaded.urls,
       sellerType: 'shop',
       shopId: selectedShopId,
       brand: brand.trim(),

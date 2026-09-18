@@ -20,6 +20,7 @@ import { AlertModal, showErrorAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
+import { uploadMediaUri } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
@@ -400,10 +401,25 @@ export default function ProfileSetupScreen({ navigation }) {
 
     setLoading(true);
     try {
+      let nextAvatarUrl = avatarUri || '';
+      if (nextAvatarUrl) {
+        const uploaded = await uploadMediaUri(nextAvatarUrl, 'avatars');
+        if (uploaded.error) {
+          setLoading(false);
+          setAlertConfig(showErrorAlert({
+            title: 'Photo Upload Failed',
+            message: uploaded.error,
+            onConfirm: () => setAlertConfig(null),
+          }));
+          return;
+        }
+        nextAvatarUrl = uploaded.url;
+      }
+
       const { data, error } = await api.updateProfile({
         name: name.trim(),
         location: location.trim(),
-        avatarUrl: avatarUri,
+        avatarUrl: nextAvatarUrl,
         coordinates,
         sellerTypePreference,
       });

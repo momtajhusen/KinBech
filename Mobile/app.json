@@ -20,7 +20,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/app-icon.png",
-        "backgroundColor": "#047857"
+        "backgroundColor": "#0B1220"
       },
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.codersalpha1.kinbech",

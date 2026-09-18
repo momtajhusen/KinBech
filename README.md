@@ -173,3 +173,16 @@ Phone: 9800000000
 <!-- relese build -->
 <!-- // cd android && ./gradlew assembleRelease -- .apk -->
 <!-- // cd android && ./gradlew bundleRelease  -- .abb -->
+
+
+
+<!-- cd /home/ubuntu/Momtaj_Projects/institute_backend/backend -->
+
+<!-- git pull origin main && npm install && pm2 restart institute-api --update-env && pm2 save -->
+
+<!-- git log -1 -->
+<!-- Keep uploads forever (outside git): -->
+<!--   sudo mkdir -p /var/kinbech/uploads && sudo chown -R ubuntu:ubuntu /var/kinbech -->
+<!--   Add to .env: UPLOADS_DIR=/var/kinbech/uploads -->
+<!--   Migrate once: cp -a uploads/. /var/kinbech/uploads/ -->
+<!--   Never: rm -rf uploads  OR  git clean -fd -->

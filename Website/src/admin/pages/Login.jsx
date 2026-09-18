@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { adminPath } from '../routes';
 import { BRAND_TAGLINE } from '../../content/brand';
+import { BRAND_ICON_SRC } from '../../content/brandAssets';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -45,7 +46,7 @@ const Login = () => {
       </button>
       <div className="login-card">
         <div className="login-header">
-          <img src="/app-icon.png" alt="" className="login-logo" />
+          <img src={BRAND_ICON_SRC} alt="" className="login-logo" />
           <h1>KinBech Admin</h1>
           <p className="login-tagline">{BRAND_TAGLINE}</p>
           <p className="login-subtitle">Sign in to access admin panel</p>

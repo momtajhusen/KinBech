@@ -1,8 +1,8 @@
-const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const express = require('express');
 const { requireAdmin } = require('../middleware/auth');
+const { ensureUploadDir } = require('../config/uploads');
 const {
   listCategories,
   listCategoriesAdmin,
@@ -12,8 +12,7 @@ const {
   uploadCategoryImage,
 } = require('../controllers/categoryController');
 
-const uploadDir = path.join(__dirname, '../../uploads/categories');
-fs.mkdirSync(uploadDir, { recursive: true });
+const uploadDir = ensureUploadDir('categories');
 
 const storage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
