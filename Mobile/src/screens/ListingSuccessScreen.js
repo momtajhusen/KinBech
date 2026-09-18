@@ -1,176 +1,160 @@
-import { Text, View, Image, Pressable } from 'react-native';
+import { useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { openItemDetail, ROUTES } from '../navigation/helpers';
+import * as Clipboard from 'expo-clipboard';
+import ListingShareCard from '../components/ListingShareCard';
+import { ROUTES } from '../navigation/helpers';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-
-// Confetti color keys for theme resolution
-const CONFETTI_COLORS = [
-  'warningYellow',
-  'gradientStart',
-  'accentPink',
-  'secondary',
-];
-
-// Base confetti configuration with color keys
-const CONFETTI_CONFIG = [
-  { type: 'dot', top: 20, left: 130, size: 8, colorKey: 0 },
-  { type: 'dot', top: 62, left: 70, size: 6, colorKey: 1 },
-  { type: 'rect', top: 40, left: 220, size: 14, colorKey: 2, rotate: '35deg' },
-  { type: 'dot', top: 68, left: 320, size: 6, colorKey: 2 },
-  { type: 'star', top: 108, left: 320, size: 18, colorKey: 0 },
-  { type: 'rect', top: 120, left: 62, size: 14, colorKey: 1, rotate: '-20deg' },
-  { type: 'dot', top: 130, left: 300, size: 6, colorKey: 1 },
-  { type: 'star', top: 20, left: 10, size: 22, colorKey: 3 },
-  { type: 'dot', top: 200, left: 8, size: 8, colorKey: 3 },
-  { type: 'rect', top: 220, left: 55, size: 14, colorKey: 1, rotate: '-30deg' },
-  { type: 'dot', top: 240, left: 250, size: 6, colorKey: 2 },
-  { type: 'star', top: 250, left: 335, size: 18, colorKey: 0 },
-  { type: 'dot', top: 265, left: 55, size: 6, colorKey: 0 },
-  { type: 'rect', top: 275, left: 215, size: 12, colorKey: 1, rotate: '20deg' },
-  { type: 'dot', top: 300, left: 130, size: 4, colorKey: 2 },
-];
-
-/**
- * Resolve color references (e.g., 'colors.iconBackground') to actual color values
- * @param {string} colorRef - Color reference string or direct color value
- * @param {object} colors - Theme colors object
- * @returns {string} Resolved color value
- */
-function resolveColor(colorRef, colors) {
-  if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
-    const colorKey = colorRef.replace('colors.', '');
-    return colors[colorKey] || colorRef;
-  }
-  return colorRef;
-}
-
-function ConfettiPiece({ piece, colors }) {
-  const color = typeof piece.colorKey === 'number' 
-    ? resolveColor(CONFETTI_COLORS[piece.colorKey], colors)
-    : resolveColor(piece.colorKey, colors);
-    
-  const base = {
-    position: 'absolute',
-    top: piece.top,
-    left: piece.left,
-  };
-  if (piece.type === 'dot') {
-    return (
-      <View
-        style={[
-          base,
-          {
-            width: piece.size,
-            height: piece.size,
-            borderRadius: piece.size / 2,
-            backgroundColor: color,
-          },
-        ]}
-      />
-    );
-  }
-  if (piece.type === 'rect') {
-    return (
-      <View
-        style={[
-          base,
-          {
-            width: piece.size,
-            height: piece.size * 0.6,
-            borderRadius: 3,
-            backgroundColor: color,
-            transform: [{ rotate: piece.rotate ?? '0deg' }],
-          },
-        ]}
-      />
-    );
-  }
-  // star
-  return (
-    <Ionicons
-      name="sparkles"
-      size={piece.size}
-      color={color}
-      style={base}
-    />
-  );
-}
+import { normalizeListingForShare, buildShareMessage } from '../utils/listingShare';
+import {
+  saveListingShareCard,
+  shareListingImage,
+  shareListingLink,
+  shareListingToWhatsApp,
+} from '../utils/shareListingCard';
 
 export default function ListingSuccessScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const { listing } = route.params ?? {};
+  const cardRef = useRef(null);
+  const [sharing, setSharing] = useState(null);
 
-  // Guard against undefined colors
-  if (!colors) {
-    return null;
-  }
+  const shareListing = normalizeListingForShare(route.params?.listing);
+  const shareMode = route.params?.mode === 'share';
 
-  // Resolve confetti colors
-  const resolvedConfetti = (CONFETTI_CONFIG || []).map(piece => ({
-    ...piece,
-    colorKey: typeof piece.colorKey === 'number'
-      ? resolveColor(`colors.${CONFETTI_COLORS[piece.colorKey]}`, colors)
-      : resolveColor(`colors.${piece.colorKey}`, colors)
-  }));
+  if (!colors) return null;
 
-  const handleShare = () => {
-    // TODO: wire up native Share sheet
+  const runShare = async (key, action) => {
+    if (!shareListing?.id || sharing) return;
+    setSharing(key);
+    try {
+      await action();
+    } catch (error) {
+      Alert.alert('Could not share', error?.message || 'Please try again.');
+    } finally {
+      setSharing(null);
+    }
   };
 
   const handleViewListing = () => {
-    navigation.replace(ROUTES.ITEM_DETAIL, { listingId: listing?.id });
-
+    navigation.replace(ROUTES.ITEM_DETAIL, { listingId: shareListing?.id });
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.confettiWrap}>
-        {(resolvedConfetti || []).map((piece, i) => (
-          <ConfettiPiece key={i} piece={piece} />
-        ))}
-        <View style={styles.glow} />
+      <ThemeStatusBar variant="default" />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientEnd]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.checkCircle}
+          style={styles.heroBadge}
         >
-          <Ionicons name="checkmark" size={64} color={colors.white} />
+          <Ionicons name="checkmark-circle" size={42} color={colors.onPrimary} />
         </LinearGradient>
-      </View>
 
-      <Text style={styles.title}>Listing Posted{'\n'}Successfully!</Text>
-      <Text style={styles.subtitle}>Your item is now live</Text>
+        <Text style={styles.title}>{shareMode ? 'Share your listing' : 'Listing is live!'}</Text>
+        <Text style={styles.subtitle}>
+          {shareMode
+            ? 'Download or share this card on WhatsApp Status, Facebook Groups, or Instagram.'
+            : 'Share your auto-generated card on WhatsApp Status, Facebook Groups, or Instagram.'}
+        </Text>
 
-      <View style={styles.listingCard}>
-        {listing?.imageUrl ? (
-          <Image source={{ uri: listing.imageUrl }} style={styles.listingImage} />
-        ) : (
-          <View style={[styles.listingImage, styles.listingImageFallback]}>
-            <Ionicons name="image-outline" size={28} color={colors.primary} />
+        <View style={styles.cardPreviewWrap}>
+          <Text style={styles.sectionLabel}>Share card preview</Text>
+          <View style={styles.cardShadow}>
+            <ListingShareCard ref={cardRef} listing={shareListing} />
           </View>
-        )}
-        <View style={styles.listingInfo}>
-          <Text style={styles.listingTitle} numberOfLines={1}>
-            {listing?.title}
-          </Text>
-          <Text style={styles.listingPrice}>
-            Rs {Number(String(listing?.price ?? 0).replace(/[^\d]/g, '') || 0).toLocaleString('en-NP')}
-          </Text>
-          <View style={styles.locationRow}>
-            <Ionicons name="location-sharp" size={14} color={colors.textMuted} />
-            <Text style={styles.locationText}>{listing?.location}</Text>
-          </View>
+          <Text style={styles.cardHint}>Portrait card · optimized for Status & groups</Text>
         </View>
-      </View>
 
-      <View style={styles.buttonsRow}>
-        <Pressable style={styles.shareButton} onPress={handleShare}>
-          <Ionicons name="share-outline" size={18} color={colors.gradientStart} />
-          <Text style={styles.shareLabel}>Share Listing</Text>
+        <View style={styles.shareGrid}>
+          <Pressable
+            style={[styles.shareTile, styles.shareTileWhatsApp]}
+            onPress={() => runShare('whatsapp', () => shareListingToWhatsApp(cardRef, shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'whatsapp' ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="logo-whatsapp" size={22} color="#fff" />
+                <Text style={styles.shareTileTitle}>WhatsApp</Text>
+                <Text style={styles.shareTileHint}>Status or chat</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={styles.shareTile}
+            onPress={() => runShare('image', () => shareListingImage(cardRef, shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'image' ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="share-social-outline" size={22} color={colors.primary} />
+                <Text style={styles.shareTileTitleDark}>Share image</Text>
+                <Text style={styles.shareTileHintDark}>Facebook · Instagram</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={styles.shareTile}
+            onPress={() => runShare('save', () => saveListingShareCard(cardRef))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'save' ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="download-outline" size={22} color={colors.primary} />
+                <Text style={styles.shareTileTitleDark}>Export card</Text>
+                <Text style={styles.shareTileHintDark}>Save to Photos</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={styles.shareTile}
+            onPress={() => runShare('link', () => shareListingLink(shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'link' ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="link-outline" size={22} color={colors.primary} />
+                <Text style={styles.shareTileTitleDark}>Share link</Text>
+                <Text style={styles.shareTileHintDark}>Text only</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+
+        <Pressable
+          style={styles.copyBtn}
+          onPress={async () => {
+            await Clipboard.setStringAsync(buildShareMessage(shareListing));
+            Alert.alert('Copied', 'Listing message copied to clipboard.');
+          }}
+        >
+          <Ionicons name="copy-outline" size={16} color={colors.textSecondary} />
+          <Text style={styles.copyBtnText}>Copy share message</Text>
         </Pressable>
 
         <Pressable style={styles.viewButtonWrap} onPress={handleViewListing}>
@@ -180,11 +164,18 @@ export default function ListingSuccessScreen({ navigation, route }) {
             end={{ x: 1, y: 0 }}
             style={styles.viewButton}
           >
-            <Ionicons name="eye-outline" size={18} color={colors.white} />
-            <Text style={styles.viewLabel}>View Listing</Text>
+            <Ionicons name="eye-outline" size={18} color={colors.onPrimary} />
+            <Text style={styles.viewLabel}>View listing</Text>
           </LinearGradient>
         </Pressable>
-      </View>
+
+        <Pressable
+          style={styles.doneBtn}
+          onPress={() => (shareMode ? navigation.goBack() : navigation.navigate(ROUTES.MAIN_TABS))}
+        >
+          <Text style={styles.doneBtnText}>{shareMode ? 'Done' : 'Back to home'}</Text>
+        </Pressable>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -193,119 +184,119 @@ const createStyles = (colors) => ({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: 24,
-    paddingTop: 24,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 32,
     alignItems: 'center',
   },
-  confettiWrap: {
-    width: 360,
-    height: 320,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  glow: {
-    position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: colors.gradientStart,
-    opacity: 0.08,
-  },
-  checkCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+  heroBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: colors.gradientStart,
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '900',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 20,
+    maxWidth: 320,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.04,
+    textTransform: 'uppercase',
+    color: colors.textSecondary,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+  },
+  cardPreviewWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  cardShadow: {
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
   },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: colors.text,
-    textAlign: 'center',
-    lineHeight: 38,
-    marginTop: 8,
-  },
-  subtitle: {
-    fontSize: 17,
-    color: colors.textMuted,
+  cardHint: {
     marginTop: 10,
-    marginBottom: 24,
+    fontSize: 12,
+    color: colors.textTertiary,
   },
-  listingCard: {
-    flexDirection: 'row',
+  shareGrid: {
     width: '100%',
-    padding: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 12,
+  },
+  shareTile: {
+    width: '48%',
+    flexGrow: 1,
+    minHeight: 92,
     borderRadius: 16,
-    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    gap: 14,
-  },
-  listingImage: {
-    width: 90,
-    height: 90,
-    borderRadius: 12,
-    backgroundColor: colors.background,
-  },
-  listingImageFallback: {
-    alignItems: 'center',
+    backgroundColor: colors.surface,
+    padding: 12,
+    gap: 4,
     justifyContent: 'center',
   },
-  listingInfo: {
-    flex: 1,
+  shareTileWhatsApp: {
+    backgroundColor: '#25D366',
+    borderColor: '#25D366',
+  },
+  shareTileTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  shareTileHint: {
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 11,
+  },
+  shareTileTitleDark: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  shareTileHintDark: {
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
+    paddingVertical: 10,
+    marginBottom: 16,
   },
-  listingTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  listingPrice: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.price,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  locationText: {
+  copyBtnText: {
     fontSize: 13,
-    color: colors.textMuted,
-  },
-  buttonsRow: {
-    flexDirection: 'row',
-    width: '100%',
-    gap: 12,
-    marginTop: 32,
-  },
-  shareButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: colors.link,
-    backgroundColor: 'transparent',
-  },
-  shareLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.link,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   viewButtonWrap: {
-    flex: 1,
+    width: '100%',
   },
   viewButton: {
     flexDirection: 'row',
@@ -317,7 +308,16 @@ const createStyles = (colors) => ({
   },
   viewLabel: {
     fontSize: 16,
+    fontWeight: '800',
+    color: colors.onPrimary,
+  },
+  doneBtn: {
+    marginTop: 12,
+    paddingVertical: 10,
+  },
+  doneBtnText: {
+    fontSize: 14,
     fontWeight: '700',
-    color: colors.white,
+    color: colors.textSecondary,
   },
 });

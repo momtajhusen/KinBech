@@ -1,0 +1,461 @@
+/* ── Light theme (default) ── */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --body-bg: linear-gradient(160deg, #f4f6f5 0%, var(--bg) 28%, #f0f3f2 55%, var(--bg-alt) 100%);
+
+  --glass-bg: rgba(255, 255, 255, 0.58);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-bg-soft: rgba(255, 255, 255, 0.42);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-border-subtle: rgba(255, 255, 255, 0.45);
+  --glass-shadow: 0 8px 32px rgba(17, 24, 39, 0.07);
+  --glass-shadow-lg: 0 20px 50px rgba(4, 120, 87, 0.08);
+  --glass-dark: rgba(255, 255, 255, 0.09);
+  --glass-dark-border: rgba(255, 255, 255, 0.2);
+
+  --nav-bg: rgba(11, 15, 23, 0.38);
+  --nav-bg-scrolled: rgba(255, 255, 255, 0.94);
+  --nav-border: rgba(255, 255, 255, 0.14);
+  --nav-border-scrolled: var(--border);
+  --nav-brand: #fff;
+  --nav-brand-scrolled: var(--text);
+  --nav-link: rgba(255, 255, 255, 0.9);
+  --nav-link-scrolled: var(--text-secondary);
+  --nav-link-hover-bg: rgba(255, 255, 255, 0.12);
+  --nav-link-hover-bg-scrolled: var(--primary-soft);
+  --nav-cta-bg: #fff;
+  --nav-cta-color: var(--primary);
+  --nav-cta-bg-scrolled: linear-gradient(135deg, var(--primary), var(--primary-bright));
+  --nav-cta-color-scrolled: #fff;
+  --nav-toggle-bg: rgba(255, 255, 255, 0.12);
+  --nav-toggle-border: rgba(255, 255, 255, 0.22);
+  --nav-toggle-color: #fff;
+  --nav-toggle-bg-scrolled: var(--primary-soft);
+  --nav-toggle-border-scrolled: var(--border);
+  --nav-toggle-color-scrolled: var(--text);
+
+  --theme-toggle-bg: rgba(255, 255, 255, 0.14);
+  --theme-toggle-border: rgba(255, 255, 255, 0.28);
+  --theme-toggle-color: #fff;
+
+  --drawer-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(240, 243, 242, 0.88) 100%);
+  --drawer-border: rgba(255, 255, 255, 0.8);
+  --drawer-backdrop: rgba(11, 15, 23, 0.45);
+  --drawer-link-bg: rgba(255, 255, 255, 0.72);
+  --drawer-link-border: rgba(255, 255, 255, 0.85);
+  --drawer-link-shadow: 0 2px 12px rgba(17, 24, 39, 0.04);
+  --drawer-link-title: var(--text);
+  --drawer-link-sub: var(--text-muted);
+  --drawer-link-icon-bg: linear-gradient(135deg, rgba(4, 120, 87, 0.1), rgba(107, 170, 148, 0.14));
+  --drawer-link-active-bg: rgba(4, 120, 87, 0.1);
+  --drawer-link-active-border: rgba(4, 120, 87, 0.28);
+  --drawer-link-active-title: var(--text);
+  --drawer-link-active-sub: var(--text-secondary);
+  --drawer-link-active-icon-bg: linear-gradient(135deg, rgba(4, 120, 87, 0.18), rgba(107, 170, 148, 0.22));
+  --drawer-close-bg: rgba(255, 255, 255, 0.75);
+  --drawer-panel-shadow: -12px 0 48px rgba(17, 24, 39, 0.15);
+
+  --skeleton-highlight: #fff;
+  --card-placeholder-bg: linear-gradient(135deg, #f0f3f2, #e2eae6);
+  --category-icon-mix: white;
+  --section-steps-bg: rgba(243, 244, 246, 0.55);
+  --section-faq-bg: rgba(243, 244, 246, 0.65);
+  --section-categories-bg: linear-gradient(180deg, transparent 0%, rgba(240, 243, 242, 0.45) 50%, transparent 100%);
+  --section-safety-bg: linear-gradient(135deg, rgba(240, 243, 242, 0.5) 0%, rgba(243, 244, 246, 0.6) 100%);
+  --seller-card-individual: linear-gradient(160deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 250, 252, 0.65) 100%);
+  --seller-card-shop: linear-gradient(160deg, rgba(240, 243, 242, 0.75) 0%, rgba(255, 255, 255, 0.78) 100%);
+  --download-box-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.85) 0%, rgba(240, 243, 242, 0.55) 100%);
+  --input-bg: rgba(255, 255, 255, 0.92);
+  --modal-close-bg: rgba(255, 255, 255, 0.9);
+  --detail-header-bg: var(--glass-bg-strong);
+
+  --warning-card-bg: linear-gradient(145deg, rgba(255, 251, 235, 0.92), rgba(255, 255, 255, 0.95));
+  --warning-card-border: rgba(245, 158, 11, 0.35);
+  --warning-card-title: #92400e;
+  --warning-card-accent: #d97706;
+  --warning-card-li: var(--text-secondary);
+  --warning-card-text: var(--text-secondary);
+}
+
+/* ── Dark theme ── */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0b0f17;
+  --bg-alt: #111827;
+  --surface: #1f2937;
+  --text: #f3f4f6;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --border: #374151;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.45);
+  --primary-soft: rgba(4, 120, 87, 0.14);
+  --primary-glow: rgba(4, 120, 87, 0.22);
+  --emerald-soft: rgba(4, 120, 87, 0.16);
+  --nav-glass: rgba(11, 15, 23, 0.88);
+
+  --body-bg: linear-gradient(160deg, #0b0f17 0%, #111827 35%, #0f172a 60%, #111827 100%);
+
+  --glass-bg: rgba(31, 41, 55, 0.62);
+  --glass-bg-strong: rgba(31, 41, 55, 0.88);
+  --glass-bg-soft: rgba(17, 24, 39, 0.72);
+  --glass-border: rgba(75, 85, 99, 0.55);
+  --glass-border-subtle: rgba(55, 65, 81, 0.65);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --glass-shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.45);
+  --glass-dark: rgba(255, 255, 255, 0.08);
+  --glass-dark-border: rgba(255, 255, 255, 0.14);
+
+  --nav-bg: rgba(11, 15, 23, 0.82);
+  --nav-bg-scrolled: rgba(17, 24, 39, 0.94);
+  --nav-border: rgba(255, 255, 255, 0.08);
+  --nav-border-scrolled: var(--border);
+  --nav-brand: #f3f4f6;
+  --nav-brand-scrolled: var(--text);
+  --nav-link: rgba(243, 244, 246, 0.88);
+  --nav-link-scrolled: var(--text-secondary);
+  --nav-link-hover-bg: rgba(255, 255, 255, 0.08);
+  --nav-link-hover-bg-scrolled: var(--primary-soft);
+  --nav-cta-bg: linear-gradient(135deg, var(--primary), var(--primary-bright));
+  --nav-cta-color: #fff;
+  --nav-cta-bg-scrolled: linear-gradient(135deg, var(--primary), var(--primary-bright));
+  --nav-cta-color-scrolled: #fff;
+  --nav-toggle-bg: rgba(255, 255, 255, 0.08);
+  --nav-toggle-border: rgba(255, 255, 255, 0.16);
+  --nav-toggle-color: #f3f4f6;
+  --nav-toggle-bg-scrolled: var(--primary-soft);
+  --nav-toggle-border-scrolled: var(--border);
+  --nav-toggle-color-scrolled: var(--text);
+
+  --theme-toggle-bg: rgba(255, 255, 255, 0.08);
+  --theme-toggle-border: rgba(255, 255, 255, 0.18);
+  --theme-toggle-color: #f3f4f6;
+
+  --drawer-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.98) 0%, rgba(11, 15, 23, 0.98) 100%);
+  --drawer-border: rgba(55, 65, 81, 0.8);
+  --drawer-backdrop: rgba(0, 0, 0, 0.62);
+  --drawer-link-bg: rgba(31, 41, 55, 0.88);
+  --drawer-link-border: rgba(75, 85, 99, 0.55);
+  --drawer-link-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+  --drawer-link-title: #f3f4f6;
+  --drawer-link-sub: #b0b8c4;
+  --drawer-link-icon-bg: rgba(4, 120, 87, 0.14);
+  --drawer-link-active-bg: rgba(4, 120, 87, 0.18);
+  --drawer-link-active-border: rgba(107, 170, 148, 0.35);
+  --drawer-link-active-title: #e8f0ec;
+  --drawer-link-active-sub: #8fbaa8;
+  --drawer-link-active-icon-bg: rgba(4, 120, 87, 0.24);
+  --drawer-close-bg: rgba(31, 41, 55, 0.92);
+  --drawer-panel-shadow: -12px 0 48px rgba(0, 0, 0, 0.45);
+
+  --skeleton-highlight: #374151;
+  --card-placeholder-bg: linear-gradient(135deg, #064e3b, #065f46);
+  --category-icon-mix: #1f2937;
+  --section-steps-bg: rgba(17, 24, 39, 0.72);
+  --section-faq-bg: rgba(17, 24, 39, 0.78);
+  --section-categories-bg: linear-gradient(180deg, transparent 0%, rgba(4, 120, 87, 0.07) 50%, transparent 100%);
+  --section-safety-bg: linear-gradient(135deg, rgba(4, 120, 87, 0.08) 0%, rgba(17, 24, 39, 0.75) 100%);
+  --seller-card-individual: linear-gradient(160deg, rgba(31, 41, 55, 0.92) 0%, rgba(17, 24, 39, 0.85) 100%);
+  --seller-card-shop: linear-gradient(160deg, rgba(6, 78, 59, 0.35) 0%, rgba(31, 41, 55, 0.9) 100%);
+  --download-box-bg: linear-gradient(145deg, rgba(31, 41, 55, 0.95) 0%, rgba(6, 78, 59, 0.25) 100%);
+  --input-bg: rgba(31, 41, 55, 0.95);
+  --modal-close-bg: rgba(31, 41, 55, 0.95);
+  --detail-header-bg: rgba(17, 24, 39, 0.92);
+
+  --warning-card-bg: linear-gradient(145deg, rgba(69, 26, 3, 0.42) 0%, rgba(31, 41, 55, 0.96) 100%);
+  --warning-card-border: rgba(251, 191, 36, 0.32);
+  --warning-card-title: #fde68a;
+  --warning-card-accent: #fbbf24;
+  --warning-card-li: #d1d5db;
+  --warning-card-text: #d1d5db;
+}
+
+/* ── Theme toggle button ── */
+.theme-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--theme-toggle-border);
+  background: var(--theme-toggle-bg);
+  color: var(--theme-toggle-color);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s, color 0.2s;
+}
+
+.theme-toggle:hover {
+  transform: translateY(-1px);
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--theme-toggle-border));
+  color: var(--primary-bright);
+}
+
+.nav .theme-toggle {
+  background: var(--nav-toggle-bg);
+  border-color: var(--nav-toggle-border);
+  color: var(--nav-toggle-color);
+}
+
+.nav.scrolled .theme-toggle,
+[data-theme="dark"] .nav .theme-toggle {
+  background: var(--nav-toggle-bg-scrolled);
+  border-color: var(--nav-toggle-border-scrolled);
+  color: var(--nav-toggle-color-scrolled);
+}
+
+.drawer-theme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: var(--glass-bg-soft);
+  border: 1px solid var(--glass-border-subtle);
+}
+
+.drawer-theme-row span {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.drawer-theme-row .theme-toggle {
+  background: var(--primary-soft);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* ── Nav theme tokens ── */
+.nav {
+  background: var(--nav-bg);
+  border-bottom-color: var(--nav-border);
+}
+
+.nav.scrolled {
+  background: var(--nav-bg-scrolled);
+  border-bottom-color: var(--nav-border-scrolled);
+}
+
+.nav-brand {
+  color: var(--nav-brand);
+}
+
+.nav.scrolled .nav-brand {
+  color: var(--nav-brand-scrolled);
+}
+
+.nav-links a {
+  color: var(--nav-link);
+}
+
+.nav-links a:hover {
+  color: #fff;
+  background: var(--nav-link-hover-bg);
+}
+
+.nav.scrolled .nav-links a {
+  color: var(--nav-link-scrolled);
+}
+
+.nav.scrolled .nav-links a:hover {
+  color: var(--primary-bright);
+  background: var(--nav-link-hover-bg-scrolled);
+}
+
+.nav-cta .btn-primary {
+  background: var(--nav-cta-bg);
+  color: var(--nav-cta-color);
+}
+
+.nav.scrolled .nav-cta .btn-primary,
+[data-theme="dark"] .nav-cta .btn-primary {
+  background: var(--nav-cta-bg-scrolled);
+  color: var(--nav-cta-color-scrolled);
+}
+
+.nav-toggle {
+  background: var(--nav-toggle-bg);
+  border-color: var(--nav-toggle-border);
+  color: var(--nav-toggle-color);
+}
+
+.nav.scrolled .nav-toggle {
+  background: var(--nav-toggle-bg-scrolled);
+  border-color: var(--nav-toggle-border-scrolled);
+  color: var(--nav-toggle-color-scrolled);
+}
+
+/* Inner pages always use scrolled nav styling */
+[data-theme="light"] .nav:has(+ *) {
+  /* fallback handled by isInnerPage class in JS */
+}
+
+/* ── Body & glass sections ── */
+body {
+  background: var(--body-bg);
+}
+
+.drawer-backdrop {
+  background: var(--drawer-backdrop);
+}
+
+.drawer-panel {
+  background: var(--drawer-bg);
+  border-left-color: var(--drawer-border);
+}
+
+.section-steps::before {
+  background: var(--section-steps-bg);
+}
+
+#faq::before {
+  background: var(--section-faq-bg);
+}
+
+.section-categories::before {
+  background: var(--section-categories-bg);
+}
+
+.safety-section::before {
+  background: var(--section-safety-bg);
+}
+
+.seller-card--individual {
+  background: var(--seller-card-individual);
+}
+
+.seller-card--shop {
+  background: var(--seller-card-shop);
+}
+
+.download-box {
+  background: var(--download-box-bg);
+}
+
+.category-card-icon {
+  background: color-mix(in srgb, var(--cat-color) 14%, var(--category-icon-mix));
+}
+
+.product-card-placeholder {
+  background: var(--card-placeholder-bg);
+  color: var(--primary-light);
+}
+
+.skeleton-card,
+.skeleton-block,
+.skeleton-line {
+  background: linear-gradient(90deg, var(--bg-alt) 25%, var(--skeleton-highlight) 50%, var(--bg-alt) 75%);
+}
+
+.explore-search {
+  background: var(--input-bg);
+}
+
+.listing-modal-close {
+  background: var(--modal-close-bg);
+  color: var(--text);
+}
+
+.detail-header {
+  background: var(--detail-header-bg);
+}
+
+.detail-seller-avatar {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* Dark: cards & selects */
+[data-theme="dark"] .explore-filters select {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .stat-card--blue .stat-card-icon { color: #60a5fa; }
+[data-theme="dark"] .stat-card--violet .stat-card-icon { color: #a78bfa; }
+[data-theme="dark"] .stat-card--amber .stat-card-icon { color: #fbbf24; }
+
+[data-theme="dark"] .home-link-card,
+[data-theme="dark"] .page-category-card,
+[data-theme="dark"] .page-compare-card,
+[data-theme="dark"] .page-checklist li,
+[data-theme="dark"] .page-red-flag {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+}
+
+[data-theme="dark"] .btn-outline {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+[data-theme="dark"] .btn-outline:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary-bright);
+}
+
+[data-theme="dark"] .store-badge {
+  background: var(--surface);
+  color: var(--text);
+}
+
+[data-theme="dark"] .faq-item {
+  background: var(--glass-bg-strong);
+  border-color: var(--glass-border);
+}
+
+[data-theme="dark"] .feature-card,
+[data-theme="dark"] .step-card,
+[data-theme="dark"] .safety-card {
+  background: var(--glass-bg-strong);
+}
+
+[data-theme="dark"] .seller-features li {
+  background: rgba(17, 24, 39, 0.65);
+}
+
+[data-theme="dark"] .phone-screen {
+  background: var(--bg-alt);
+}
+
+[data-theme="dark"] .mini-card,
+[data-theme="dark"] .phone-search {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+[data-theme="dark"] .nav-cta .btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.nav-cta .btn-primary {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.nav.scrolled .nav-cta .btn-primary:hover,
+[data-theme="dark"] .nav-cta .btn-primary:hover {
+  box-shadow: 0 12px 32px var(--primary-glow);
+}
+
+[data-theme="dark"] .ambient-orb {
+  opacity: 0.28;
+}
+
+[data-theme="dark"] .ambient-mesh {
+  opacity: 0.65;
+}
+
+[data-theme="dark"] .listing-modal-backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}

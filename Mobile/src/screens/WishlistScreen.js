@@ -15,6 +15,7 @@ import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import { categoryIcon, formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 /**
  * Resolve color references (e.g., 'colors.iconBackground') to actual color values
@@ -37,36 +38,35 @@ export default function WishlistScreen({ navigation }) {
   const { tryBeginNavigation } = useSharedTransition();
   const [items, setItems] = useState([]);
 
+  const loadWishlist = useCallback(async () => {
+    const { data, error } = await api.getWishlist();
+    if (error) {
+      console.error('Failed to load wishlist:', error);
+      setItems([]);
+    } else {
+      setItems(
+        (data?.listings || []).map((listing) => ({
+          id: listing.id,
+          title: listing.title,
+          subtitle: listing.condition,
+          price: formatPrice(listing.price),
+          location: listing.location,
+          distance: listing.category,
+          icon: categoryIcon(listing.category),
+          bg: 'iconBackground',
+          priceDropped: false,
+          listing,
+        }))
+      );
+    }
+  }, []);
+
+  const { refreshing, onRefresh } = usePullRefresh(loadWishlist);
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        const { data, error } = await api.getWishlist();
-        if (!active) return;
-        if (error) {
-          console.error('Failed to load wishlist:', error);
-          setItems([]);
-        } else {
-          setItems(
-            (data?.listings || []).map((listing) => ({
-              id: listing.id,
-              title: listing.title,
-              subtitle: listing.condition,
-              price: formatPrice(listing.price),
-              location: listing.location,
-              distance: listing.category,
-              icon: categoryIcon(listing.category),
-              bg: 'iconBackground',
-              priceDropped: false,
-              listing,
-            }))
-          );
-        }
-      })();
-      return () => {
-        active = false;
-      };
-    }, [])
+      loadWishlist();
+    }, [loadWishlist])
   );
 
   const removeItem = async (id) => {
@@ -103,7 +103,11 @@ export default function WishlistScreen({ navigation }) {
         </View>
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         {resolvedItems.length > 0 && (
           <View style={styles.grid}>
             {resolvedItems.map((item) => (

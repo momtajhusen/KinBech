@@ -34,14 +34,19 @@ export default function RateReviewScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
 
-  // Guard against undefined colors
+  const resolvedShopId =
+    listing?.shopId?._id ||
+    listing?.shopId?.id ||
+    listing?.shopId ||
+    shop?._id ||
+    shop?.id;
+  const isShopListing =
+    Boolean(resolvedShopId) && (listing?.sellerType === 'shop' || Boolean(shop));
+
   if (!colors) {
     return null;
   }
 
-  // Check if this is a shop listing - reviews only allowed for shops
-  const isShopListing = listing?.sellerType === 'shop' && listing?.shopId;
-  
   // If not a shop listing, show error and go back
   if (!isShopListing) {
     return (
@@ -67,7 +72,7 @@ export default function RateReviewScreen({ navigation, route }) {
   };
 
   const handleSubmit = async () => {
-    if (!listing?.shopId) {
+    if (!resolvedShopId) {
       setAlertConfig(showErrorAlert({
         title: 'Shop not found',
         message: 'Unable to submit review for this shop.',
@@ -79,8 +84,8 @@ export default function RateReviewScreen({ navigation, route }) {
     setLoading(true);
     try {
       const { error } = await api.createReview({
-        shopId: listing.shopId,
-        listingId: listing?.id,
+        shopId: resolvedShopId,
+        listingId: listing?.id || listing?._id,
         rating,
         review,
         tags: selectedTags,

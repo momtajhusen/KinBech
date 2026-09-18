@@ -6,6 +6,7 @@ import {
   Image,
   Pressable,
   ScrollView,
+  Switch,
   Text,
   View,
   ActivityIndicator,
@@ -13,8 +14,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { useAuth } from '../context/AuthContext';
+import { LEGAL_COMPANY } from '../content/legalContent';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const STATUS_LABELS = {
   pending: 'Pending',
@@ -37,8 +42,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    minHeight: 60,
+    paddingBottom: 16,
   },
   headerTitle: {
     fontSize: 20,
@@ -237,6 +241,38 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '700',
   },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  switchText: { flex: 1, gap: 2 },
+  switchTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  switchBody: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 16,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+  },
+  linkRowText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    flex: 1,
+    paddingRight: 8,
+  },
 });
 
 function initials(name = '') {
@@ -264,12 +300,16 @@ export default function PrivacyScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const { user, saveSession } = useAuth();
   const [blocked, setBlocked] = useState([]);
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [reports, setReports] = useState([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
   const [unblockingId, setUnblockingId] = useState(null);
+  const [showPhone, setShowPhone] = useState(Boolean(user?.preferences?.showPhone));
+  const [showLocation, setShowLocation] = useState(user?.preferences?.showLocation !== false);
+  const [prefSaving, setPrefSaving] = useState(false);
 
   const loadBlocked = useCallback(async () => {
     setBlockedLoading(true);
@@ -301,6 +341,19 @@ export default function PrivacyScreen({ navigation }) {
       setReportsLoading(false);
     }
   }, []);
+
+  const { refreshing, onRefresh } = usePullRefresh(async () => {
+    const [blockedRes, reportsRes] = await Promise.all([
+      api.getBlockedUsers(),
+      api.getMyReports(),
+    ]);
+    setBlocked(Array.isArray(blockedRes.data?.users) ? blockedRes.data.users : []);
+    if (reportsRes.error) {
+      setReports([]);
+    } else {
+      setReports(Array.isArray(reportsRes.data?.reports) ? reportsRes.data.reports.slice(0, 10) : []);
+    }
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -357,8 +410,28 @@ export default function PrivacyScreen({ navigation }) {
     );
   };
 
+  const updateVisibility = async (payload, rollback) => {
+    setPrefSaving(true);
+    const { data, error } = await api.updatePreferences(payload);
+    setPrefSaving(false);
+    if (error || !data?.user) {
+      rollback();
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Could not update',
+          message: error || 'Please try again.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+    if (data.token) {
+      await saveSession(data.token, data.user);
+    }
+  };
+
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <ThemeStatusBar variant="header" />
       <LinearGradient
         colors={[colors.gradientStart, colors.gradientEnd]}
@@ -373,7 +446,62 @@ export default function PrivacyScreen({ navigation }) {
         <View style={{ width: 24 }} />
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.cardIconCircle, { backgroundColor: colors.pastelIndigo }]}>
+              <Ionicons name="eye-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.cardTitleWrap}>
+              <Text style={styles.cardTitle}>Profile visibility</Text>
+              <Text style={styles.cardSubtitle}>Control what other users can see</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <Text style={styles.switchTitle}>Show phone number</Text>
+              <Text style={styles.switchBody}>
+                Off by default. Only enable if you want buyers to call you outside the app.
+              </Text>
+            </View>
+            <Switch
+              value={showPhone}
+              disabled={prefSaving}
+              onValueChange={(value) => {
+                setShowPhone(value);
+                updateVisibility({ showPhone: value }, () => setShowPhone(!value));
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={colors.surface}
+            />
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.switchRow}>
+            <View style={styles.switchText}>
+              <Text style={styles.switchTitle}>Show city on listings</Text>
+              <Text style={styles.switchBody}>
+                Lets nearby buyers see your area. Your exact address stays private.
+              </Text>
+            </View>
+            <Switch
+              value={showLocation}
+              disabled={prefSaving}
+              onValueChange={(value) => {
+                setShowLocation(value);
+                updateVisibility({ showLocation: value }, () => setShowLocation(!value));
+              }}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={colors.surface}
+            />
+          </View>
+        </View>
+
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={[styles.cardIconCircle, { backgroundColor: colors.pastelIndigo }]}>
@@ -516,6 +644,72 @@ export default function PrivacyScreen({ navigation }) {
               );
             })
           )}
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.cardIconCircle, { backgroundColor: colors.pastelIndigo }]}>
+              <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+            </View>
+            <View style={styles.cardTitleWrap}>
+              <Text style={styles.cardTitle}>Legal documents</Text>
+              <Text style={styles.cardSubtitle}>Privacy, permissions & account deletion</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+          <Pressable style={styles.linkRow} onPress={() => navigation.navigate(ROUTES.PRIVACY_POLICY)}>
+            <Text style={styles.linkRowText}>Privacy Policy</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable
+            style={styles.linkRow}
+            onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}
+          >
+            <Text style={styles.linkRowText}>App Permissions & Data Use</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={styles.linkRow} onPress={() => navigation.navigate(ROUTES.LEGAL_HUB)}>
+            <Text style={styles.linkRowText}>All legal & policy pages</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
+
+        <View style={[styles.card, { borderColor: colors.dangerBackground }]}>
+          <View style={styles.cardHeader}>
+            <View style={[styles.cardIconCircle, { backgroundColor: colors.dangerBackground }]}>
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+            </View>
+            <View style={styles.cardTitleWrap}>
+              <Text style={[styles.cardTitle, { color: colors.danger }]}>Delete account</Text>
+              <Text style={styles.cardSubtitle}>Permanently remove your KinBech account & data</Text>
+            </View>
+          </View>
+          <View style={styles.divider} />
+          <Pressable
+            style={styles.linkRow}
+            onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'accountDeletion' })}
+          >
+            <Text style={styles.linkRowText}>Read Account Deletion Policy</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable
+            style={styles.linkRow}
+            onPress={() => {
+              Alert.alert(
+                'Request account deletion',
+                `Email ${LEGAL_COMPANY.privacyEmail} with your registered phone number and name. We process requests within 30 days. In-app self-delete is coming in the next update.`,
+                [{ text: 'OK' }],
+              );
+            }}
+          >
+            <Text style={[styles.linkRowText, { color: colors.danger, fontWeight: '800' }]}>
+              Request deletion by email
+            </Text>
+            <Ionicons name="mail-outline" size={18} color={colors.danger} />
+          </Pressable>
         </View>
       </ScrollView>
 

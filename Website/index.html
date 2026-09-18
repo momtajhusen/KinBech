@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/app-icon.png" />
+    <link rel="apple-touch-icon" href="/app-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="KinBech — Sell Quick · Buy Local. Nepal's trusted local marketplace with phone-verified sellers, in-app chat, and safe meetups."
+    />
+    <meta name="theme-color" content="#0b0f17" />
+    <meta property="og:title" content="KinBech — Sell Quick · Buy Local" />
+    <meta
+      property="og:description"
+      content="Discover items around Kathmandu and beyond. Chat in-app, meet locally, deal with confidence."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <title>KinBech — Sell Quick · Buy Local</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('kinbech-theme');
+          if (theme !== 'dark' && theme !== 'light') theme = 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

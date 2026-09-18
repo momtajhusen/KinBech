@@ -17,6 +17,33 @@ const userSchema = new mongoose.Schema(
     profileComplete: { type: Boolean, default: false },
     soldCount: { type: Number, default: 0 },
     boughtCount: { type: Number, default: 0 },
+    bio: { type: String, trim: true, default: '', maxlength: 200 },
+    addresses: {
+      type: [
+        {
+          label: { type: String, trim: true, default: 'Home' },
+          line1: { type: String, trim: true, default: '' },
+          city: { type: String, trim: true, default: '' },
+          isDefault: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
+    paymentMethods: {
+      type: [
+        {
+          provider: {
+            type: String,
+            enum: ['cash', 'esewa', 'khalti', 'ime', 'bank'],
+            default: 'cash',
+          },
+          label: { type: String, trim: true, default: '' },
+          identifier: { type: String, trim: true, default: '' },
+          isDefault: { type: Boolean, default: false },
+        },
+      ],
+      default: [],
+    },
     blockedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     sellerTypePreference: { 
       type: String, 
@@ -27,6 +54,8 @@ const userSchema = new mongoose.Schema(
       notifications: { type: Boolean, default: true },
       language: { type: String, default: 'English' },
       currency: { type: String, default: 'NPR (₨)' },
+      showPhone: { type: Boolean, default: false },
+      showLocation: { type: Boolean, default: true },
     },
   },
   { timestamps: true, collection: 'users' }

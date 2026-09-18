@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "concurrently \"npm run backend:start\" \"npm run admin:start\"",
-    "dev": "concurrently \"npm run backend:dev\" \"npm run admin:dev\"",
+    "start": "concurrently \"npm run backend:start\" \"npm run website:start\"",
+    "dev": "concurrently \"npm run backend:dev\" \"npm run website:dev\"",
     "backend:start": "cd Backend && echo '🔧 BACKEND API: http://localhost:5001' && npm start",
     "backend:dev": "cd Backend && echo '🔧 BACKEND API: http://localhost:5001' && npm run dev",
-    "admin:start": "cd Admin && echo '🖥️  ADMIN PANEL: http://localhost:4173' && npm run build && npm run preview",
-    "admin:dev": "cd Admin && echo '🖥️  ADMIN PANEL: http://localhost:5173' && npm run dev"
+    "website:start": "cd Website && echo '🌐 SITE + ADMIN: http://localhost:5180/admin/login' && npm run build && npm run preview",
+    "website:dev": "cd Website && echo '🌐 SITE: http://localhost:5180  |  ADMIN: http://localhost:5180/admin/login' && npm run dev",
+    "website:build": "cd Website && npm run build",
+    "website:preview": "cd Website && echo '🌐 PUBLIC SITE: http://localhost:4180' && npm run preview"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

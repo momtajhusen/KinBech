@@ -46,7 +46,9 @@ function isNetworkError(errorMessage) {
     m.includes('eai_again') ||
     m.includes('abort') ||
     m.includes('socket hang up') ||
-    m.includes('failed to fetch')
+    m.includes('failed to fetch') ||
+    m.includes('fetch failed') ||
+    m.includes('connectexception')
   );
 }
 
@@ -210,8 +212,7 @@ async function request(path, options = {}) {
 
           // Don't retry for 404 errors (endpoint not found)
           if (result.status === 404) {
-            console.log('Endpoint not found (404), skipping retries');
-            break;
+            return { data: result.data, error: result.error || 'Not found' };
           }
 
           lastNonNetworkError = result.error;
@@ -285,6 +286,7 @@ export const api = {
   getListings: (params = {}) => request(`/listings${toQuery(params)}`),
   searchListings: (params = {}) => request(`/listings/search${toQuery(params)}`),
   getMyListings: () => request('/listings/mine'),
+  getMyPurchases: () => request('/listings/purchases'),
   getListing: (id, loc) => {
     const params = {};
     if (loc?.lat != null) params.lat = loc.lat;
@@ -305,6 +307,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+  confirmMeetup: (chatId, payload = {}) =>
+    request(`/chats/${chatId}/meetup`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getWishlist: () => request('/wishlist'),
   toggleWishlist: (listingId) =>
     request('/wishlist', {
@@ -314,6 +321,10 @@ export const api = {
   updatePreferences: (payload) =>
     request('/auth/preferences', { method: 'PATCH', body: JSON.stringify(payload) }),
   getNotifications: () => request('/notifications'),
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: () =>
+    request('/notifications/read-all', { method: 'PATCH' }),
   createReport: (payload) =>
     request('/reports', { method: 'POST', body: JSON.stringify(payload) }),
   blockUser: (userId) =>
@@ -322,6 +333,20 @@ export const api = {
     request(`/reports/users/${userId}/block`, { method: 'DELETE' }),
   getMyReports: () => request('/reports/my'),
   getBlockedUsers: () => request('/auth/blocked'),
+  getAddresses: () => request('/auth/addresses'),
+  createAddress: (payload) =>
+    request('/auth/addresses', { method: 'POST', body: JSON.stringify(payload) }),
+  updateAddress: (id, payload) =>
+    request(`/auth/addresses/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteAddress: (id) => request(`/auth/addresses/${id}`, { method: 'DELETE' }),
+  getPaymentMethods: () => request('/auth/payment-methods'),
+  createPaymentMethod: (payload) =>
+    request('/auth/payment-methods', { method: 'POST', body: JSON.stringify(payload) }),
+  deletePaymentMethod: (id) => request(`/auth/payment-methods/${id}`, { method: 'DELETE' }),
+  getWallet: () => request('/auth/wallet'),
+  getSupportTickets: () => request('/auth/support'),
+  createSupportTicket: (payload) =>
+    request('/auth/support', { method: 'POST', body: JSON.stringify(payload) }),
   createReview: (payload) =>
     request('/reviews', { method: 'POST', body: JSON.stringify(payload) }),
   getUserReviews: (userId) => request(`/reviews/user/${userId}`),
@@ -339,12 +364,16 @@ export const api = {
   createShop: (payload) =>
     request('/shops', { method: 'POST', body: JSON.stringify(payload) }),
   getMyShop: () => request('/shops/mine'),
+  getMyShopAnalytics: (period = '30d') => request(`/shops/mine/analytics${toQuery({ period })}`),
+  getMyShopStorefront: () => request('/shops/mine/storefront'),
+  getMapNearby: (params = {}) => request(`/map/nearby${toQuery(params)}`),
   getShopById: (shopId) => request(`/shops/${shopId}`),
   updateShop: (shopId, payload) =>
     request(`/shops/${shopId}`, { method: 'PUT', body: JSON.stringify(payload) }),
   getShopListings: (shopId) => request(`/shops/${shopId}/listings`),
   getShopReviews: (shopId) => request(`/shops/${shopId}/reviews`),
   getAllShops: (params = {}) => request(`/shops${toQuery(params)}`),
+  getCategories: (type) => request(`/categories${toQuery(type ? { type } : {})}`),
 };
 
 export default api;

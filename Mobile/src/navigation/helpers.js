@@ -30,6 +30,12 @@ export const ROUTES = {
   CURRENCY_SELECT: 'CurrencySelect',
   TERMS: 'Terms',
   PRIVACY_POLICY: 'PrivacyPolicy',
+  LEGAL_HUB: 'LegalHub',
+  LEGAL_DOCUMENT: 'LegalDocument',
+  ADDRESSES: 'SavedAddresses',
+  PAYMENT_METHODS: 'PaymentMethods',
+  WALLET: 'Wallet',
+  CONTACT_US: 'ContactUs',
   // Seller type routes
   SELLER_TYPE_SELECTION: 'SellerTypeSelection',
   STORE_CATEGORY_SELECTION: 'StoreCategorySelection',
@@ -37,6 +43,9 @@ export const ROUTES = {
   SHOP_POST_LISTING: 'ShopPostListing',
   CREATE_SHOP: 'CreateShop',
   SHOP_PROFILE: 'ShopProfile',
+  SHOP_DASHBOARD: 'ShopDashboard',
+  SHOP_STOREFRONT_QR: 'ShopStorefrontQr',
+  MAP_EXPLORE: 'MapExplore',
 };
 
 export const TABS = {
@@ -51,7 +60,17 @@ export function navigateToTab(navigation, screen, params) {
   navigation.navigate(ROUTES.MAIN_TABS, { screen, params });
 }
 
-export function openItemDetail(listingId) {
+export function openItemDetail(navigationOrId, params) {
+  if (navigationOrId && typeof navigationOrId.navigate === 'function') {
+    const listingId = params?.listingId || params?.id || params?.item?.id || params?.item?._id;
+    navigationOrId.navigate(ROUTES.ITEM_DETAIL, {
+      listingId,
+      item: params?.item,
+      sharedId: params?.sharedId || listingId,
+    });
+    return;
+  }
+  const listingId = navigationOrId;
   return (navigation) => {
     navigation.navigate(ROUTES.ITEM_DETAIL, { listingId });
   };
@@ -60,19 +79,19 @@ export function openItemDetail(listingId) {
 export const HELP_CATEGORY_COPY = {
   account: {
     title: 'Account Issues',
-    body: 'Manage profile details, login problems, and account settings from this section once connected to the backend.',
+    body: 'Update your name, photo, and location from Profile → Edit Profile. Saved addresses live under Settings. If you cannot log in, request a new OTP on the login screen. To change seller type (individual vs shop), open Settings → Seller Preference.',
   },
   payments: {
     title: 'Payments',
-    body: 'Learn about supported payment methods, refunds, and transaction history for KinBech.',
+    body: 'KinBech does not process card or wallet checkout. Buyers and sellers settle at meetup with cash, eSewa, Khalti, IME Pay, or bank transfer. Save your preferred methods under Settings → Payment Methods. Wallet shows your sales vs purchases history, not an in-app balance.',
   },
   safety: {
     title: 'Safety Tips',
-    body: 'Meet in public places, inspect items before paying, and keep conversations inside the app.',
+    body: 'Meet in a public place (mall, cafe, police exchange zone). Inspect the item before paying. Keep chat inside KinBech. Never share OTPs or bank PINs. Bring a friend for high-value deals.',
   },
   report: {
     title: 'Report a Problem',
-    body: 'Use report options on listings or chats to flag scams, fake items, or abusive behaviour.',
+    body: 'Open a listing or chat, tap Report, and choose a reason. You can also block a user from that screen. Your reports appear under Settings → Privacy & Security. For urgent help, send a ticket from Contact Us.',
   },
 };
 

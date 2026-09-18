@@ -114,6 +114,20 @@ export function findNearestLocation(lat, lng) {
   return list[0] || null;
 }
 
+export function formatCityDistrict(addr, emptyFallback = '') {
+  if (!addr) return emptyFallback;
+  const city = addr.city || addr.subregion || addr.district || '';
+  const district = addr.district || addr.subregion || '';
+  const parts = [];
+  if (city && city !== district) parts.push(city);
+  if (district && !parts.includes(district)) parts.push(district);
+  if (!parts.length) {
+    const fallback = addr.region || addr.subregion || addr.city || emptyFallback;
+    if (fallback) parts.push(fallback);
+  }
+  return parts.join(', ');
+}
+
 export function formatDistanceKm(km) {
   if (km == null || !Number.isFinite(km)) return '';
   if (km < 1) return `${Math.round(km * 1000)} m away`;

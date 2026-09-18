@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { Image, Modal } from 'react-native';
+import { Image, Modal, ActivityIndicator } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Pressable,
@@ -15,6 +15,8 @@ import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useAuth } from '../context/AuthContext';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -314,7 +316,9 @@ export default function ShopProfileScreen({ route, navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const { shopId } = route.params;
+  const { shopId: rawShopId } = route.params || {};
+  const shopId = rawShopId?._id || rawShopId?.id || rawShopId;
+  const { user } = useAuth();
 
   const [shop, setShop] = useState(null);
   const [listings, setListings] = useState([]);
@@ -328,15 +332,9 @@ export default function ShopProfileScreen({ route, navigation }) {
     { id: 'about', label: 'About', icon: 'information-circle-outline' },
   ];
 
-  useFocusEffect(
-    useCallback(() => {
-      loadShopData();
-    }, [shopId])
-  );
-
-  const loadShopData = async () => {
+  const loadShopData = useCallback(async ({ silent } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       
       const [shopRes, listingsRes, reviewsRes] = await Promise.all([
         api.getShopById(shopId),
@@ -356,9 +354,17 @@ export default function ShopProfileScreen({ route, navigation }) {
     } catch (error) {
       console.error('Error loading shop data:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
-  };
+  }, [shopId]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadShopData({ silent: true }));
+
+  useFocusEffect(
+    useCallback(() => {
+      loadShopData();
+    }, [loadShopData])
+  );
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -414,7 +420,16 @@ export default function ShopProfileScreen({ route, navigation }) {
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={22} color={colors.onGradient} />
           </Pressable>
-          <Pressable style={styles.moreBtn}>
+          <Pressable
+            style={styles.moreBtn}
+            onPress={() => {
+              const ownerId = shop.owner?._id || shop.owner;
+              if (user?.id && String(ownerId) === String(user.id)) {
+                navigation.navigate(ROUTES.CREATE_SHOP, { shopId: shop._id || shop.id });
+                return;
+              }
+            }}
+          >
             <Ionicons name="ellipsis-horizontal" size={20} color={colors.onGradient} />
           </Pressable>
         </View>
@@ -484,7 +499,7 @@ export default function ShopProfileScreen({ route, navigation }) {
         ))}
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} refreshControl={refreshControl(colors, refreshing, onRefresh)}>
         {activeTab === 'products' && (
           <View style={styles.productsGrid}>
             {listings.length > 0 ? (

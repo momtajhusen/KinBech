@@ -1,7 +1,35 @@
 const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
 const Report = require('../models/Report');
-const { listingPayload, parsePrice, haversineDistanceKm } = require('../utils/listing');
+const Chat = require('../models/Chat');
+const User = require('../models/User');
+const { listingPayload, parsePrice, haversineDistanceKm, listingPoint } = require('../utils/listing');
+const { parseVariantsFromBody } = require('../utils/listingVariants');
+const { recordShopMetric } = require('../utils/shopAnalytics');
+
+const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates';
+const SHOP_POPULATE = 'name logo ratingAverage reviewCount isVerified coordinates location';
+
+function parsePagination(req) {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  return { page, limit, skip: (page - 1) * limit };
+}
+
+function paginateItems(items, page, limit) {
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * limit;
+  return {
+    items: items.slice(start, start + limit),
+    total,
+    page: safePage,
+    limit,
+    totalPages,
+    hasMore: safePage < totalPages,
+  };
+}
 
 function buildBaseFilter(req) {
   const {
@@ -9,6 +37,7 @@ function buildBaseFilter(req) {
     category,
     status = 'active',
     seller,
+    sellerType,
     minPrice,
     maxPrice,
     condition,
@@ -20,6 +49,7 @@ function buildBaseFilter(req) {
     filter.category = category;
   }
   if (condition && condition !== 'All') filter.condition = condition;
+  if (sellerType && sellerType !== 'all') filter.sellerType = sellerType;
   if (seller) filter.seller = seller;
   if (minPrice || maxPrice) {
     filter.price = {};
@@ -60,17 +90,16 @@ async function getListings(req, res, next) {
     }
 
     const docs = await Listing.find(filter)
-      .populate('seller', 'name phone avatarUrl soldCount boughtCount')
-      .populate('shopId', 'name logo ratingAverage reviewCount')
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE)
       .sort(mongoSort)
       .limit(300)
       .lean();
 
     const withDistance = docs.map((doc) => {
-      const lLat = doc?.coordinates?.lat;
-      const lLng = doc?.coordinates?.lng;
-      if (userLat != null && userLng != null) {
-        const km = haversineDistanceKm(userLat, userLng, lLat, lLng);
+      const point = listingPoint(doc);
+      if (userLat != null && userLng != null && point) {
+        const km = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
         return { doc, distance: km };
       }
       return { doc, distance: null };
@@ -101,9 +130,16 @@ async function getListings(req, res, next) {
       });
     }
 
+    const { page, limit } = parsePagination(req);
+    const paged = paginateItems(final, page, limit);
+
     res.json({
-      listings: final.map(({ doc, distance }) => listingPayload(doc, distance)),
-      total: final.length,
+      listings: paged.items.map(({ doc, distance }) => listingPayload(doc, distance)),
+      total: paged.total,
+      page: paged.page,
+      limit: paged.limit,
+      totalPages: paged.totalPages,
+      hasMore: paged.hasMore,
       appliedSort: sortMode,
     });
   } catch (error) {
@@ -124,16 +160,16 @@ async function searchListings(req, res, next) {
     const sortMode = String(sort || 'distance').toLowerCase();
 
     const docs = await Listing.find(filter)
-      .populate('seller', 'name phone avatarUrl rating soldCount boughtCount')
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE)
       .limit(500)
       .lean();
 
     const ranked = docs.map((doc) => {
-      const lLat = doc?.coordinates?.lat;
-      const lLng = doc?.coordinates?.lng;
+      const point = listingPoint(doc);
       let distance = null;
-      if (userLat != null && userLng != null) {
-        distance = haversineDistanceKm(userLat, userLng, lLat, lLng);
+      if (userLat != null && userLng != null && point) {
+        distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
       }
 
       let relevanceScore = 0;
@@ -196,9 +232,16 @@ async function searchListings(req, res, next) {
       });
     }
 
+    const { page, limit } = parsePagination(req);
+    const paged = paginateItems(sorted, page, limit);
+
     res.json({
-      listings: sorted.map(({ doc, distance }) => listingPayload(doc, distance)),
-      total: sorted.length,
+      listings: paged.items.map(({ doc, distance }) => listingPayload(doc, distance)),
+      total: paged.total,
+      page: paged.page,
+      limit: paged.limit,
+      totalPages: paged.totalPages,
+      hasMore: paged.hasMore,
       appliedSort: sortMode,
     });
   } catch (error) {
@@ -209,11 +252,62 @@ async function searchListings(req, res, next) {
 async function getMyListings(req, res, next) {
   try {
     const listings = await Listing.find({ seller: req.user._id })
-      .populate('seller', 'name phone avatarUrl soldCount boughtCount')
+      .populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences')
       .populate('shopId', 'name logo ratingAverage reviewCount')
       .sort({ createdAt: -1 });
 
-    res.json({ listings: listings.map(listingPayload) });
+    const listingIds = listings.map((l) => l._id);
+    let chatCountMap = {};
+    if (listingIds.length) {
+      const chatCounts = await Chat.aggregate([
+        { $match: { listing: { $in: listingIds } } },
+        { $group: { _id: '$listing', count: { $sum: 1 } } },
+      ]);
+      chatCountMap = Object.fromEntries(
+        chatCounts.map((row) => [String(row._id), row.count]),
+      );
+    }
+
+    res.json({
+      listings: listings.map((listing) =>
+        listingPayload(listing, null, {
+          chats: chatCountMap[String(listing._id)] || 0,
+        }),
+      ),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getMyPurchases(req, res, next) {
+  try {
+    const chats = await Chat.find({ participants: req.user._id })
+      .populate({
+        path: 'listing',
+        populate: [
+          { path: 'seller', select: 'name phone avatarUrl soldCount boughtCount' },
+          { path: 'shopId', select: 'name logo ratingAverage reviewCount isVerified' },
+        ],
+      })
+      .sort({ lastMessageAt: -1 })
+      .lean();
+
+    const seen = new Set();
+    const listings = [];
+    for (const chat of chats) {
+      const listing = chat.listing;
+      if (!listing) continue;
+      const listingId = String(listing._id);
+      if (seen.has(listingId)) continue;
+      const sellerId = listing.seller?._id || listing.seller;
+      if (String(sellerId) === String(req.user._id)) continue;
+      if (listing.status !== 'sold' && !chat.meetupConfirmed) continue;
+      seen.add(listingId);
+      listings.push(listingPayload(listing));
+    }
+
+    res.json({ listings });
   } catch (error) {
     next(error);
   }
@@ -226,8 +320,8 @@ async function getListing(req, res, next) {
     const userLng = lng != null && lng !== '' ? Number(lng) : null;
 
     const doc = await Listing.findById(req.params.id)
-      .populate('seller', 'name phone avatarUrl soldCount boughtCount')
-      .populate('shopId', 'name logo ratingAverage reviewCount');
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE);
 
     if (!doc) {
       return res.status(404).json({ message: 'Listing not found' });
@@ -236,15 +330,21 @@ async function getListing(req, res, next) {
     try {
       doc.views = (Number(doc.views) || 0) + 1;
       await doc.save();
+      if (doc.shopId?._id || doc.shopId) {
+        const shopId = doc.shopId._id || doc.shopId;
+        const isOwner = req.user && String(doc.seller?._id || doc.seller) === String(req.user._id);
+        if (!isOwner) {
+          recordShopMetric(shopId, 'listingViews').catch(() => {});
+        }
+      }
     } catch (e) {
       // Ignore increment failures
     }
 
     let distance = null;
-    const lLat = doc?.coordinates?.lat;
-    const lLng = doc?.coordinates?.lng;
-    if (userLat != null && userLng != null) {
-      distance = haversineDistanceKm(userLat, userLng, lLat, lLng);
+    const point = listingPoint(doc);
+    if (userLat != null && userLng != null && point) {
+      distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
     }
 
     res.json({ listing: listingPayload(doc, distance) });
@@ -259,10 +359,14 @@ async function incrementView(req, res, next) {
     if (!id) {
       return res.status(400).json({ message: 'Listing id required' });
     }
-    await Listing.updateOne(
-      { _id: id },
-      { $inc: { views: 1 } }
-    ).exec();
+    const listing = await Listing.findById(id).select('shopId seller').lean();
+    await Listing.updateOne({ _id: id }, { $inc: { views: 1 } }).exec();
+    if (listing?.shopId) {
+      const isOwner = req.user && String(listing.seller) === String(req.user._id);
+      if (!isOwner) {
+        recordShopMetric(listing.shopId, 'listingViews').catch(() => {});
+      }
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -289,6 +393,9 @@ async function createListing(req, res, next) {
       sku,
       originalPrice,
       isOnSale,
+      hasVariants,
+      variantOptions,
+      variants,
     } = req.body;
 
     const parsedPrice = parsePrice(price);
@@ -296,33 +403,52 @@ async function createListing(req, res, next) {
       return res.status(400).json({ message: 'Title, price, and category are required' });
     }
 
+    const variantResult = parseVariantsFromBody(
+      { hasVariants, variantOptions, variants },
+      parsedPrice,
+      sellerType,
+    );
+    if (!variantResult.ok) {
+      return res.status(400).json({ message: variantResult.message });
+    }
+
     // Validate seller type
     if (!['individual', 'shop'].includes(sellerType)) {
       return res.status(400).json({ message: 'Invalid seller type' });
     }
 
-    // If shop listing, validate shopId
+    let shopRecord = null;
     if (sellerType === 'shop') {
       if (!shopId) {
         return res.status(400).json({ message: 'Shop ID is required for shop listings' });
       }
 
-      const shop = await Shop.findById(shopId);
-      if (!shop) {
+      shopRecord = await Shop.findById(shopId);
+      if (!shopRecord) {
         return res.status(404).json({ message: 'Shop not found' });
       }
 
-      // Verify user owns the shop
-      if (String(shop.owner) !== String(req.user._id)) {
+      if (String(shopRecord.owner) !== String(req.user._id)) {
         return res.status(403).json({ message: 'You can only create listings for your own shop' });
       }
+    }
 
-      // Use shop location if listing location not provided
-      if (!location && shop.location) {
-        listingData.location = shop.location;
+    let resolvedLocation = location || '';
+    let resolvedCoordinates =
+      coordinates && (coordinates.lat != null || coordinates.lng != null)
+        ? { lat: Number(coordinates.lat) || null, lng: Number(coordinates.lng) || null }
+        : { lat: null, lng: null };
+
+    if (shopRecord) {
+      if (!resolvedLocation && shopRecord.location) {
+        resolvedLocation = shopRecord.location;
       }
-      if (!coordinates && shop.coordinates) {
-        listingData.coordinates = shop.coordinates;
+      if (
+        resolvedCoordinates.lat == null &&
+        resolvedCoordinates.lng == null &&
+        shopRecord.coordinates
+      ) {
+        resolvedCoordinates = shopRecord.coordinates;
       }
     }
 
@@ -335,26 +461,29 @@ async function createListing(req, res, next) {
       category,
       condition: condition || 'Good',
       photos: Array.isArray(photos) ? photos : [],
-      location: location || '',
-      coordinates: coordinates && (coordinates.lat != null || coordinates.lng != null)
-        ? { lat: Number(coordinates.lat) || null, lng: Number(coordinates.lng) || null }
-        : { lat: null, lng: null },
+      location: resolvedLocation,
+      coordinates: resolvedCoordinates,
       meetupOption: meetupOption || 'Public place',
     };
 
     // Add shop-specific fields
     if (sellerType === 'shop') {
       listingData.shopId = shopId;
-      listingData.stock = stock || 1;
       listingData.brand = brand || '';
       listingData.sku = sku || '';
       listingData.originalPrice = originalPrice || null;
       listingData.isOnSale = isOnSale || false;
+      listingData.hasVariants = variantResult.hasVariants;
+      listingData.variantOptions = variantResult.variantOptions;
+      listingData.variants = variantResult.variants;
+      listingData.stock = variantResult.hasVariants
+        ? variantResult.stock
+        : Math.max(0, Number(stock) || 1);
     }
 
     const listing = await Listing.create(listingData);
 
-    await listing.populate('seller', 'name phone avatarUrl soldCount boughtCount');
+    await listing.populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences');
     if (listing.shopId) {
       await listing.populate('shopId', 'name logo ratingAverage reviewCount');
     }
@@ -376,6 +505,8 @@ async function updateListing(req, res, next) {
       return res.status(403).json({ message: 'You can only edit your own listing' });
     }
 
+    const wasSold = listing.status === 'sold';
+
     // For shop listings, ensure user still owns the shop
     if (listing.sellerType === 'shop' && listing.shopId) {
       const shop = await Shop.findById(listing.shopId);
@@ -394,7 +525,6 @@ async function updateListing(req, res, next) {
       'meetupOption',
       'status',
       // Shop-specific fields
-      'stock',
       'brand',
       'sku',
       'originalPrice',
@@ -406,6 +536,30 @@ async function updateListing(req, res, next) {
         listing[field] = req.body[field];
       }
     });
+
+    if (listing.sellerType === 'shop') {
+      const nextPrice =
+        req.body.price !== undefined ? parsePrice(req.body.price) : listing.price;
+      const variantTouched =
+        req.body.hasVariants !== undefined ||
+        req.body.variantOptions !== undefined ||
+        req.body.variants !== undefined;
+
+      if (variantTouched) {
+        const variantResult = parseVariantsFromBody(req.body, nextPrice, listing.sellerType);
+        if (!variantResult.ok) {
+          return res.status(400).json({ message: variantResult.message });
+        }
+        listing.hasVariants = variantResult.hasVariants;
+        listing.variantOptions = variantResult.variantOptions;
+        listing.variants = variantResult.variants;
+        listing.stock = variantResult.hasVariants
+          ? variantResult.stock
+          : Math.max(0, Number(req.body.stock ?? listing.stock) || 0);
+      } else if (req.body.stock !== undefined && !listing.hasVariants) {
+        listing.stock = Math.max(0, Number(req.body.stock) || 0);
+      }
+    }
 
     if (req.body.coordinates) {
       const c = req.body.coordinates;
@@ -428,7 +582,10 @@ async function updateListing(req, res, next) {
     }
 
     await listing.save();
-    await listing.populate('seller', 'name phone avatarUrl rating soldCount boughtCount');
+    if (!wasSold && listing.status === 'sold') {
+      await User.findByIdAndUpdate(listing.seller, { $inc: { soldCount: 1 } });
+    }
+    await listing.populate('seller', 'name phone avatarUrl rating soldCount boughtCount location bio preferences');
     res.json({ listing: listingPayload(listing) });
   } catch (error) {
     next(error);
@@ -451,6 +608,29 @@ async function deleteListing(req, res, next) {
   }
 }
 
+async function getCategoryCounts(req, res, next) {
+  try {
+    const filter = buildBaseFilter(req);
+    const rows = await Listing.aggregate([
+      { $match: filter },
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const counts = {};
+    let total = 0;
+    for (const row of rows) {
+      const key = row._id || 'Other';
+      counts[key] = row.count;
+      total += row.count;
+    }
+
+    res.json({ counts, total });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getAllListingsAdmin(req, res, next) {
   try {
     const { status } = req.query;
@@ -461,7 +641,7 @@ async function getAllListingsAdmin(req, res, next) {
     }
 
     const listings = await Listing.find(filter)
-      .populate('seller', 'name phone avatarUrl')
+      .populate('seller', 'name phone avatarUrl location bio preferences')
       .populate('shopId', 'name logo')
       .sort({ createdAt: -1 })
       .limit(100);
@@ -514,7 +694,9 @@ async function updateListingStatusAdmin(req, res, next) {
 module.exports = {
   getListings,
   searchListings,
+  getCategoryCounts,
   getMyListings,
+  getMyPurchases,
   getListing,
   incrementView,
   createListing,

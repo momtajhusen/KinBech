@@ -13,27 +13,17 @@ import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpe
 import { api } from '../services/api';
 import { attachDistanceToCard, toCardItem } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAuth } from '../context/AuthContext';
-
-const getCategories = (colors, listings = []) => {
-  const safeColors = colors || {};
-
-  const categoryConfig = [
-    { label: 'Mobiles', icon: 'phone-portrait-outline', color: safeColors.category?.mobiles || '#5B39C6' },
-    { label: 'Laptops', icon: 'laptop-outline', color: safeColors.category?.laptops || '#7ED957' },
-    { label: 'Electronics', icon: 'headset-outline', color: safeColors.category?.electronics || '#E91E63' },
-    { label: 'Furniture', icon: 'file-tray-stacked-outline', color: safeColors.category?.furniture || '#10B981' },
-    { label: 'More', icon: 'apps-outline', color: safeColors.category?.more || '#F59E0B', isMore: true },
-  ];
-
-  return categoryConfig;
-};
+import { useCategories } from '../utils/categories';
+import { formatCityDistrict } from '../utils/locations';
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
+  const productCategories = useCategories('product');
   const [query, setQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [listings, setListings] = useState([]);
@@ -71,19 +61,7 @@ export default function HomeScreen({ navigation }) {
       });
       const addr = reverseGeocode?.[0];
       if (addr) {
-        const city = addr.city || addr.subregion || addr.district || '';
-        const district = addr.district || addr.subregion || '';
-        const parts = [];
-        if (city && city !== district) {
-          parts.push(city);
-        }
-        if (district && !parts.includes(district)) {
-          parts.push(district);
-        }
-        if (parts.length === 0) {
-          parts.push(addr.region || addr.subregion || 'Kathmandu');
-        }
-        setLocation(parts.join(', '));
+        setLocation(formatCityDistrict(addr, 'Kathmandu'));
       }
       return coords;
     } catch (error) {
@@ -98,78 +76,77 @@ export default function HomeScreen({ navigation }) {
     fetchCurrentLocation();
   }, [fetchCurrentLocation]);
 
+  const loadListings = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    let coords = userCoords;
+    if (!coords.lat || !coords.lng) {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Low,
+          });
+          coords = {
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+          };
+          setUserCoords(coords);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    const params = {};
+    if (coords.lat != null && coords.lng != null) {
+      params.lat = coords.lat;
+      params.lng = coords.lng;
+    }
+    const { data, error } = await api.getListings(params);
+    if (error) {
+      console.error('Failed to load listings:', error);
+      setListings([]);
+    } else {
+      const raw = (data?.listings || []).map(toCardItem).filter(Boolean);
+      const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
+      setListings(withDistance);
+    }
+    if (!silent) setLoading(false);
+    if (!silent) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bannerScaleAnim, {
+          toValue: 1,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [userCoords.lat, userCoords.lng, user?.id, fadeAnim, slideAnim, bannerScaleAnim]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true }));
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        let coords = userCoords;
-        if (!coords.lat || !coords.lng) {
-          try {
-            const { status } = await Location.getForegroundPermissionsAsync();
-            if (status === 'granted') {
-              const loc = await Location.getCurrentPositionAsync({
-                accuracy: Location.Accuracy.Low,
-              });
-              coords = {
-                lat: loc.coords.latitude,
-                lng: loc.coords.longitude,
-              };
-              setUserCoords(coords);
-            }
-          } catch (e) {
-            // ignore
-          }
-        }
-        const params = {};
-        if (coords.lat != null && coords.lng != null) {
-          params.lat = coords.lat;
-          params.lng = coords.lng;
-        }
-        const { data, error } = await api.getListings(params);
-        if (!active) return;
-        if (error) {
-          console.error('Failed to load listings:', error);
-          setListings([]);
-        } else {
-          const raw = (data?.listings || []).map(toCardItem).filter(Boolean);
-          const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
-          setListings(withDistance);
-        }
-        setLoading(false);
-        
-        // Trigger animations when data loads
-        if (active) {
-          Animated.parallel([
-            Animated.timing(fadeAnim, {
-              toValue: 1,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-            Animated.timing(slideAnim, {
-              toValue: 0,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-            Animated.timing(bannerScaleAnim, {
-              toValue: 1,
-              duration: 600,
-              useNativeDriver: true,
-            }),
-          ]).start();
-        }
-      })();
+      loadListings();
       return () => {
-        active = false;
         fadeAnim.setValue(0);
         slideAnim.setValue(20);
         bannerScaleAnim.setValue(0.95);
       };
-    }, [userCoords.lat, userCoords.lng, fadeAnim, slideAnim])
+    }, [loadListings, fadeAnim, slideAnim, bannerScaleAnim])
   );
 
   const openItem = (item) =>
-    navigation.navigate(ROUTES.ITEM_DETAIL, { listingId: item.id });
+    openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id });
 
   const toggleSave = async (item) => {
     const { error } = await api.toggleWishlist(item.id);
@@ -193,7 +170,15 @@ export default function HomeScreen({ navigation }) {
     return null;
   }
 
-  const categories = getCategories(colors, listings);
+  const categories = [
+    ...productCategories.slice(0, 4),
+    {
+      label: 'More',
+      icon: 'apps-outline',
+      color: colors?.category?.more || '#F59E0B',
+      isMore: true,
+    },
+  ];
 
   const resolvedTrending = listings.slice(0, 12).map((item) => ({
     ...item,
@@ -208,7 +193,11 @@ export default function HomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <ThemeStatusBar variant="header" />
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: colors.primary }]}>
           <View style={styles.headerRow}>
             <View>
@@ -275,11 +264,12 @@ export default function HomeScreen({ navigation }) {
         {categories.length > 0 ? (
         <View style={styles.categories}>
           {(categories || []).map((item) => (
-            <CategoryIcon
+              <CategoryIcon
               key={item.label}
               label={item.label}
               icon={item.icon}
-              color={item.color}
+              imageUrl={item.imageUrl}
+              color={item.color || item.tint}
               onPress={() => {
                 if (item.label === 'More') {
                   navigation.navigate(ROUTES.ALL_CATEGORIES);

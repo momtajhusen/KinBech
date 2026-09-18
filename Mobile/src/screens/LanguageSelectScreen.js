@@ -174,7 +174,7 @@ export default function LanguageSelectScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <ThemeStatusBar variant="header" />
       <LinearGradient
         colors={[colors.gradientStart, colors.gradientEnd]}
@@ -189,7 +189,11 @@ export default function LanguageSelectScreen({ navigation }) {
         <View style={{ width: 24 }} />
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.card}>
           {LANGUAGE_OPTIONS.map((opt, idx) => {
             const isSel = selected === opt.key;

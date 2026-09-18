@@ -46,6 +46,29 @@ const listingSchema = new mongoose.Schema(
     sku: { type: String, default: '' },
     originalPrice: { type: Number, default: null },
     isOnSale: { type: Boolean, default: false },
+    hasVariants: { type: Boolean, default: false },
+    variantOptions: [
+      {
+        name: { type: String, trim: true },
+        values: [{ type: String, trim: true }],
+      },
+    ],
+    variants: [
+      {
+        id: { type: String, default: '' },
+        label: { type: String, default: '' },
+        attributes: [
+          {
+            name: { type: String, trim: true },
+            value: { type: String, trim: true },
+          },
+        ],
+        sku: { type: String, default: '' },
+        price: { type: Number, default: null, min: 0 },
+        stock: { type: Number, default: 0, min: 0 },
+        photo: { type: String, default: '' },
+      },
+    ],
   },
   { timestamps: true }
 );

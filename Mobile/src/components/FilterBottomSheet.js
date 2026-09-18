@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  Image,
   Modal,
   PanResponder,
   Pressable,
@@ -10,19 +11,11 @@ import {
   View,
 } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
+import { useCategories } from '../utils/categories';
 
 const PRICE_MIN = 5000;
 const PRICE_MAX = 100000;
 const TRACK_PADDING = 12;
-
-const CATEGORIES = [
-  { label: 'All', icon: 'apps' },
-  { label: 'Mobiles', icon: 'phone-portrait-outline' },
-  { label: 'Laptops', icon: 'laptop-outline' },
-  { label: 'Electronics', icon: 'headset-outline' },
-  { label: 'Furniture', icon: 'file-tray-stacked-outline' },
-  { label: 'Vehicles', icon: 'car-outline' },
-];
 
 const CONDITIONS = ['All', 'New', 'Good', 'Fair'];
 
@@ -395,6 +388,11 @@ function RangeSlider({ min, max, valueMin, valueMax, onChange }) {
 export default function FilterBottomSheet({ visible, onClose, onApply, initial }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const productCategories = useCategories('product');
+  const categoryOptions = [
+    { label: 'All', icon: 'apps' },
+    ...productCategories,
+  ];
   const [priceMin, setPriceMin] = useState(initial?.priceMin ?? PRICE_MIN);
   const [priceMax, setPriceMax] = useState(initial?.priceMax ?? PRICE_MAX);
   const [category, setCategory] = useState(initial?.category ?? 'All');
@@ -467,7 +465,7 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Category</Text>
             <View style={styles.categoryGrid}>
-              {(CATEGORIES || []).map((item) => {
+              {(categoryOptions || []).map((item) => {
                 const active = category === item.label;
                 return (
                   <Pressable
@@ -475,11 +473,15 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
                     style={[styles.categoryChip, active && styles.categoryChipActive]}
                     onPress={() => setCategory(item.label)}
                   >
-                    <Ionicons
-                      name={item.icon}
-                      size={20}
-                      color={active ? colors.onPrimary : colors.text}
-                    />
+                    {item.imageUrl ? (
+                      <Image source={{ uri: item.imageUrl }} style={{ width: 20, height: 20, borderRadius: 6 }} />
+                    ) : (
+                      <Ionicons
+                        name={item.icon}
+                        size={20}
+                        color={active ? colors.onPrimary : colors.text}
+                      />
+                    )}
                     <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
                       {item.label}
                     </Text>

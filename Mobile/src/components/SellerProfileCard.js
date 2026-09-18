@@ -111,44 +111,42 @@ const createStyles = (colors) => ({
   },
   statsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
     flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
   },
-  statItem: {
+  metaChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 6,
+    backgroundColor: colors.iconBackground,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
+    maxWidth: '100%',
   },
-  statIcon: {
-    fontSize: 12,
-  },
-  statText: {
-    fontSize: 10,
+  metaChipText: {
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
-  },
-  statValue: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.text,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 8,
+    gap: 7,
+    marginBottom: 12,
   },
   locationText: {
-    fontSize: 10,
-    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
     flex: 1,
   },
   viewStoreButton: {
     backgroundColor: colors.primary,
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 12,
     alignItems: 'center',
     marginBottom: 8,
@@ -223,16 +221,24 @@ const createStyles = (colors) => ({
     marginBottom: 4,
   },
   compactStats: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 2,
+    marginTop: 2,
+    gap: 5,
   },
   compactStat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 6,
+  },
+  compactStatIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.iconBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   compactStatText: {
+    flex: 1,
     fontSize: 10,
     fontWeight: '600',
     color: colors.textSecondary,
@@ -308,42 +314,41 @@ const createStyles = (colors) => ({
   },
   individualStats: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 16,
+    gap: 6,
     marginBottom: 10,
   },
   individualStat: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-  },
-  individualStatIcon: {
-    fontSize: 14,
+    gap: 6,
+    backgroundColor: colors.iconBackground,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 10,
   },
   individualStatValue: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.text,
-  },
-  individualStatLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
   },
   individualLocation: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginBottom: 10,
+    gap: 7,
+    marginBottom: 12,
   },
   individualLocationText: {
     fontSize: 11,
-    color: colors.textMuted,
+    fontWeight: '600',
+    color: colors.textSecondary,
     flex: 1,
   },
   individualButton: {
     backgroundColor: colors.primary,
     borderRadius: 10,
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 16,
     alignItems: 'center',
   },
@@ -370,7 +375,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
   isFollowing = false,
   productGallery = [],
   compact = false,
-  sellerType = 'shop', // 'shop' or 'individual'
+  sellerType,
   onPress,
   onPinToggle,
   onFollowToggle,
@@ -425,9 +430,18 @@ const SellerProfileCard = memo(function SellerProfileCard({
     }).start();
   }, [scaleAnim]);
 
-  const displayName = storeName || sellerName || seller?.name || 'Store';
-  const displayRating = rating || seller?.rating || '4.8';
-  const displayReviews = reviewCount || seller?.reviewsCount || 0;
+  const resolvedType =
+    sellerType || seller?.sellerType || (seller?.shopId && seller?.sellerType !== 'individual' ? 'shop' : 'individual');
+  const isShop = resolvedType === 'shop';
+  const displayName = storeName || sellerName || seller?.name || (isShop ? 'Store' : 'Seller');
+  const rawRating = rating ?? seller?.ratingAverage ?? seller?.rating;
+  const displayRating =
+    rawRating != null && rawRating !== ''
+      ? typeof rawRating === 'number'
+        ? rawRating.toFixed(1)
+        : String(rawRating)
+      : '0.0';
+  const displayReviews = reviewCount ?? seller?.reviewsCount ?? seller?.reviewCount ?? 0;
   const displayListings = listingCount || seller?.listingCount || 0;
   const displayDistance = distance || seller?.distance;
   const displayLocation = location || seller?.location || 'Unknown location';
@@ -468,31 +482,44 @@ const SellerProfileCard = memo(function SellerProfileCard({
             {displayAvatar ? (
               <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
             ) : (
-              <Ionicons name={sellerType === 'individual' ? 'person-outline' : 'storefront-outline'} size={24} color={colors.textMuted} />
+              <Ionicons name={isShop ? 'storefront-outline' : 'person-outline'} size={24} color={colors.textMuted} />
             )}
           </View>
 
           <Text style={styles.compactName} numberOfLines={1}>{displayName}</Text>
 
           <View style={styles.compactStats}>
-            <View style={styles.compactStat}>
-              <Ionicons name="star" size={10} color={colors.warning} />
-              <Text style={styles.compactStatText}>{displayRating}</Text>
-            </View>
-            {distanceLabel && (
+            {isShop ? (
               <View style={styles.compactStat}>
-                <Ionicons name="location-outline" size={10} color={colors.textMuted} />
-                <Text style={styles.compactStatText}>{distanceLabel}</Text>
+                <View style={styles.compactStatIcon}>
+                  <Ionicons name="star" size={9} color={colors.warning} />
+                </View>
+                <Text style={styles.compactStatText}>{displayRating}</Text>
+              </View>
+            ) : (
+              <View style={styles.compactStat}>
+                <View style={styles.compactStatIcon}>
+                  <Ionicons name="cube-outline" size={9} color={colors.textSecondary} />
+                </View>
+                <Text style={styles.compactStatText}>{displayListings} items</Text>
               </View>
             )}
+            {distanceLabel ? (
+              <View style={styles.compactStat}>
+                <View style={styles.compactStatIcon}>
+                  <Ionicons name="location-outline" size={9} color={colors.textSecondary} />
+                </View>
+                <Text style={styles.compactStatText} numberOfLines={1}>{distanceLabel}</Text>
+              </View>
+            ) : null}
           </View>
         </Pressable>
       </Animated.View>
     );
   }
 
-  // Individual Seller Design (simpler, no banner)
-  if (sellerType === 'individual') {
+  // Individual Seller Design (simpler, no banner, no ratings)
+  if (!isShop) {
     return (
       <Animated.View style={[styles.individualCard, { transform: [{ scale: scaleAnim }] }]}>
         <Pressable
@@ -536,25 +563,19 @@ const SellerProfileCard = memo(function SellerProfileCard({
 
           <View style={styles.individualStats}>
             <View style={styles.individualStat}>
-              <Ionicons name="star" size={14} color={colors.warning} style={styles.individualStatIcon} />
-              <Text style={styles.individualStatValue}>{displayRating}</Text>
-              <Text style={styles.individualStatLabel}>({displayReviews})</Text>
+              <Ionicons name="cube-outline" size={12} color={colors.textSecondary} />
+              <Text style={styles.individualStatValue}>{displayListings} items</Text>
             </View>
-            <View style={styles.individualStat}>
-              <Ionicons name="cube-outline" size={14} color={colors.textMuted} style={styles.individualStatIcon} />
-              <Text style={styles.individualStatValue}>{displayListings}</Text>
-              <Text style={styles.individualStatLabel}>items</Text>
-            </View>
-            {distanceLabel && (
+            {distanceLabel ? (
               <View style={styles.individualStat}>
-                <Ionicons name="location-outline" size={14} color={colors.textMuted} style={styles.individualStatIcon} />
-                <Text style={styles.individualStatText}>{distanceLabel}</Text>
+                <Ionicons name="navigate-outline" size={12} color={colors.textSecondary} />
+                <Text style={styles.individualStatValue}>{distanceLabel}</Text>
               </View>
-            )}
+            ) : null}
           </View>
 
           <View style={styles.individualLocation}>
-            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+            <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
             <Text style={styles.individualLocationText} numberOfLines={1}>{displayLocation}</Text>
           </View>
 
@@ -620,25 +641,24 @@ const SellerProfileCard = memo(function SellerProfileCard({
           </View>
 
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Ionicons name="star" size={12} color={colors.warning} style={styles.statIcon} />
-              <Text style={styles.statValue}>{displayRating}</Text>
-              <Text style={styles.statText}>({displayReviews})</Text>
+            <View style={styles.metaChip}>
+              <Ionicons name="star" size={12} color={colors.warning} />
+              <Text style={styles.metaChipText}>{displayRating} ({displayReviews})</Text>
             </View>
-            <View style={styles.statItem}>
-              <Ionicons name="cube-outline" size={12} color={colors.textMuted} style={styles.statIcon} />
-              <Text style={styles.statValue}>{displayListings}</Text>
+            <View style={styles.metaChip}>
+              <Ionicons name="cube-outline" size={12} color={colors.textSecondary} />
+              <Text style={styles.metaChipText}>{displayListings} items</Text>
             </View>
-            {distanceLabel && (
-              <View style={styles.statItem}>
-                <Ionicons name="location-outline" size={12} color={colors.textMuted} style={styles.statIcon} />
-                <Text style={styles.statText}>{distanceLabel}</Text>
+            {distanceLabel ? (
+              <View style={styles.metaChip}>
+                <Ionicons name="navigate-outline" size={12} color={colors.textSecondary} />
+                <Text style={styles.metaChipText}>{distanceLabel}</Text>
               </View>
-            )}
+            ) : null}
           </View>
 
           <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={10} color={colors.textMuted} />
+            <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
             <Text style={styles.locationText} numberOfLines={1}>{displayLocation}</Text>
           </View>
 

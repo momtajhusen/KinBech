@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useMemo } from 'react';
 
 import BottomTabBar from '../components/BottomTabBar';
+import { lazyScreen } from './lazyScreen';
 import { useTheme } from '../theme';
 import AllCategoriesScreen from '../screens/AllCategoriesScreen';
 import ChatListScreen from '../screens/ChatListScreen';
@@ -20,7 +21,6 @@ import IndividualPostListingScreen from '../screens/IndividualPostListingScreen'
 import InfoScreen from '../screens/InfoScreen';
 import ItemDetailScreen from '../screens/ItemDetailScreen';
 import LanguageSelectScreen from '../screens/LanguageSelectScreen';
-import ListingSuccessScreen from '../screens/ListingSuccessScreen';
 import LoginScreen from '../screens/LoginScreen';
 import MeetupConfirmationScreen from '../screens/MeetupConfirmationScreen';
 import MyListingsScreen from '../screens/MyListingsScreen';
@@ -41,9 +41,20 @@ import SettingsScreen from '../screens/SettingsScreen';
 import StoreCategorySelectionScreen from '../screens/StoreCategorySelectionScreen';
 import ShopPostListingScreen from '../screens/ShopPostListingScreen';
 import ShopProfileScreen from '../screens/ShopProfileScreen';
+import ShopDashboardScreen from '../screens/ShopDashboardScreen';
 import SplashScreen from '../screens/SplashScreen';
 import TermsScreen from '../screens/TermsScreen';
+import LegalHubScreen from '../screens/LegalHubScreen';
+import LegalDocumentScreen from '../components/LegalDocumentScreen';
 import WishlistScreen from '../screens/WishlistScreen';
+import SavedAddressesScreen from '../screens/SavedAddressesScreen';
+import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
+import WalletScreen from '../screens/WalletScreen';
+import ContactUsScreen from '../screens/ContactUsScreen';
+
+const ListingSuccessScreen = lazyScreen(() => import('../screens/ListingSuccessScreen'));
+const ShopStorefrontQrScreen = lazyScreen(() => import('../screens/ShopStorefrontQrScreen'));
+const MapExploreScreen = lazyScreen(() => import('../screens/MapExploreScreen'));
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -164,12 +175,21 @@ export default function AppNavigator() {
         <Stack.Screen name="Info" component={InfoScreen} />
         <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
         <Stack.Screen name="ShopProfile" component={ShopProfileScreen} />
+        <Stack.Screen name="ShopDashboard" component={ShopDashboardScreen} />
+        <Stack.Screen name="ShopStorefrontQr" component={ShopStorefrontQrScreen} />
+        <Stack.Screen name="MapExplore" component={MapExploreScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} />
         <Stack.Screen name="LanguageSelect" component={LanguageSelectScreen} />
         <Stack.Screen name="CurrencySelect" component={CurrencySelectScreen} />
         <Stack.Screen name="Terms" component={TermsScreen} />
         <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+        <Stack.Screen name="LegalHub" component={LegalHubScreen} />
+        <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} />
+        <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
+        <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
+        <Stack.Screen name="Wallet" component={WalletScreen} />
+        <Stack.Screen name="ContactUs" component={ContactUsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

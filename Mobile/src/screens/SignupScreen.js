@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Alert, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BrandLogo from '../components/BrandLogo';
+import { BRAND_TAGLINE } from '../content/brand';
 import GradientButton from '../components/GradientButton';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
@@ -61,6 +62,17 @@ const createStyles = (colors) => ({
     color: colors.text,
     backgroundColor: colors.inputBackground,
   },
+  legalText: {
+    marginTop: 16,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  legalLink: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
 });
 
 export default function SignupScreen({ navigation }) {
@@ -110,7 +122,7 @@ export default function SignupScreen({ navigation }) {
         <BrandLogo size={78} />
         <Text style={styles.brand}>KinBech</Text>
         <Text style={styles.welcome}>Create Account</Text>
-        <Text style={styles.subtitle}>Join your local marketplace</Text>
+        <Text style={styles.subtitle}>{BRAND_TAGLINE}</Text>
       </LinearGradient>
 
       <KeyboardAvoidingView
@@ -128,8 +140,15 @@ export default function SignupScreen({ navigation }) {
         <Text style={styles.label}>Phone Number</Text>
         <TextInput
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={(value) => {
+            const digits = value.replace(/\D/g, '').slice(0, 10);
+            setPhone(digits);
+            if (digits.length === 10) {
+              Keyboard.dismiss();
+            }
+          }}
           keyboardType="phone-pad"
+          maxLength={10}
           placeholder="Enter your phone number"
           placeholderTextColor={colors.textTertiary}
           style={styles.input}
@@ -140,6 +159,14 @@ export default function SignupScreen({ navigation }) {
           disabled={loading}
           onPress={sendOtp}
         />
+        <Text style={styles.legalText}>
+          By signing up you confirm you are 16+ and agree to our{' '}
+          <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.TERMS)}>Terms</Text>
+          {' '}and{' '}
+          <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.PRIVACY_POLICY)}>Privacy Policy</Text>.
+          {' '}
+          <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.LEGAL_HUB)}>All policies</Text>
+        </Text>
       </KeyboardAvoidingView>
     </View>
   );

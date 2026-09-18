@@ -5,6 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ScrollView,
   Dimensions,
@@ -15,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import BrandLogo from '../components/BrandLogo';
+import { BRAND_TAGLINE } from '../content/brand';
 import { AlertModal, showErrorAlert } from '../components/AlertModal';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
@@ -209,6 +211,18 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.primary,
   },
+  legalText: {
+    marginTop: 24,
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: 8,
+  },
+  legalLink: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
 });
 
 export default function LoginScreen({ navigation }) {
@@ -284,7 +298,7 @@ export default function LoginScreen({ navigation }) {
                 <BrandLogo size={112} />
               </View>
               <Text style={styles.brand}>KinBech</Text>
-              <Text style={styles.brandTagline}>Your Trusted Marketplace</Text>
+              <Text style={styles.brandTagline}>{BRAND_TAGLINE}</Text>
 
               <Text style={styles.welcome}>Welcome Back</Text>
               <Text style={styles.welcomeSub}>Sign in to continue</Text>
@@ -325,7 +339,13 @@ export default function LoginScreen({ navigation }) {
                 placeholderTextColor={colors.textTertiary}
                 keyboardType="phone-pad"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(value) => {
+                  const digits = value.replace(/\D/g, '').slice(0, 10);
+                  setPhone(digits);
+                  if (digits.length === 10) {
+                    Keyboard.dismiss();
+                  }
+                }}
                 maxLength={10}
               />
             </View>
@@ -382,6 +402,21 @@ export default function LoginScreen({ navigation }) {
               </View>
             </View>
 
+            <Text style={styles.legalText}>
+              By continuing you agree to our{' '}
+              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.TERMS)}>
+                Terms & Conditions
+              </Text>
+              ,{' '}
+              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.PRIVACY_POLICY)}>
+                Privacy Policy
+              </Text>
+              , and{' '}
+              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}>
+                App Permissions
+              </Text>
+              .
+            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

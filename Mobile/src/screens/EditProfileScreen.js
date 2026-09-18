@@ -20,6 +20,7 @@ import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/Aler
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { formatCityDistrict } from '../utils/locations';
 
 const createStyles = (colors) => ({
   root: { flex: 1, backgroundColor: colors.surface },
@@ -159,6 +160,24 @@ const createStyles = (colors) => ({
     color: colors.textMuted,
     lineHeight: 18,
   },
+  bioInput: {
+    minHeight: 88,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: colors.text,
+    backgroundColor: colors.inputBackground,
+    textAlignVertical: 'top',
+  },
+  charCount: {
+    fontSize: 11,
+    color: colors.textTertiary,
+    textAlign: 'right',
+    marginTop: 6,
+  },
 });
 
 export default function EditProfileScreen({ navigation }) {
@@ -169,6 +188,7 @@ export default function EditProfileScreen({ navigation }) {
   const [name, setName] = useState(user?.name || '');
   const [phone] = useState(user?.phone || '');
   const [location, setLocation] = useState(user?.location || '');
+  const [bio, setBio] = useState(user?.bio || '');
   const [coordinates, setCoordinates] = useState(() => {
     if (user?.coordinates && user.coordinates.latitude != null) return user.coordinates;
     return null;
@@ -192,7 +212,7 @@ export default function EditProfileScreen({ navigation }) {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -229,10 +249,7 @@ export default function EditProfileScreen({ navigation }) {
       const currentLocation = await Location.getCurrentPositionAsync({});
       const { latitude, longitude } = currentLocation.coords;
       const reverseGeocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      const rg0 = reverseGeocode[0];
-      const locationName = rg0
-        ? [rg0.city, rg0.subregion, rg0.district].filter(Boolean).slice(0, 2).join(', ') || rg0.country || 'Unknown Location'
-        : 'Unknown Location';
+      const locationName = formatCityDistrict(reverseGeocode[0]) || 'Unknown Location';
       setLocation(locationName);
       setCoordinates({ latitude, longitude });
       setLocationLoading(false);
@@ -265,6 +282,7 @@ export default function EditProfileScreen({ navigation }) {
         name: name.trim(),
         location: location.trim(),
         avatarUrl: avatarUri,
+        bio: bio.trim(),
       };
       if (coordinates && coordinates.latitude != null) {
         payload.coordinates = coordinates;
@@ -307,7 +325,7 @@ export default function EditProfileScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <ThemeStatusBar variant="header" />
       <LinearGradient
         colors={[colors.gradientStart, colors.gradientEnd]}
@@ -326,7 +344,12 @@ export default function EditProfileScreen({ navigation }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.card}>
             <View style={styles.avatarSection}>
               <Pressable onPress={pickImage} style={styles.avatarContainer}>
@@ -354,6 +377,20 @@ export default function EditProfileScreen({ navigation }) {
                 style={styles.input}
                 autoCapitalize="words"
               />
+            </View>
+
+            <View>
+              <Text style={styles.label}>Bio</Text>
+              <TextInput
+                value={bio}
+                onChangeText={(text) => setBio(text.slice(0, 200))}
+                placeholder="Tell buyers a little about yourself"
+                placeholderTextColor={colors.textTertiary}
+                style={styles.bioInput}
+                multiline
+                maxLength={200}
+              />
+              <Text style={styles.charCount}>{bio.length}/200</Text>
             </View>
 
             <View>

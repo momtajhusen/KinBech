@@ -1,7 +1,14 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Dimensions, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Pressable,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { useAuth } from '../context/AuthContext';
@@ -14,26 +21,259 @@ const SLIDES = [
     title: 'Buy Anything,\nAnywhere',
     body: 'Find great second-hand items near you. Save money, help others, and make smart choices.',
     icon: 'storefront-outline',
-    image: null,
+    accent: '#5B39C6',
   },
   {
     title: 'Sell With\nEase',
     body: 'Snap a photo, set your price, and post your listing in seconds. Reach buyers near you instantly.',
     icon: 'pricetags-outline',
-    image: null,
+    accent: '#16A34A',
   },
   {
     title: 'Chat &\nConnect Safely',
     body: "Message sellers directly, negotiate prices, and meet safely. We've got your back every step.",
     icon: 'shield-checkmark-outline',
-    image: null,
+    accent: '#0D9488',
   },
 ];
+
+function usePulse(delay = 0) {
+  const value = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(value, {
+          toValue: 1,
+          duration: 1400,
+          delay,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(value, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [value, delay]);
+  return value;
+}
+
+function Illustration({ icon, accent, colors, styles, active }) {
+  const pulse = usePulse(120);
+  const scale = useRef(new Animated.Value(active ? 1 : 0.86)).current;
+  const glow = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.42] });
+  const float = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+
+  useEffect(() => {
+    Animated.spring(scale, {
+      toValue: active ? 1 : 0.9,
+      tension: 140,
+      friction: 12,
+      useNativeDriver: true,
+    }).start();
+  }, [active, scale]);
+
+  return (
+    <View style={styles.illustrationWrap}>
+      <Animated.View
+        style={[
+          styles.illustrationCircle,
+          { backgroundColor: `${accent}22`, opacity: glow, transform: [{ scale }] },
+        ]}
+      />
+      <Animated.View style={[styles.sparkleTopLeft, { opacity: pulse, transform: [{ translateY: float }] }]}>
+        <Text style={[styles.sparkleGlyph, { color: accent }]}>✦</Text>
+      </Animated.View>
+      <Animated.View style={[styles.sparkleTopRight, { opacity: pulse }]}>
+        <Text style={[styles.sparkleGlyph, { color: accent }]}>✦</Text>
+      </Animated.View>
+      <Animated.View style={styles.sparkleBottom}>
+        <Text style={[styles.sparkleGlyph, { fontSize: 12, color: accent }]}>✦</Text>
+      </Animated.View>
+      <Animated.View style={{ transform: [{ scale }, { translateY: float }] }}>
+        <LinearGradient
+          colors={[accent, colors.gradientEnd || colors.primary]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.illustrationBadge}
+        >
+          <Ionicons name={icon} size={62} color={colors.onGradient} />
+        </LinearGradient>
+      </Animated.View>
+    </View>
+  );
+}
+
+export default function OnboardingScreen({ navigation }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const insets = useSafeAreaInsets();
+  const [index, setIndex] = useState(0);
+  const { completeOnboarding } = useAuth();
+  const scrollRef = useRef(null);
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const ctaScale = useRef(new Animated.Value(1)).current;
+  const intro = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(intro, {
+      toValue: 1,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [intro]);
+
+  if (!colors) {
+    return null;
+  }
+
+  const isLast = index === SLIDES.length - 1;
+
+  const goToSlide = (i) => {
+    scrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: true });
+    setIndex(i);
+  };
+
+  const goLogin = async () => {
+    await completeOnboarding();
+    navigation.replace(ROUTES.LOGIN);
+  };
+
+  const onNext = () => {
+    if (isLast) {
+      goLogin();
+    } else {
+      goToSlide(index + 1);
+    }
+  };
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <ThemeStatusBar />
+      <LinearGradient
+        colors={[`${colors.primary}18`, 'transparent']}
+        style={styles.topGlow}
+      />
+
+      <Animated.View
+        style={[
+          styles.skipBtn,
+          {
+            opacity: intro,
+            transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }],
+          },
+        ]}
+      >
+        <Pressable onPress={goLogin} hitSlop={10}>
+          <Text style={styles.skipText}>Skip</Text>
+        </Pressable>
+      </Animated.View>
+
+      <Animated.ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+          {
+            useNativeDriver: false,
+            listener: (e) => {
+              const next = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              if (next !== index) setIndex(next);
+            },
+          }
+        )}
+        scrollEventThrottle={16}
+        style={styles.pager}
+      >
+        {SLIDES.map((slide, i) => (
+          <View key={slide.title} style={styles.slide}>
+            <Illustration
+              icon={slide.icon}
+              accent={slide.accent}
+              colors={colors}
+              styles={styles}
+              active={i === index}
+            />
+            <Text style={styles.title}>{slide.title}</Text>
+            <Text style={styles.body}>{slide.body}</Text>
+          </View>
+        ))}
+      </Animated.ScrollView>
+
+      <View style={styles.dotsRow}>
+        {SLIDES.map((slide, i) => {
+          const width = scrollX.interpolate({
+            inputRange: [(i - 1) * SCREEN_WIDTH, i * SCREEN_WIDTH, (i + 1) * SCREEN_WIDTH],
+            outputRange: [8, 22, 8],
+            extrapolate: 'clamp',
+          });
+          return (
+            <Animated.View
+              key={slide.title}
+              style={[
+                styles.dot,
+                {
+                  width,
+                  backgroundColor: i === index ? slide.accent : colors.border,
+                },
+              ]}
+            />
+          );
+        })}
+      </View>
+
+      <Animated.View
+        style={[
+          styles.nextWrap,
+          {
+            marginBottom: Math.max(insets.bottom, 20),
+            transform: [{ scale: ctaScale }],
+          },
+        ]}
+      >
+        <Pressable
+          onPress={onNext}
+          onPressIn={() =>
+            Animated.spring(ctaScale, { toValue: 0.97, useNativeDriver: true, tension: 300, friction: 12 }).start()
+          }
+          onPressOut={() =>
+            Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true, tension: 280, friction: 11 }).start()
+          }
+        >
+          <LinearGradient
+            colors={colors.gradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.nextButton}
+          >
+            <Text style={styles.nextText}>{isLast ? 'Get Started' : 'Next'}</Text>
+            <Ionicons name={isLast ? 'sparkles' : 'arrow-forward'} size={20} color={colors.onGradient} />
+          </LinearGradient>
+        </Pressable>
+      </Animated.View>
+    </View>
+  );
+}
 
 const createStyles = (colors) => ({
   root: {
     flex: 1,
     backgroundColor: colors.surface,
+  },
+  topGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 180,
   },
   skipBtn: {
     position: 'absolute',
@@ -54,37 +294,31 @@ const createStyles = (colors) => ({
   slide: {
     width: SCREEN_WIDTH,
     paddingHorizontal: 28,
-    paddingTop: 64,
+    paddingTop: 72,
     alignItems: 'center',
-  },
-  illustrationImage: {
-    width: '100%',
-    height: 320,
-    marginBottom: 24,
   },
   illustrationWrap: {
     width: '100%',
-    height: 300,
+    height: 280,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   illustrationCircle: {
     position: 'absolute',
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: colors.iconBackground,
+    width: 250,
+    height: 250,
+    borderRadius: 125,
   },
   illustrationBadge: {
-    width: 140,
-    height: 140,
-    borderRadius: 34,
+    width: 132,
+    height: 132,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
+    shadowOpacity: 0.28,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 8,
   },
@@ -105,8 +339,8 @@ const createStyles = (colors) => ({
   },
   sparkleGlyph: {
     fontSize: 16,
-    color: colors.primary,
-    opacity: 0.5,
+    fontWeight: '700',
+    opacity: 0.7,
   },
   title: {
     fontSize: 32,
@@ -128,17 +362,10 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
-    marginTop: 16,
-    marginBottom: 20,
+    marginTop: 8,
+    marginBottom: 18,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.border,
-  },
-  dotActive: {
-    width: 22,
     height: 8,
     borderRadius: 4,
   },
@@ -150,7 +377,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    borderRadius: 16,
+    borderRadius: 18,
     paddingVertical: 18,
   },
   nextText: {
@@ -159,140 +386,3 @@ const createStyles = (colors) => ({
     color: colors.onGradient,
   },
 });
-
-function Illustration({ icon }) {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(createStyles);
-
-  return (
-    <View style={styles.illustrationWrap}>
-      <View style={styles.illustrationCircle} />
-      <View style={styles.sparkleTopLeft}>
-        <Text style={styles.sparkleGlyph}>✦</Text>
-      </View>
-      <View style={styles.sparkleTopRight}>
-        <Text style={styles.sparkleGlyph}>✦</Text>
-      </View>
-      <View style={styles.sparkleBottom}>
-        <Text style={[styles.sparkleGlyph, { fontSize: 12 }]}>✦</Text>
-      </View>
-
-      <LinearGradient
-        colors={colors.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.illustrationBadge}
-      >
-        <Ionicons name={icon} size={64} color={colors.onGradient} />
-      </LinearGradient>
-    </View>
-  );
-}
-
-export default function OnboardingScreen({ navigation }) {
-  const { colors } = useTheme();
-  const styles = useThemedStyles(createStyles);
-  const insets = useSafeAreaInsets();
-  const [index, setIndex] = useState(0);
-
-  // Guard against undefined colors
-  if (!colors) {
-    return null;
-  }
-
-  const isLast = index === SLIDES.length - 1;
-  const { completeOnboarding } = useAuth();
-
-  const scrollRef = useRef(null);
-
-  const goToSlide = (i) => {
-    scrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: true });
-    setIndex(i);
-  };
-
-  const onScroll = (e) => {
-    const newIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-    if (newIndex !== index) setIndex(newIndex);
-  };
-
-  const goLogin = async () => {
-    await completeOnboarding();
-    navigation.replace(ROUTES.LOGIN);
-  };
-
-  const onNext = () => {
-    if (isLast) {
-      goLogin();
-    } else {
-      goToSlide(index + 1);
-    }
-  };
-
-  return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <ThemeStatusBar />
-
-      <Pressable
-        style={styles.skipBtn}
-        onPress={goLogin}
-        hitSlop={10}
-      >
-        <Text style={styles.skipText}>Skip</Text>
-      </Pressable>
-
-      <ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        style={styles.pager}
-      >
-        {(SLIDES || []).map((slide) => (
-          <View key={slide.title} style={styles.slide}>
-            {slide.image ? (
-              <Image source={slide.image} style={styles.illustrationImage} resizeMode="contain" />
-            ) : (
-              <Illustration icon={slide.icon} />
-            )}
-
-            <Text style={styles.title}>{slide.title}</Text>
-            <Text style={styles.body}>{slide.body}</Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      <View style={styles.dotsRow}>
-        {(SLIDES || []).map((_, i) =>
-          i === index ? (
-            <LinearGradient
-              key={i}
-              colors={colors.gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.dotActive}
-            />
-          ) : (
-            <View key={i} style={styles.dot} />
-          )
-        )}
-      </View>
-
-      <Pressable
-        onPress={onNext}
-        style={[styles.nextWrap, { marginBottom: Math.max(insets.bottom, 20) }]}
-      >
-        <LinearGradient
-          colors={colors.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.nextButton}
-        >
-          <Text style={styles.nextText}>{isLast ? 'Get Started' : 'Next'}</Text>
-          <Ionicons name="arrow-forward" size={20} color={colors.onGradient} />
-        </LinearGradient>
-      </Pressable>
-    </View>
-  );
-}

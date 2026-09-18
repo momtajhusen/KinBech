@@ -20,36 +20,8 @@ import { attachDistanceToCard, toCardItem } from '../utils/listing';
 import EmptyState from '../components/EmptyState';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
-
-// Product categories
-const PRODUCT_CATEGORIES = [
-  { label: 'Mobiles', icon: 'phone-portrait-outline', tint: '#5B39C6' },
-  { label: 'Laptops', icon: 'laptop-outline', tint: '#16A34A' },
-  { label: 'Electronics', icon: 'headset-outline', tint: '#DB2777' },
-  { label: 'Furniture', icon: 'file-tray-stacked-outline', tint: '#059669' },
-  { label: 'Vehicles', icon: 'car-outline', tint: '#4F46E5' },
-  { label: 'Fashion', icon: 'shirt-outline', tint: '#EC4899' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', tint: '#0D9488' },
-];
-
-// Business/Store categories for local market
-const BUSINESS_CATEGORIES = [
-  { label: 'Grocery & Kirana', icon: 'basket-outline', tint: '#5B39C6' },
-  { label: 'Electronics', icon: 'hardware-chip-outline', tint: '#16A34A' },
-  { label: 'Clothing & Fashion', icon: 'shirt-outline', tint: '#DB2777' },
-  { label: 'Furniture & Home', icon: 'home-outline', tint: '#059669' },
-  { label: 'Medical & Pharmacy', icon: 'medkit-outline', tint: '#4F46E5' },
-  { label: 'Food & Restaurant', icon: 'restaurant-outline', tint: '#EC4899' },
-  { label: 'Books & Stationery', icon: 'book-outline', tint: '#0D9488' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', tint: '#F59E0B' },
-  { label: 'Automotive', icon: 'car-outline', tint: '#8B5CF6' },
-  { label: 'Beauty & Personal Care', icon: 'flower-outline', tint: '#EC4899' },
-  { label: 'Jewelry & Accessories', icon: 'diamond-outline', tint: '#F59E0B' },
-  { label: 'Hardware & Tools', icon: 'construct-outline', tint: '#6B7280' },
-  { label: 'Pet Supplies', icon: 'paw-outline', tint: '#10B981' },
-  { label: 'Toys & Games', icon: 'game-controller-outline', tint: '#F43F5E' },
-  { label: 'Other', icon: 'ellipsis-horizontal-outline', tint: '#6B7280' },
-];
+import { useCategories, mergeSidebarCategories } from '../utils/categories';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const SIDEBAR_WIDTH = 92;
 const GRID_GUTTER = 8;
@@ -61,6 +33,8 @@ export default function CategoryScreen({ navigation, route }) {
   const { width: windowWidth } = useWindowDimensions();
   const { user } = useAuth();
   const initialCategory = route?.params?.category;
+  const productCategories = useCategories('product');
+  const shopCategories = useCategories('shop');
 
   const [allListings, setAllListings] = useState([]);
   const [allStores, setAllStores] = useState([]);
@@ -134,67 +108,58 @@ export default function CategoryScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory, loading]);
 
+  const loadData = useCallback(async ({ silent } = {}) => {
+    if (!silent) setLoading(true);
+    let coords = { lat: null, lng: null };
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+        }).catch(() => null);
+        if (loc?.coords) {
+          coords = {
+            lat: loc.coords.latitude,
+            lng: loc.coords.longitude,
+          };
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const locParams =
+      coords.lat != null && coords.lng != null
+        ? { lat: coords.lat, lng: coords.lng }
+        : {};
+
+    const { data: listingsData, error: listingsError } = await api.getListings(locParams);
+    if (listingsError) {
+      console.error('Failed to load listings:', listingsError);
+      setAllListings([]);
+    } else {
+      const raw = (listingsData?.listings || []).map(toCardItem).filter(Boolean);
+      const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
+      setAllListings(withDistance);
+    }
+
+    const { data: storesData, error: storesError } = await api.getAllShops(locParams);
+    if (storesError) {
+      console.error('Failed to load stores:', storesError);
+      setAllStores([]);
+    } else {
+      setAllStores(storesData?.shops || []);
+    }
+
+    setLoading(false);
+  }, [user?.id]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadData({ silent: true }));
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        let coords = { lat: null, lng: null };
-        try {
-          const { status } = await Location.getForegroundPermissionsAsync();
-          if (status === 'granted') {
-            const loc = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Low,
-            }).catch(() => null);
-            if (loc?.coords) {
-              coords = {
-                lat: loc.coords.latitude,
-                lng: loc.coords.longitude,
-              };
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-        
-        // Fetch listings
-        const { data: listingsData, error: listingsError } = await api.getListings(
-          coords.lat != null && coords.lng != null
-            ? { lat: coords.lat, lng: coords.lng }
-            : {}
-        );
-        
-        if (!active) return;
-        if (listingsError) {
-          console.error('Failed to load listings:', listingsError);
-          setAllListings([]);
-        } else {
-          const raw = (listingsData?.listings || []).map(toCardItem).filter(Boolean);
-          const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
-          setAllListings(withDistance);
-        }
-        
-        // Fetch stores
-        const { data: storesData, error: storesError } = await api.getAllShops(
-          coords.lat != null && coords.lng != null
-            ? { lat: coords.lat, lng: coords.lng }
-            : {}
-        );
-        
-        if (!active) return;
-        if (storesError) {
-          console.error('Failed to load stores:', storesError);
-          setAllStores([]);
-        } else {
-          setAllStores(storesData?.shops || []);
-        }
-        
-        setLoading(false);
-      })();
-      return () => {
-        active = false;
-      };
-    }, [])
+      loadData();
+    }, [loadData])
   );
 
   const categories = useMemo(() => {
@@ -212,49 +177,16 @@ export default function CategoryScreen({ navigation, route }) {
         const name = it.category || it.listing?.category;
         if (name) found[name] = (found[name] || 0) + 1;
       }
-      const fromListings = Object.keys(found).map((label) => {
-        const preset = PRODUCT_CATEGORIES.find((c) => c.label === label);
-        return {
-          label,
-          icon: preset?.icon || 'pricetag-outline',
-          tint: preset?.tint || '#F59E0B',
-          count: found[label],
-        };
-      });
-      fromListings.sort((a, b) => b.count - a.count);
-      const merged = [allOption, ...fromListings];
-      for (const preset of PRODUCT_CATEGORIES) {
-        if (!merged.find((c) => c.label === preset.label)) {
-          merged.push({ ...preset, count: 0 });
-        }
-      }
-      return merged;
-    } else {
-      // Store categories - use business categories from the data
-      const found = {};
-      for (const store of allStores) {
-        const name = store.category;
-        if (name) found[name] = (found[name] || 0) + 1;
-      }
-      const fromStores = Object.keys(found).map((label) => {
-        const preset = BUSINESS_CATEGORIES.find((c) => c.label === label);
-        return {
-          label,
-          icon: preset?.icon || 'storefront-outline',
-          tint: preset?.tint || '#F59E0B',
-          count: found[label],
-        };
-      });
-      fromStores.sort((a, b) => b.count - a.count);
-      const merged = [allOption, ...fromStores];
-      for (const preset of BUSINESS_CATEGORIES) {
-        if (!merged.find((c) => c.label === preset.label)) {
-          merged.push({ ...preset, count: 0 });
-        }
-      }
-      return merged;
+      return mergeSidebarCategories(productCategories, found, allOption);
     }
-  }, [allListings, allStores, activeTab]);
+
+    const found = {};
+    for (const store of allStores) {
+      const name = store.category;
+      if (name) found[name] = (found[name] || 0) + 1;
+    }
+    return mergeSidebarCategories(shopCategories, found, allOption);
+  }, [allListings, allStores, activeTab, productCategories, shopCategories]);
 
   useEffect(() => {
     if (activeCategory != null) return;
@@ -402,11 +334,15 @@ export default function CategoryScreen({ navigation, route }) {
                             },
                           ]}
                         >
-                          <Ionicons
-                            name={cat.icon}
-                            size={18}
-                            color={isActive ? cat.tint : colors.textMuted}
-                          />
+                          {cat.imageUrl ? (
+                            <Image source={{ uri: cat.imageUrl }} style={{ width: 18, height: 18, borderRadius: 4 }} />
+                          ) : (
+                            <Ionicons
+                              name={cat.icon}
+                              size={18}
+                              color={isActive ? cat.tint : colors.textMuted}
+                            />
+                          )}
                         </View>
                         <Text
                           numberOfLines={2}
@@ -457,17 +393,24 @@ export default function CategoryScreen({ navigation, route }) {
               </View>
 
               {items.length === 0 ? (
-                <EmptyState
-                  compact
-                  icon={activeTab === 'products' ? 'cube-outline' : 'storefront-outline'}
-                  title={activeTab === 'products' ? 'No items yet' : 'No stores yet'}
-                  body={activeTab === 'products' ? 'Nothing in this category right now. Check back after sellers post.' : 'No stores in this category right now.'}
-                />
+                <ScrollView
+                  contentContainerStyle={{ flexGrow: 1 }}
+                  showsVerticalScrollIndicator={false}
+                  refreshControl={refreshControl(colors, refreshing, onRefresh)}
+                >
+                  <EmptyState
+                    compact
+                    icon={activeTab === 'products' ? 'cube-outline' : 'storefront-outline'}
+                    title={activeTab === 'products' ? 'No items yet' : 'No stores yet'}
+                    body={activeTab === 'products' ? 'Nothing in this category right now. Check back after sellers post.' : 'No stores in this category right now.'}
+                  />
+                </ScrollView>
               ) : (
                 <ScrollView
                   contentContainerStyle={styles.itemsGridWrap}
                   showsVerticalScrollIndicator={false}
                   nestedScrollEnabled
+                  refreshControl={refreshControl(colors, refreshing, onRefresh)}
                 >
                   {activeTab === 'products' ? (
                     <View style={styles.itemsGrid}>
@@ -592,13 +535,17 @@ export default function CategoryScreen({ navigation, route }) {
                           >
                             <Pressable
                               style={styles.storeCard}
-                              onPress={() => navigation.navigate(ROUTES.SELLER_PROFILE, { seller: store })}
+                              onPress={() =>
+                                navigation.navigate(ROUTES.SHOP_PROFILE, {
+                                  shopId: store._id || store.id,
+                                })
+                              }
                             >
                               <View style={styles.storeHeader}>
                                 <View style={styles.storeAvatar}>
-                                  {store.avatarUrl ? (
+                                  {store.logo || store.avatarUrl ? (
                                     <Image
-                                      source={{ uri: store.avatarUrl }}
+                                      source={{ uri: store.logo || store.avatarUrl }}
                                       style={{ width: '100%', height: '100%' }}
                                       resizeMode="cover"
                                     />
@@ -614,7 +561,7 @@ export default function CategoryScreen({ navigation, route }) {
                                     <View style={styles.storeRating}>
                                       <Ionicons name="star" size={12} color="#F59E0B" />
                                       <Text style={styles.storeRatingText}>
-                                        {store.rating?.toFixed(1) || '4.5'}
+                                        {Number(store.ratingAverage || store.rating || 0).toFixed(1)}
                                       </Text>
                                     </View>
                                     {store.location && (

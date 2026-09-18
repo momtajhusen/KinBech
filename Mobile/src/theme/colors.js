@@ -1,9 +1,9 @@
 /**
  * KinBech Design System
- * Brand: Buy. Sell. Save.
+ * Brand: Sell Quick · Buy Local
  *
  * Dark + Light theme
- * Theme: Premium Slate Charcoal & Subtle Emerald Accent
+ * Theme: Premium Slate Charcoal & Muted Forest Accent
  */
 
 export const Theme = {
@@ -51,17 +51,17 @@ export const Theme = {
       default: '#374151',
 
       // Active border
-      active: '#10B981',
+      active: '#047857',
     },
 
-    // Soft Emerald Accent (Sirf buttons aur highlights ke liye)
-    primary: '#10B981',
+    // Muted forest green — easy on the eyes
+    primary: '#047857',
 
-    // Soft Highlight
+    // Slightly brighter for gradients / pressed states
     primaryBright: '#059669',
 
     // Semantic colors
-    success: '#10B981',
+    success: '#047857',
     warning: '#F59E0B',
     error: '#EF4444',
     info: '#3B82F6',
@@ -70,7 +70,7 @@ export const Theme = {
     favorite: '#EC4899',
 
     // Subtle glow
-    glow: 'rgba(16, 185, 129, 0.15)',
+    glow: 'rgba(4, 120, 87, 0.14)',
   },
 
 
@@ -97,20 +97,20 @@ export const Theme = {
 
     border: {
       default: '#E5E7EB',
-      active: '#059669',
+      active: '#047857',
     },
 
-    primary: '#059669',
-    primaryBright: '#10B981',
+    primary: '#047857',
+    primaryBright: '#059669',
 
-    success: '#059669',
+    success: '#047857',
     warning: '#D97706',
     error: '#DC2626',
     info: '#2563EB',
 
     favorite: '#EC4899',
 
-    glow: 'rgba(5, 150, 105, 0.08)',
+    glow: 'rgba(4, 120, 87, 0.07)',
   },
 
 
@@ -120,12 +120,12 @@ export const Theme = {
 
   brand: {
     purple: '#1F2937', // Main Surface Color
-    violet: '#10B981', // Accent
-    lightViolet: '#34D399',
-    green: '#10B981',
+    violet: '#047857', // Accent
+    lightViolet: '#6BAA94',
+    green: '#047857',
 
     // Gradient for Buttons
-    gradient: ['#059669', '#10B981'],
+    gradient: ['#065F46', '#047857'],
   },
 };
 
@@ -180,9 +180,9 @@ export function buildColors(modeKey = 'dark') {
     primary: m.primary,
     primaryBright: m.primaryBright,
 
-    accentText: isDark ? '#34D399' : '#059669',
-    price: isDark ? '#34D399' : '#059669',
-    link: isDark ? '#34D399' : '#059669',
+    accentText: isDark ? '#8FBAA8' : '#047857',
+    price: isDark ? '#8FBAA8' : '#047857',
+    link: isDark ? '#8FBAA8' : '#047857',
 
     accent: m.primary,
     secondary: m.primary,
@@ -200,7 +200,7 @@ export function buildColors(modeKey = 'dark') {
 
     gradientSplash: isDark
       ? [m.background.primary, '#1F2937', m.primary]
-      : [m.primary, '#34D399'],
+      : ['#065F46', m.primary],
 
     onPrimary: '#FFFFFF',
     onGradient: '#FFFFFF',
@@ -247,7 +247,7 @@ export function buildColors(modeKey = 'dark') {
     progressBlue: m.info,
 
     category: {
-      mobiles: '#10B981',
+      mobiles: '#047857',
       laptops: '#3B82F6',
       electronics: '#8B5CF6',
       furniture: '#F59E0B',

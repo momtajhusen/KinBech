@@ -1,5 +1,17 @@
 const { Router } = require('express');
 const { signup, login, verifyOtp, me, updateMe, completeSignup, updatePreferences, getBlockedUsers, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, getAllUsers, updateUserStatus } = require('../controllers/authController');
+const {
+  getAddresses,
+  createAddress,
+  updateAddress,
+  deleteAddress,
+  getPaymentMethods,
+  createPaymentMethod,
+  deletePaymentMethod,
+  getWallet,
+  createSupportTicket,
+  getMySupportTickets,
+} = require('../controllers/accountController');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = Router();
@@ -16,6 +28,16 @@ router.get('/me', requireAuth, me);
 router.patch('/me', requireAuth, updateMe);
 router.patch('/preferences', requireAuth, updatePreferences);
 router.get('/blocked', requireAuth, getBlockedUsers);
+router.get('/addresses', requireAuth, getAddresses);
+router.post('/addresses', requireAuth, createAddress);
+router.patch('/addresses/:id', requireAuth, updateAddress);
+router.delete('/addresses/:id', requireAuth, deleteAddress);
+router.get('/payment-methods', requireAuth, getPaymentMethods);
+router.post('/payment-methods', requireAuth, createPaymentMethod);
+router.delete('/payment-methods/:id', requireAuth, deletePaymentMethod);
+router.get('/wallet', requireAuth, getWallet);
+router.get('/support', requireAuth, getMySupportTickets);
+router.post('/support', requireAuth, createSupportTicket);
 
 // Admin routes
 router.get('/admin/all', requireAdmin, getAllAdmins);

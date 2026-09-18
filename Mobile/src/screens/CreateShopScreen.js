@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -7,6 +7,7 @@ import {
   Alert,
   Keyboard,
   KeyboardAvoidingView,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -19,25 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useCategories } from '../utils/categories';
+import { formatCityDistrict } from '../utils/locations';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
-
-const CATEGORIES = [
-  'Grocery & Kirana',
-  'Electronics',
-  'Clothing & Fashion',
-  'Furniture & Home',
-  'Medical & Pharmacy',
-  'Food & Restaurant',
-  'Books & Stationery',
-  'Sports & Fitness',
-  'Automotive',
-  'Beauty & Personal Care',
-  'Jewelry & Accessories',
-  'Hardware & Tools',
-  'Pet Supplies',
-  'Toys & Games',
-  'Other'
-];
 
 function FloatingField({
   label,
@@ -87,6 +72,7 @@ export default function CreateShopScreen({ navigation, route }) {
   const locationRef = useRef(null);
   const hoursRef = useRef(null);
   const { category: initialCategory } = route.params || {};
+  const shopCategories = useCategories('shop');
 
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -99,6 +85,31 @@ export default function CreateShopScreen({ navigation, route }) {
   const [address, setAddress] = useState('');
   const [location, setLocation] = useState('');
   const [openingHours, setOpeningHours] = useState('9:00 AM - 8:00 PM');
+  const [coords, setCoords] = useState({ lat: null, lng: null });
+  const [existingShop, setExistingShop] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await api.getMyShop();
+      if (!active || !data?.shop) return;
+      const shop = data.shop;
+      setExistingShop(shop);
+      setName(shop.name || '');
+      setCategory(shop.category || initialCategory || 'Mobiles');
+      setDescription(shop.description || '');
+      setPhone(shop.phone || '');
+      setAddress(shop.address || '');
+      setLocation(shop.location || '');
+      setOpeningHours(shop.openingHours || '9:00 AM - 8:00 PM');
+      if (shop.coordinates?.lat != null) {
+        setCoords({ lat: shop.coordinates.lat, lng: shop.coordinates.lng });
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [initialCategory]);
 
   const getCurrentLocation = useCallback(async () => {
     setLocating(true);
@@ -128,19 +139,8 @@ export default function CreateShopScreen({ navigation, route }) {
         }));
         return;
       }
-      const city = addr.city || addr.subregion || addr.district || '';
-      const district = addr.district || addr.subregion || '';
-      const parts = [];
-      if (city && city !== district) {
-        parts.push(city);
-      }
-      if (district && !parts.includes(district)) {
-        parts.push(district);
-      }
-      if (parts.length === 0) {
-        parts.push(addr.region || addr.subregion || 'Kathmandu');
-      }
-      setLocation(parts.join(', '));
+      setLocation(formatCityDistrict(addr, 'Kathmandu'));
+      setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
     } catch (e) {
       setAlertConfig(showErrorAlert({
         title: 'Location error',
@@ -159,10 +159,14 @@ export default function CreateShopScreen({ navigation, route }) {
   }, []);
 
   const handleBack = useCallback(() => {
+    if (alertConfig) {
+      setAlertConfig(null);
+      return;
+    }
     if (navigation.canGoBack()) {
       navigation.goBack();
     }
-  }, [navigation]);
+  }, [navigation, alertConfig]);
 
   const handleSubmit = async () => {
     if (!name.trim()) {
@@ -194,7 +198,7 @@ export default function CreateShopScreen({ navigation, route }) {
 
     setSubmitting(true);
 
-    const { data, error } = await api.createShop({
+    const payload = {
       name: name.trim(),
       category,
       description: description.trim(),
@@ -202,13 +206,19 @@ export default function CreateShopScreen({ navigation, route }) {
       address: address.trim(),
       location: location.trim(),
       openingHours,
-    });
+      coordinates: coords,
+    };
+
+    const shopId = existingShop?._id || existingShop?.id;
+    const { data, error } = shopId
+      ? await api.updateShop(shopId, payload)
+      : await api.createShop(payload);
 
     setSubmitting(false);
 
     if (error) {
       setAlertConfig(showErrorAlert({
-        title: 'Could not create shop',
+        title: shopId ? 'Could not update shop' : 'Could not create shop',
         message: error,
         onConfirm: () => setAlertConfig(null),
       }));
@@ -216,8 +226,10 @@ export default function CreateShopScreen({ navigation, route }) {
     }
 
     setAlertConfig(showSuccessAlert({
-      title: 'Shop Created!',
-      message: 'Your shop has been created successfully. You can now add products.',
+      title: shopId ? 'Shop Updated!' : 'Shop Created!',
+      message: shopId
+        ? 'Your shop details have been saved.'
+        : 'Your shop has been created successfully. You can now add products.',
       onConfirm: () => {
         setAlertConfig(null);
         navigation.navigate(ROUTES.SHOP_POST_LISTING);
@@ -252,7 +264,8 @@ export default function CreateShopScreen({ navigation, route }) {
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 100 }]}
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
@@ -276,22 +289,32 @@ export default function CreateShopScreen({ navigation, route }) {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.categoryScroll}
           >
-            {CATEGORIES.map((cat) => (
+            {shopCategories.map((cat) => (
               <Pressable
-                key={cat}
+                key={cat.label}
                 style={[
                   styles.categoryChip,
-                  category === cat && styles.categoryChipActive,
+                  category === cat.label && styles.categoryChipActive,
                 ]}
-                onPress={() => setCategory(cat)}
+                onPress={() => setCategory(cat.label)}
               >
+                {cat.imageUrl ? (
+                  <Image source={{ uri: cat.imageUrl }} style={{ width: 16, height: 16, borderRadius: 4, marginRight: 6 }} />
+                ) : (
+                  <Ionicons
+                    name={cat.icon}
+                    size={14}
+                    color={category === cat.label ? colors.onPrimary : colors.textSecondary}
+                    style={{ marginRight: 6 }}
+                  />
+                )}
                 <Text
                   style={[
                     styles.categoryChipText,
-                    category === cat && styles.categoryChipTextActive,
+                    category === cat.label && styles.categoryChipTextActive,
                   ]}
                 >
-                  {cat}
+                  {cat.label}
                 </Text>
               </Pressable>
             ))}
@@ -371,7 +394,7 @@ export default function CreateShopScreen({ navigation, route }) {
           </View>
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable
             style={styles.submitBtn}
             onPress={handleSubmit}
@@ -386,13 +409,11 @@ export default function CreateShopScreen({ navigation, route }) {
         </View>
       </KeyboardAvoidingView>
 
-      {alertConfig && (
-        <AlertModal
-          title={alertConfig.title}
-          message={alertConfig.message}
-          onConfirm={alertConfig.onConfirm}
-        />
-      )}
+      <AlertModal
+        visible={!!alertConfig}
+        onClose={() => setAlertConfig(null)}
+        {...(alertConfig || {})}
+      />
     </View>
   );
 }
@@ -435,6 +456,7 @@ const createStyles = (colors) => ({
     marginTop: 4,
   },
   content: {
+    paddingHorizontal: 20,
     paddingTop: 20,
   },
   sectionTitle: {
@@ -454,6 +476,8 @@ const createStyles = (colors) => ({
     paddingVertical: 8,
   },
   categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
@@ -519,10 +543,6 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
   },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: colors.surface,
     paddingHorizontal: 20,
     paddingTop: 12,

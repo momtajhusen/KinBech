@@ -1,4 +1,5 @@
 import { NEPAL_LOCATIONS, haversineKm } from './locations';
+import { formatListingPrice } from './listingVariants';
 
 const CATEGORY_ICONS = {
   Mobiles: 'phone-portrait-outline',
@@ -41,18 +42,21 @@ export function formatDistanceLabel(km) {
 
 export function resolveListingCoords(listing) {
   if (!listing) return null;
-  if (listing.coordinates) {
-    const c = listing.coordinates;
-    const lat = Number(c.lat != null ? c.lat : c.latitude);
-    const lng = Number(c.lng != null ? c.lng : c.longitude);
+  const sources = [
+    listing.coordinates,
+    listing,
+    listing.shopId,
+    listing.shopId?.coordinates,
+    listing.seller,
+    listing.seller?.coordinates,
+  ];
+  for (const source of sources) {
+    if (!source) continue;
+    const lat = Number(source.lat != null ? source.lat : source.latitude);
+    const lng = Number(source.lng != null ? source.lng : source.longitude);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       return { lat, lng };
     }
-  }
-  const lat = Number(listing.lat != null ? listing.lat : listing.latitude);
-  const lng = Number(listing.lng != null ? listing.lng : listing.longitude);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng };
   }
   const locName = (listing.location || '').toString().toLowerCase().trim();
   if (locName && NEPAL_LOCATIONS.length) {
@@ -127,7 +131,7 @@ export function toCardItem(listing) {
   return {
     id: listing.id,
     title: listing.title,
-    price: formatPrice(listing.price),
+    price: formatListingPrice(listing, formatPrice),
     category: listing.category || '',
     location: listing.location || '',
     icon: categoryIcon(listing.category),
@@ -148,10 +152,11 @@ export function toCardItem(listing) {
 export function toDetailItem(listing) {
   if (!listing) return null;
   const seller = listing.seller || {};
+  const shop = listing.shopId && typeof listing.shopId === 'object' ? listing.shopId : {};
   return {
     id: listing.id,
     title: listing.title,
-    price: formatPrice(listing.price),
+    price: formatListingPrice(listing, formatPrice),
     condition: listing.condition || 'Good',
     location: listing.location || '',
     posted: timeAgo(listing.createdAt),
@@ -160,7 +165,10 @@ export function toDetailItem(listing) {
     sellerData: seller,
     sellerType: listing.sellerType || 'individual',
     shopId: listing.shopId || null,
-    rating: seller.rating ? `${seller.rating}` : 'New seller',
+    rating:
+      listing.sellerType === 'shop' && (shop.ratingAverage != null || shop.rating != null)
+        ? `${shop.ratingAverage ?? shop.rating}`
+        : '',
     description: listing.description || '',
     mapAddress: listing.location || '',
     photos: listing.photos || [],

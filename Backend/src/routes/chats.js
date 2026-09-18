@@ -4,6 +4,7 @@ const {
   createChat,
   getMessages,
   sendMessage,
+  confirmMeetup,
 } = require('../controllers/chatController');
 const { requireAuth } = require('../middleware/auth');
 
@@ -14,5 +15,6 @@ router.get('/', getChats);
 router.post('/', createChat);
 router.get('/:id/messages', getMessages);
 router.post('/:id/messages', sendMessage);
+router.post('/:id/meetup', confirmMeetup);
 
 module.exports = router;

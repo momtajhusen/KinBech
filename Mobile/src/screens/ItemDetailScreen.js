@@ -1,19 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, {
-  Easing,
-  FadeIn,
-  FadeInDown,
-  FadeInUp,
-  SlideInUp,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 import {
   Alert,
+  Animated,
   Dimensions,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -24,51 +17,89 @@ import { useAuth } from '../context/AuthContext';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
+import VariantPicker from '../components/VariantPicker';
 import { categoryIcon, toDetailItem } from '../utils/listing';
+import { getDefaultVariantSelection } from '../utils/listingVariants';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { useSharedTransition, BEZIER_EASE_OUT } from '../context/SharedTransitionContext';
+import { useSharedTransition } from '../context/SharedTransitionContext';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IMAGE_HEIGHT = 380;
+const IMAGE_HEIGHT = 340;
+const THUMB_SIZE = 56;
+
+function isVideoUri(uri) {
+  const value = String(uri || '').toLowerCase();
+  return (
+    value.startsWith('video:') ||
+    /\.(mp4|mov|m4v|webm|avi|3gp)(\?|$)/i.test(value) ||
+    value.includes('/video')
+  );
+}
+
+function collectMedia(listing, detail) {
+  const items = [];
+  const push = (uri, type) => {
+    if (!uri || items.some((m) => m.uri === uri)) return;
+    items.push({
+      uri,
+      type: type || (isVideoUri(uri) ? 'video' : 'image'),
+    });
+  };
+  (detail?.photos || listing?.photos || []).forEach((photo) => {
+    if (typeof photo === 'string') push(photo);
+    else if (photo?.uri) push(photo.uri, photo.type);
+  });
+  (listing?.videos || []).forEach((video) => {
+    const uri = typeof video === 'string' ? video : video?.uri;
+    push(uri, 'video');
+  });
+  return items;
+}
 
 export default function ItemDetailScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { reduceMotion, duration: animDuration } = useSharedTransition();
+  const { isIOS } = useSharedTransition();
   const [activeIndex, setActiveIndex] = useState(0);
   const [favorited, setFavorited] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
   const [listing, setListing] = useState(route?.params?.item || null);
-  const listingId = route?.params?.listingId || listing?.id;
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [ptrReady, setPtrReady] = useState(false);
+  const [variantSelection, setVariantSelection] = useState({});
+  const thumbScale = useRef(new Animated.Value(1)).current;
+  const listingId = route?.params?.listingId || listing?.id || listing?._id;
   const sharedId = route?.params?.sharedId || listingId;
+  const photoTag = isIOS && sharedId ? `item.${sharedId}.photo` : undefined;
+  const titleTag = isIOS && sharedId ? `item.${sharedId}.title` : undefined;
+  const priceTag = isIOS && sharedId ? `item.${sharedId}.price` : undefined;
 
-  const easeOut = Easing.bezier(...BEZIER_EASE_OUT);
-  const baseDuration = reduceMotion ? 120 : animDuration;
-
-  const entryProgress = useSharedValue(0);
-  useEffect(() => {
-    entryProgress.value = withTiming(1, { duration: baseDuration, easing: easeOut });
-  }, [entryProgress, baseDuration, easeOut]);
-
-  useEffect(() => {
-    if (!listingId) return undefined;
-    let active = true;
-    (async () => {
-      const { data, error } = await api.getListing(listingId);
-      if (active) {
-        if (error) {
-          console.error('Failed to load listing:', error);
-        } else if (data?.listing) {
-          setListing(data.listing);
-        }
+  const loadListing = useCallback(async () => {
+    if (!listingId) return;
+    const { data, error } = await api.getListing(listingId);
+    if (error) {
+      console.error('Failed to load listing:', error);
+    } else if (data?.listing) {
+      setListing(data.listing);
+      if (data.listing.hasVariants) {
+        setVariantSelection(getDefaultVariantSelection(data.listing));
       }
-    })();
-    return () => {
-      active = false;
-    };
+    }
   }, [listingId]);
+
+  const { refreshing, onRefresh } = usePullRefresh(loadListing);
+
+  useEffect(() => {
+    const t = setTimeout(() => setPtrReady(true), 600);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    loadListing();
+  }, [loadListing]);
 
   if (!listing) {
     return (
@@ -100,152 +131,181 @@ export default function ItemDetailScreen({ navigation, route }) {
     listing: null,
   };
 
-  const photoUris = (item.photos || []).filter(Boolean);
-  const resolvedPhotos = photoUris.length
-    ? photoUris.map((uri) => ({ uri, icon: categoryIcon(listing?.category) }))
-    : [{ icon: categoryIcon(listing?.category), bg: colors.photoDark1 }];
+  const media = collectMedia(listing, item);
+  const resolvedPhotos = media.length
+    ? media.map((entry) => ({
+        ...entry,
+        icon: categoryIcon(listing?.category),
+      }))
+    : [{ icon: categoryIcon(listing?.category), bg: colors.photoDark1, type: 'image' }];
+  const activeMedia = resolvedPhotos[Math.min(activeIndex, resolvedPhotos.length - 1)] || resolvedPhotos[0];
 
-  const onScroll = (e) => {
-    const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+  const selectMedia = (index) => {
     setActiveIndex(index);
+    thumbScale.setValue(0.92);
+    Animated.spring(thumbScale, {
+      toValue: 1,
+      tension: 320,
+      friction: 12,
+      useNativeDriver: true,
+    }).start();
   };
 
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={ptrReady ? refreshControl(colors, refreshing, onRefresh) : undefined}
+      >
         <View style={styles.imageWrap}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-          >
-            {(resolvedPhotos || []).map((photo, index) => (
-              <View
-                key={index}
-                style={[styles.slide, { backgroundColor: photo.bg || colors.photoDark1 }]}
-              >
-                {photo.uri ? (
-                  <Image
-                    source={{ uri: photo.uri }}
-                    style={styles.slide}
-                    resizeMode="cover"
-                    sharedTransitionTag={index === 0 && sharedId ? `item.${sharedId}.photo` : undefined}
-                  />
-                ) : (
+          <Animated.View style={[styles.hero, { transform: [{ scale: thumbScale }] }]}>
+            <Pressable style={styles.heroPress} onPress={() => setViewerOpen(true)}>
+              {activeMedia?.uri && activeMedia.type !== 'video' ? (
+                <Image
+                  source={{ uri: activeMedia.uri }}
+                  style={styles.heroImage}
+                  resizeMode="cover"
+                  sharedTransitionTag={photoTag}
+                />
+              ) : (
+                <View style={[styles.heroFallback, { backgroundColor: activeMedia?.bg || colors.photoDark1 }]}>
                   <Ionicons
-                    name={photo.icon || 'cube-outline'}
-                    size={90}
-                    color="rgba(255,255,255,0.85)"
-                    sharedTransitionTag={index === 0 && sharedId ? `item.${sharedId}.photo` : undefined}
+                    name={activeMedia?.type === 'video' ? 'videocam' : activeMedia?.icon || 'cube-outline'}
+                    size={64}
+                    color="rgba(255,255,255,0.9)"
+                    sharedTransitionTag={photoTag}
                   />
-                )}
-              </View>
-            ))}
-          </ScrollView>
-
-          <Pressable
-            style={[styles.roundBtn, { top: insets.top + 8, left: 16 }]}
-            onPress={() => navigation.goBack()}
-            hitSlop={10}
-          >
-            <Ionicons name="chevron-back" size={24} color={colors.text} />
-          </Pressable>
-
-          <Pressable
-            style={[styles.roundBtn, { top: insets.top + 8, right: 16 }]}
-            onPress={async () => {
-              if (!listingId) return;
-              const { error } = await api.toggleWishlist(listingId);
-              if (!error) setFavorited((v) => !v);
-            }}
-            hitSlop={10}
-          >
-            <Ionicons
-              name={favorited ? 'heart' : 'heart-outline'}
-              size={22}
-              color={colors.danger}
-            />
-          </Pressable>
-
-          <Animated.View
-            style={styles.dotsRow}
-            entering={reduceMotion ? FadeIn.duration(baseDuration) : FadeIn.duration(baseDuration * 0.6).delay(baseDuration * 0.5).easing(easeOut)}
-          >
-            {(resolvedPhotos || []).map((_, index) => (
-              <View
-                key={index}
-                style={[styles.dot, index === activeIndex && styles.dotActive]}
-              />
-            ))}
-          </Animated.View>
-
-          <Animated.View
-            style={styles.counterPill}
-            entering={reduceMotion ? FadeIn.duration(baseDuration) : FadeIn.duration(baseDuration * 0.6).delay(baseDuration * 0.55).easing(easeOut)}
-          >
-            <Text style={styles.counterText}>{activeIndex + 1} / {(resolvedPhotos || []).length}</Text>
-          </Animated.View>
-        </View>
-
-        <View style={styles.content}>
-          <Animated.View
-            style={styles.titleRow}
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.6)
-                    .delay(baseDuration * 0.35)
-                    .easing(easeOut)
-            }
-          >
-            <Text style={styles.title} sharedTransitionTag={sharedId ? `item.${sharedId}.title` : undefined}>{item.title}</Text>
-            <View style={styles.conditionPill}>
-              <Text style={styles.conditionText}>{item.condition}</Text>
+                  {activeMedia?.type === 'video' ? (
+                    <Text style={styles.heroHint}>Tap to view video</Text>
+                  ) : null}
+                </View>
+              )}
+              {activeMedia?.type === 'video' && activeMedia?.uri ? (
+                <View style={styles.heroPlay} pointerEvents="none">
+                  <View style={styles.heroPlayBtn}>
+                    <Ionicons name="play" size={22} color="#fff" />
+                  </View>
+                </View>
+              ) : null}
+            </Pressable>
+            <View style={styles.counterPill}>
+              <Text style={styles.counterText}>
+                {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
+              </Text>
             </View>
           </Animated.View>
 
-          <Animated.Text
-            style={styles.price}
-            sharedTransitionTag={sharedId ? `item.${sharedId}.price` : undefined}
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.55)
-                    .delay(baseDuration * 0.42)
-                    .easing(easeOut)
-            }
-          >
-            {item.price}
-          </Animated.Text>
+          <View style={[styles.galleryTop, { paddingTop: insets.top + 8 }]}>
+            <Pressable
+              style={styles.roundBtn}
+              onPress={() => navigation.goBack()}
+              hitSlop={10}
+            >
+              <Ionicons name="chevron-back" size={24} color={colors.text} />
+            </Pressable>
+            <Pressable
+              style={styles.roundBtn}
+              onPress={async () => {
+                if (!listingId) return;
+                const { error } = await api.toggleWishlist(listingId);
+                if (!error) setFavorited((v) => !v);
+              }}
+              hitSlop={10}
+            >
+              <Ionicons
+                name={favorited ? 'heart' : 'heart-outline'}
+                size={22}
+                color={colors.danger}
+              />
+            </Pressable>
+          </View>
 
-          <Animated.View
+          {resolvedPhotos.length > 1 ? (
+            <ScrollView
+              nestedScrollEnabled
+              style={[styles.thumbRail, { top: insets.top + 56 }]}
+              contentContainerStyle={styles.thumbRailContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {resolvedPhotos.map((photo, index) => {
+                const selected = index === activeIndex;
+                return (
+                  <Pressable
+                    key={`${photo.uri || 'empty'}-${index}`}
+                    onPress={() => selectMedia(index)}
+                    style={[
+                      styles.thumb,
+                      selected && styles.thumbActive,
+                      { borderColor: selected ? colors.primary : 'rgba(255,255,255,0.45)' },
+                    ]}
+                  >
+                    {photo.uri && photo.type !== 'video' ? (
+                      <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
+                    ) : (
+                      <View style={[styles.thumbFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
+                        <Ionicons
+                          name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
+                          size={18}
+                          color="#fff"
+                        />
+                      </View>
+                    )}
+                    {photo.type === 'video' ? (
+                      <View style={styles.thumbPlay}>
+                        <Ionicons name="play" size={10} color="#fff" />
+                      </View>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          ) : null}
+        </View>
+
+        <View style={styles.content}>
+          <View
+            style={styles.titleRow}
+
+          >
+            <Text style={styles.title} sharedTransitionTag={titleTag}>{item.title}</Text>
+            <View style={styles.conditionPill}>
+              <Text style={styles.conditionText}>{item.condition}</Text>
+            </View>
+          </View>
+
+          {!listing.hasVariants ? (
+            <Text
+              style={styles.price}
+              sharedTransitionTag={priceTag}
+            >
+              {item.price}
+            </Text>
+          ) : null}
+
+          {listing.hasVariants ? (
+            <VariantPicker
+              listing={listing}
+              selection={variantSelection}
+              onChangeSelection={setVariantSelection}
+              colors={colors}
+              styles={styles}
+            />
+          ) : null}
+
+          <View
             style={styles.metaRow}
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.55)
-                    .delay(baseDuration * 0.5)
-                    .easing(easeOut)
-            }
+
           >
             <Ionicons name="location-outline" size={15} color={colors.textSecondary} />
             <Text style={styles.metaText}>{item.location}</Text>
             <View style={styles.metaDivider} />
             <Ionicons name="time-outline" size={15} color={colors.textSecondary} />
             <Text style={styles.metaText}>{item.posted}</Text>
-          </Animated.View>
+          </View>
 
-          <Animated.View
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.6)
-                    .delay(baseDuration * 0.6)
-                    .easing(easeOut)
-            }
+          <View
+
           >
             {/* Individual Seller Card */}
             {listing.sellerType === 'individual' && (
@@ -278,7 +338,7 @@ export default function ItemDetailScreen({ navigation, route }) {
             {listing.sellerType === 'shop' && listing.shopId && (
               <Pressable
                 style={styles.sellerCard}
-                onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: listing.shopId._id })}
+                onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: listing.shopId._id || listing.shopId.id || listing.shopId })}
               >
                 <View style={styles.sellerAvatar}>
                   {listing.shopId?.logo ? (
@@ -334,25 +394,15 @@ export default function ItemDetailScreen({ navigation, route }) {
                 </View>
               </Pressable>
             )}
-          </Animated.View>
+          </View>
 
-          <Animated.View
+          <View
             style={styles.divider}
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeIn.duration(baseDuration * 0.6).delay(baseDuration * 0.7).easing(easeOut)
-            }
+
           />
 
-          <Animated.View
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.6)
-                    .delay(baseDuration * 0.75)
-                    .easing(easeOut)
-            }
+          <View
+
           >
             <Pressable style={styles.sectionHeaderRow} onPress={() => setDescOpen((v) => !v)}>
               <View style={styles.sectionHeaderLeft}>
@@ -366,16 +416,10 @@ export default function ItemDetailScreen({ navigation, route }) {
               />
             </Pressable>
             {descOpen && <Text style={styles.description}>{item.description}</Text>}
-          </Animated.View>
+          </View>
 
-          <Animated.View
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.65)
-                    .delay(baseDuration * 0.85)
-                    .easing(easeOut)
-            }
+          <View
+
           >
             <View style={styles.mapCard}>
               <View style={styles.mapPreview}>
@@ -391,16 +435,10 @@ export default function ItemDetailScreen({ navigation, route }) {
                 </Pressable>
               </View>
             </View>
-          </Animated.View>
+          </View>
 
-          <Animated.View
-            entering={
-              reduceMotion
-                ? FadeIn.duration(baseDuration)
-                : FadeInUp.duration(baseDuration * 0.7)
-                    .delay(baseDuration * 0.95)
-                    .easing(easeOut)
-            }
+          <View
+
           >
             <Pressable style={styles.safetyBanner} onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.SafetyTips)}>
               <View style={styles.safetyIcon}>
@@ -414,19 +452,13 @@ export default function ItemDetailScreen({ navigation, route }) {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.link} />
             </Pressable>
-          </Animated.View>
+          </View>
         </View>
       </ScrollView>
 
-      <Animated.View
+      <View
         style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, 16) }]}
-        entering={
-          reduceMotion
-            ? FadeIn.duration(baseDuration)
-            : SlideInUp.duration(baseDuration * 0.7)
-                .delay(baseDuration * 0.55)
-                .easing(easeOut)
-        }
+
       >
         <Pressable style={styles.callBtn} onPress={() => {}}>
           <Ionicons name="call" size={18} color={colors.link} />
@@ -456,6 +488,7 @@ export default function ItemDetailScreen({ navigation, route }) {
               chatId: data.chat.id,
               name: data.chat.otherUser?.name || item.seller,
               listing: listing,
+              otherUserId: data.chat.otherUser?.id || sellerId,
             });
           }}
         >
@@ -469,7 +502,44 @@ export default function ItemDetailScreen({ navigation, route }) {
             <Text style={styles.chatText}>Chat Now</Text>
           </LinearGradient>
         </Pressable>
-      </Animated.View>
+      </View>
+
+      <Modal visible={viewerOpen} animationType="fade" onRequestClose={() => setViewerOpen(false)}>
+        <View style={styles.viewer}>
+          <Pressable style={[styles.viewerClose, { top: insets.top + 8 }]} onPress={() => setViewerOpen(false)}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </Pressable>
+          <Pressable style={styles.viewerBody} onPress={() => setViewerOpen(false)}>
+            {activeMedia?.uri && activeMedia.type !== 'video' ? (
+              <Image source={{ uri: activeMedia.uri }} style={styles.viewerImage} resizeMode="contain" />
+            ) : (
+              <View style={styles.viewerFallback}>
+                <Ionicons name={activeMedia?.type === 'video' ? 'videocam' : 'image-outline'} size={64} color="#fff" />
+                <Text style={styles.heroHint}>
+                  {activeMedia?.type === 'video' ? 'Video preview' : 'No preview'}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+          <View style={[styles.viewerBar, { paddingBottom: insets.bottom + 16 }]}>
+            <Pressable
+              style={styles.viewerNav}
+              onPress={() => selectMedia(activeIndex === 0 ? resolvedPhotos.length - 1 : activeIndex - 1)}
+            >
+              <Ionicons name="chevron-back" size={22} color="#fff" />
+            </Pressable>
+            <Text style={styles.counterText}>
+              {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
+            </Text>
+            <Pressable
+              style={styles.viewerNav}
+              onPress={() => selectMedia((activeIndex + 1) % resolvedPhotos.length)}
+            >
+              <Ionicons name="chevron-forward" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -481,15 +551,150 @@ const createStyles = (colors) => ({
   },
   imageWrap: {
     height: IMAGE_HEIGHT,
+    backgroundColor: colors.photoDark1,
+    position: 'relative',
   },
-  slide: {
+  galleryTop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  thumbRail: {
+    position: 'absolute',
+    left: 12,
+    bottom: 16,
+    zIndex: 2,
+    width: THUMB_SIZE + 4,
+  },
+  thumbRailContent: {
+    gap: 8,
+    paddingBottom: 8,
+  },
+  thumb: {
+    width: THUMB_SIZE,
+    height: THUMB_SIZE,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 2,
+    backgroundColor: colors.iconBackground,
+  },
+  thumbActive: {
+    transform: [{ scale: 1.04 }],
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  thumbPlay: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hero: {
     width: SCREEN_WIDTH,
     height: IMAGE_HEIGHT,
+    backgroundColor: colors.photoDark1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroPress: {
+    width: '100%',
+    height: '100%',
+  },
+  heroImage: {
+    width: '100%',
+    height: '100%',
+  },
+  heroFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  heroHint: {
+    marginTop: 8,
+    color: 'rgba(255,255,255,0.85)',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  heroPlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroPlayBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  viewerClose: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerBody: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: {
+    width: SCREEN_WIDTH,
+    height: '80%',
+  },
+  viewerFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+  },
+  viewerNav: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   roundBtn: {
-    position: 'absolute',
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -568,6 +773,65 @@ const createStyles = (colors) => ({
     fontSize: 26,
     fontWeight: '800',
     color: colors.price,
+  },
+  variantPickerWrap: {
+    marginTop: 12,
+    gap: 12,
+  },
+  variantPickerGroup: {
+    gap: 8,
+  },
+  variantPickerLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  variantPickerOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  variantPickerChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  variantPickerChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft || `${colors.primary}18`,
+  },
+  variantPickerChipDisabled: {
+    opacity: 0.45,
+  },
+  variantPickerChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  variantPickerChipTextActive: {
+    color: colors.primary,
+  },
+  variantPickerChipTextDisabled: {
+    textDecorationLine: 'line-through',
+  },
+  variantPickerSummary: {
+    gap: 4,
+  },
+  variantPickerPrice: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.price,
+  },
+  variantPickerStock: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  variantPickerSelected: {
+    fontSize: 12,
+    color: colors.textTertiary,
   },
   metaRow: {
     flexDirection: 'row',

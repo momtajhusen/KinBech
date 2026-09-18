@@ -1,6 +1,6 @@
 import { Image } from 'react-native';
 
-const APP_LOGO = require('../../assets/icons/app_logo.png');
+const APP_LOGO = require('../../assets/icons/app-icon.png');
 
 export default function BrandLogo({ size = 120 }) {
   return (

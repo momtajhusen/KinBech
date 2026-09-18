@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert } from '../components/AlertModal';
@@ -88,6 +88,8 @@ const createStyles = (colors) => ({
   shield: {
     width: 92,
     height: 92,
+    borderRadius: 46,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -122,9 +124,9 @@ const createStyles = (colors) => ({
     padding: 2,
   },
   otpBox: {
-    width: 46,
-    height: 60,
-    borderRadius: 14,
+    width: 64,
+    height: 64,
+    borderRadius: 16,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
@@ -226,10 +228,10 @@ export default function OtpVerificationScreen({ navigation, route }) {
   };
 
   const verify = async () => {
-    if (otp.length !== 6) {
+    if (otp.length !== 4) {
       setAlertConfig(showErrorAlert({
         title: 'Incomplete Code',
-        message: 'Please enter the complete 6-digit verification code.',
+        message: 'Please enter the complete 4-digit verification code.',
         onConfirm: () => setAlertConfig(null),
       }));
       return;
@@ -309,12 +311,12 @@ export default function OtpVerificationScreen({ navigation, route }) {
         </View>
 
         <Text style={styles.title}>Verify Your Number</Text>
-        <Text style={styles.body}>Enter the 6-digit code sent to</Text>
+        <Text style={styles.body}>Enter the 4-digit code sent to</Text>
         <Text style={styles.phone}>{phone}</Text>
 
         <Pressable onPress={() => inputRef.current?.focus()} style={styles.otpWrap}>
           <View style={styles.otpRow} pointerEvents="none">
-            {Array.from({ length: 6 }).map((_, index) => {
+            {Array.from({ length: 4 }).map((_, index) => {
               const active = index === otp.length;
               const char = otp[index] || '';
               return (
@@ -339,9 +341,15 @@ export default function OtpVerificationScreen({ navigation, route }) {
           <TextInput
             ref={inputRef}
             value={otp}
-            onChangeText={(value) => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+            onChangeText={(value) => {
+              const next = value.replace(/\D/g, '').slice(0, 4);
+              setOtp(next);
+              if (next.length === 4) {
+                Keyboard.dismiss();
+              }
+            }}
             keyboardType="number-pad"
-            maxLength={6}
+            maxLength={4}
             autoFocus
             caretHidden
             style={styles.hiddenInput}

@@ -7,6 +7,7 @@ import EmptyState from '../components/EmptyState';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 export default function ChatListScreen({ navigation }) {
   const { colors } = useTheme();
@@ -25,42 +26,44 @@ export default function ChatListScreen({ navigation }) {
     return chatItemAnims.get(chatId);
   }, [chatItemAnims]);
 
+  const loadChats = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    const { data, error } = await api.getChats();
+    if (error) {
+      console.error('Failed to load chats:', error);
+      setChats([]);
+    } else {
+      setChats(data?.chats || []);
+    }
+    if (!silent) setLoading(false);
+    if (!silent) {
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [fadeAnim]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadChats({ silent: true }));
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        const { data, error } = await api.getChats();
-        if (!active) return;
-        if (error) {
-          console.error('Failed to load chats:', error);
-          setChats([]);
-        } else {
-          setChats(data?.chats || []);
-        }
-        setLoading(false);
-        
-        // Trigger animations with staggered effect
-        if (active && !loading) {
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }).start();
-        }
-      })();
+      loadChats();
       return () => {
-        active = false;
         fadeAnim.setValue(0);
       };
-    }, [fadeAnim])
+    }, [loadChats, fadeAnim])
   );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ThemeStatusBar />
       <Text style={styles.title}>Chats</Text>
-      <ScrollView contentContainerStyle={[styles.list, chats.length === 0 && { flexGrow: 1 }]}>
+      <ScrollView
+        contentContainerStyle={[styles.list, chats.length === 0 && { flexGrow: 1 }]}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         {chats.length === 0 ? (
           <EmptyState
             compact
@@ -81,6 +84,7 @@ export default function ChatListScreen({ navigation }) {
                         chatId: chat.id,
                         name: chat.otherUser?.name || 'Seller',
                         listing: chat.listing,
+                        otherUserId: chat.otherUser?.id,
                       })
                     }
                     onPressIn={() => {

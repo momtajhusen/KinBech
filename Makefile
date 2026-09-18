@@ -1,10 +1,11 @@
 .PHONY: run dev install stop start-mongodb stop-mongodb
 
 run: start-mongodb
-	@echo "🚀 Starting Admin and Backend..."
+	@echo "🚀 Starting Website (with Admin) and Backend..."
 	@cd Backend && npm run dev &
-	@cd Admin && npm run dev &
-	@echo "✅ Admin: http://localhost:5173"
+	@cd Website && npm run dev &
+	@echo "✅ Website: http://localhost:5180"
+	@echo "✅ Admin login: http://localhost:5180/admin/login"
 	@echo "✅ Backend: http://localhost:5001"
 	@echo "Press Ctrl+C to stop both servers"
 
@@ -13,8 +14,12 @@ dev: run
 install:
 	@echo "📦 Installing dependencies..."
 	@cd Backend && npm install
-	@cd Admin && npm install
 	@cd Mobile && npm install
+	@cd Website && npm install
+
+website:
+	@echo "🌐 Starting public website..."
+	@cd Website && npm run dev
 
 start-mongodb:
 	@echo "Starting MongoDB..."
@@ -35,7 +40,7 @@ stop-mongodb:
 	fi
 
 stop:
-	@echo "Stopping Admin and Backend..."
+	@echo "Stopping Website and Backend..."
 	@pkill -f "vite"
 	@pkill -f "nodemon"
 	@echo "Servers stopped"

@@ -1,4 +1,5 @@
 const Notification = require('../models/Notification');
+const User = require('../models/User');
 
 async function getNotifications(req, res, next) {
   try {
@@ -16,11 +17,14 @@ async function getNotifications(req, res, next) {
 async function markAsRead(req, res, next) {
   try {
     const { id } = req.params;
-    await Notification.findByIdAndUpdate(
-      id,
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, user: req.user._id },
       { unread: false },
       { new: true }
     );
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found' });
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -59,14 +63,31 @@ async function createBroadcastNotification(req, res, next) {
       createdAt: new Date(),
     });
 
-    // In a real implementation, this would trigger push notifications to all users
-    // For now, we'll just log it
-    console.log('Broadcast notification created:', {
-      title,
-      audience,
-      deliveryMethod,
-      broadcastId: broadcast._id,
-    });
+    const targetAudience = audience || 'all';
+    const userFilter = { role: 'user', status: { $ne: 'suspended' } };
+    if (targetAudience === 'individual_sellers') {
+      userFilter.sellerTypePreference = { $in: ['individual', 'both'] };
+    } else if (targetAudience === 'shop_sellers') {
+      userFilter.sellerTypePreference = { $in: ['shop', 'both'] };
+    }
+
+    const users = await User.find(userFilter).select('_id').limit(2000).lean();
+    if (users.length) {
+      await Notification.insertMany(
+        users.map((u) => ({
+          user: u._id,
+          type: 'broadcast',
+          title,
+          body: message,
+          message,
+          icon: 'megaphone-outline',
+          unread: true,
+          audience: targetAudience,
+          deliveryMethod: deliveryMethod || 'both',
+          sender: req.user._id,
+        }))
+      );
+    }
 
     res.status(201).json({ 
       message: 'Broadcast notification created successfully',

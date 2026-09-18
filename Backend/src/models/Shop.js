@@ -21,7 +21,7 @@ const shopSchema = new mongoose.Schema(
     category: { 
       type: String, 
       required: true,
-      enum: ['Mobiles', 'Laptops', 'Electronics', 'Furniture', 'Vehicles', 'Clothing', 'Grocery', 'Other'],
+      trim: true,
       index: true 
     },
     description: { 
@@ -71,6 +71,11 @@ const shopSchema = new mongoose.Schema(
       type: Number, 
       default: 0,
       min: 0 
+    },
+    profileViews: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     status: {
       type: String,

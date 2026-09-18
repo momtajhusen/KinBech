@@ -1,6 +1,20 @@
 const { publicUser } = require('./token');
+const { serializeVariantsForPayload } = require('./listingVariants');
 
-function listingPayload(listing, distanceKm) {
+function pickCoords(source) {
+  if (!source) return null;
+  const c = source.coordinates || source;
+  const lat = Number(c.lat != null ? c.lat : c.latitude);
+  const lng = Number(c.lng != null ? c.lng : c.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function listingPoint(listing) {
+  return pickCoords(listing) || pickCoords(listing?.shopId) || pickCoords(listing?.seller);
+}
+
+function listingPayload(listing, distanceKm, extras = {}) {
   if (!listing) return null;
 
   const seller = listing.seller && listing.seller._id
@@ -15,8 +29,13 @@ function listingPayload(listing, distanceKm) {
         ratingAverage: listing.shopId.ratingAverage,
         reviewCount: listing.shopId.reviewCount,
         isVerified: listing.shopId.isVerified,
+        coordinates: listing.shopId.coordinates,
       }
     : listing.shopId;
+
+  const point = listingPoint(listing);
+  const variantFields =
+    listing.sellerType === 'shop' ? serializeVariantsForPayload(listing) : {};
 
   return {
     id: listing._id,
@@ -28,7 +47,7 @@ function listingPayload(listing, distanceKm) {
     condition: listing.condition,
     photos: listing.photos,
     location: listing.location,
-    coordinates: listing.coordinates,
+    coordinates: listing.coordinates?.lat != null ? listing.coordinates : point,
     meetupOption: listing.meetupOption,
     status: listing.status,
     views: Number(listing.views) || 0,
@@ -41,6 +60,8 @@ function listingPayload(listing, distanceKm) {
       typeof distanceKm === 'number' && Number.isFinite(distanceKm)
         ? Math.round(distanceKm * 10) / 10
         : null,
+    ...variantFields,
+    ...(extras.chats != null ? { chats: Number(extras.chats) || 0 } : {}),
   };
 }
 
@@ -50,22 +71,23 @@ function parsePrice(value) {
 }
 
 function haversineDistanceKm(aLat, aLng, bLat, bLng) {
-  if (
-    typeof aLat !== 'number' || typeof aLng !== 'number' ||
-    typeof bLat !== 'number' || typeof bLng !== 'number'
-  ) {
+  const latA = Number(aLat);
+  const lngA = Number(aLng);
+  const latB = Number(bLat);
+  const lngB = Number(bLng);
+  if (![latA, lngA, latB, lngB].every(Number.isFinite)) {
     return null;
   }
   const toRad = (v) => (v * Math.PI) / 180;
   const R = 6371;
-  const dLat = toRad(bLat - aLat);
-  const dLng = toRad(bLng - aLng);
-  const lat1 = toRad(aLat);
-  const lat2 = toRad(bLat);
+  const dLat = toRad(latB - latA);
+  const dLng = toRad(lngB - lngA);
+  const lat1 = toRad(latA);
+  const lat2 = toRad(latB);
   const h =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-module.exports = { listingPayload, parsePrice, haversineDistanceKm };
+module.exports = { listingPayload, parsePrice, haversineDistanceKm, listingPoint };

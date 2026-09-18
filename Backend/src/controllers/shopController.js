@@ -1,6 +1,9 @@
 const Shop = require('../models/Shop');
 const Listing = require('../models/Listing');
 const Review = require('../models/Review');
+const { mapShopCategory } = require('../utils/shopCategory');
+const { recordShopMetric } = require('../utils/shopAnalytics');
+const { buildStorefrontPayload } = require('../utils/storefront');
 
 async function createShop(req, res, next) {
   try {
@@ -23,13 +26,17 @@ async function createShop(req, res, next) {
     const shop = await Shop.create({
       owner: req.user._id,
       name: name.trim(),
-      category,
+      category: mapShopCategory(category),
       description: description?.trim() || '',
       phone: phone?.trim() || '',
       address: address?.trim() || '',
       location: location?.trim() || '',
       openingHours: openingHours || '9:00 AM - 8:00 PM',
       logo: logo || '',
+      coordinates: {
+        lat: req.body.coordinates?.lat != null ? Number(req.body.coordinates.lat) : null,
+        lng: req.body.coordinates?.lng != null ? Number(req.body.coordinates.lng) : null,
+      },
       isVerified: false,
       ratingAverage: 0,
       reviewCount: 0,
@@ -72,7 +79,12 @@ async function getMyShop(req, res, next) {
       return res.status(404).json({ message: 'Shop not found' });
     }
 
-    res.json({ shop });
+    res.json({
+      shop: {
+        ...shop.toObject(),
+        storefront: buildStorefrontPayload(shop),
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -89,6 +101,11 @@ async function getShopById(req, res, next) {
 
     if (shop.status !== 'active') {
       return res.status(404).json({ message: 'Shop not found' });
+    }
+
+    const isOwner = req.user && String(shop.owner) === String(req.user._id);
+    if (!isOwner) {
+      recordShopMetric(shop._id, 'profileViews').catch(() => {});
     }
 
     res.json({ shop });
@@ -117,6 +134,15 @@ async function updateShop(req, res, next) {
         shop[field] = req.body[field];
       }
     });
+    if (req.body.category !== undefined) {
+      shop.category = mapShopCategory(req.body.category);
+    }
+    if (req.body.coordinates) {
+      shop.coordinates = {
+        lat: req.body.coordinates.lat != null ? Number(req.body.coordinates.lat) : shop.coordinates?.lat,
+        lng: req.body.coordinates.lng != null ? Number(req.body.coordinates.lng) : shop.coordinates?.lng,
+      };
+    }
 
     await shop.save();
 

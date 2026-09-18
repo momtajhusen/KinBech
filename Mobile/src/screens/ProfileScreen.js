@@ -8,13 +8,10 @@ import {
   Text,
   View,
   Dimensions,
-  Alert,
-  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import {
-  INFO_COPY,
   openItemDetail,
   ROUTES,
   TABS,
@@ -22,8 +19,10 @@ import {
 } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
+import LogoutConfirmModal from '../components/LogoutConfirmModal';
 import { formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,37 +41,54 @@ export default function ProfileScreen({ navigation }) {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState('purchases');
   const [listings, setListings] = useState([]);
+  const [purchases, setPurchases] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [myShop, setMyShop] = useState(null);
+
+  const isShopAccount =
+    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+
+  const loadProfile = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    const [{ data, error }, purchasesRes, shopRes] = await Promise.all([
+      api.getMyListings(),
+      api.getMyPurchases(),
+      isShopAccount ? api.getMyShop() : Promise.resolve({ data: null }),
+    ]);
+    if (error) {
+      console.error('Failed to load profile data:', error);
+      setListings([]);
+    } else {
+      setListings(
+        (data?.listings || []).map((listing) => ({
+          ...listing,
+          id: listing.id || listing._id,
+        }))
+      );
+    }
+    setPurchases(
+      (purchasesRes.data?.listings || []).map((listing) => ({
+        ...listing,
+        id: listing.id || listing._id,
+      }))
+    );
+    setMyShop(shopRes.data?.shop || null);
+    if (!silent) setLoading(false);
+  }, [isShopAccount]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadProfile({ silent: true }));
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        const { data, error } = await api.getMyListings();
-        if (!active) return;
-        setLoading(false);
-        if (error) {
-          console.error('Failed to load profile data:', error);
-          setListings([]);
-        } else {
-          setListings(
-            (data?.listings || []).map((listing) => ({
-              ...listing,
-              id: listing.id || listing._id,
-            }))
-          );
-        }
-      })();
-      return () => {
-        active = false;
-      };
-    }, [])
+      loadProfile();
+    }, [loadProfile])
   );
 
   const activeCount = listings.filter((l) => l.status !== 'sold').length;
   const soldCount = listings.filter((l) => l.status === 'sold').length;
+  const shopRating =
+    myShop?.ratingAverage != null ? Number(myShop.ratingAverage).toFixed(1) : 'New';
 
   const STATS = [
     {
@@ -89,16 +105,38 @@ export default function ProfileScreen({ navigation }) {
       iconBg: resolveColor('colors.pastelIndigo', colors),
       iconColor: resolveColor('colors.menuBlue', colors),
     },
-    {
-      label: 'Rating',
-      value: user?.rating || 'New',
-      icon: 'star',
-      iconBg: resolveColor('colors.photoPlusBackground', colors),
-      iconColor: colors.rating,
-    },
+    ...(isShopAccount && myShop
+      ? [
+          {
+            label: 'Rating',
+            value: shopRating,
+            icon: 'star',
+            iconBg: resolveColor('colors.photoPlusBackground', colors),
+            iconColor: colors.rating,
+          },
+        ]
+      : []),
   ];
 
   const QUICK_ACTIONS = [
+    ...(isShopAccount && myShop
+      ? [
+          {
+            label: 'Shop Stats',
+            icon: 'analytics-outline',
+            tint: colors.primary,
+            bg: resolveColor('colors.pastelGreen', colors),
+            onPress: () => navigation.navigate(ROUTES.SHOP_DASHBOARD),
+          },
+          {
+            label: 'Shop QR',
+            icon: 'qr-code-outline',
+            tint: resolveColor('colors.menuPurple', colors),
+            bg: resolveColor('colors.pastelIndigo', colors),
+            onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR),
+          },
+        ]
+      : []),
     {
       label: 'My Listings',
       icon: 'list-outline',
@@ -125,7 +163,7 @@ export default function ProfileScreen({ navigation }) {
       icon: 'wallet-outline',
       tint: resolveColor('colors.menuPurple', colors),
       bg: resolveColor('colors.iconBackground', colors),
-      onPress: () => navigation.navigate(ROUTES.EMPTY_STATE, INFO_COPY.Wallet),
+      onPress: () => navigation.navigate(ROUTES.WALLET),
     },
   ];
 
@@ -135,21 +173,28 @@ export default function ProfileScreen({ navigation }) {
       icon: 'person-outline',
       tint: resolveColor('colors.menuBlue', colors),
       bg: resolveColor('colors.pastelIndigo', colors),
-      onPress: () => navigation.navigate(ROUTES.SETTINGS),
+      onPress: () => navigation.navigate(ROUTES.EDIT_PROFILE),
     },
     {
       label: 'Address & Location',
       icon: 'location-outline',
       tint: colors.danger,
       bg: resolveColor('colors.pastelRed', colors),
-      onPress: () => navigation.navigate(ROUTES.SETTINGS),
+      onPress: () => navigation.navigate(ROUTES.ADDRESSES),
+    },
+    {
+      label: 'Payment Methods',
+      icon: 'card-outline',
+      tint: resolveColor('colors.menuPurple', colors),
+      bg: resolveColor('colors.iconBackground', colors),
+      onPress: () => navigation.navigate(ROUTES.PAYMENT_METHODS),
     },
     {
       label: 'Notifications',
       icon: 'notifications-outline',
       tint: resolveColor('colors.menuOrange', colors),
       bg: resolveColor('colors.pastelOrange', colors),
-      onPress: () => navigation.navigate(ROUTES.SETTINGS),
+      onPress: () => navigation.navigate(ROUTES.NOTIFICATIONS),
     },
     {
       label: 'Help Center',
@@ -168,13 +213,17 @@ export default function ProfileScreen({ navigation }) {
   ];
 
   const displaySales = tab === 'sales' ? listings : [];
-  const displayPurchases = tab === 'purchases' ? [] : [];
+  const displayPurchases = tab === 'purchases' ? purchases : [];
   const activeItems = tab === 'sales' ? displaySales : displayPurchases;
 
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 96 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 96 }}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.headerRow}>
             <Text style={styles.headerTitle}>Profile</Text>
@@ -206,9 +255,6 @@ export default function ProfileScreen({ navigation }) {
                 )}
               </View>
               <View style={styles.onlineIndicator} />
-              <Pressable style={styles.editAvatarBtn} hitSlop={8}>
-                <Ionicons name="camera" size={13} color={colors.white} />
-              </Pressable>
             </View>
 
             <View style={styles.profileInfoWrap}>
@@ -237,12 +283,27 @@ export default function ProfileScreen({ navigation }) {
               </View>
 
               <View style={styles.quickBadges}>
-                <View style={styles.quickBadge}>
-                  <Ionicons name="star" size={11} color="#FFD700" />
-                  <Text style={styles.quickBadgeText}>
-                    {user?.rating ? `${user.rating} Rating` : 'New Seller'}
-                  </Text>
-                </View>
+                {isShopAccount && myShop ? (
+                  <View style={styles.quickBadge}>
+                    <Ionicons name="star" size={11} color="#FFD700" />
+                    <Text style={styles.quickBadgeText}>
+                      {myShop.reviewCount
+                        ? `${Number(myShop.ratingAverage || 0).toFixed(1)} Rating`
+                        : 'New Shop'}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.quickBadge}>
+                    <Ionicons
+                      name={isShopAccount ? 'storefront-outline' : 'person-outline'}
+                      size={11}
+                      color="rgba(255,255,255,0.8)"
+                    />
+                    <Text style={styles.quickBadgeText}>
+                      {isShopAccount ? 'Shop Seller' : 'Individual Seller'}
+                    </Text>
+                  </View>
+                )}
                 {user?.joinedAt ? (
                   <View style={styles.quickBadge}>
                     <Ionicons name="calendar-outline" size={11} color="rgba(255,255,255,0.8)" />
@@ -286,40 +347,32 @@ export default function ProfileScreen({ navigation }) {
             ))}
           </View>
 
-          <View style={styles.toggleRow}>
-            <Pressable style={styles.toggleItem} onPress={() => setTab('purchases')}>
-              <View
-                style={[
-                  styles.toggleInner,
-                  tab === 'purchases' && styles.toggleInnerActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.toggleText,
-                    tab === 'purchases' && styles.toggleTextActive,
-                  ]}
-                >
-                  My Purchases
-                </Text>
-              </View>
+          <View style={styles.tabsTrack}>
+            <Pressable
+              style={[styles.tabBtn, tab === 'purchases' && styles.tabBtnActive]}
+              onPress={() => setTab('purchases')}
+            >
+              <Ionicons
+                name="cart-outline"
+                size={16}
+                color={tab === 'purchases' ? colors.onPrimary : colors.textMuted}
+              />
+              <Text style={[styles.tabBtnText, tab === 'purchases' && styles.tabBtnTextActive]}>
+                My Purchases
+              </Text>
             </Pressable>
-            <Pressable style={styles.toggleItem} onPress={() => setTab('sales')}>
-              <View
-                style={[
-                  styles.toggleInner,
-                  tab === 'sales' && styles.toggleInnerActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.toggleText,
-                    tab === 'sales' && styles.toggleTextActive,
-                  ]}
-                >
-                  My Sales
-                </Text>
-              </View>
+            <Pressable
+              style={[styles.tabBtn, tab === 'sales' && styles.tabBtnActive]}
+              onPress={() => setTab('sales')}
+            >
+              <Ionicons
+                name="bag-handle-outline"
+                size={16}
+                color={tab === 'sales' ? colors.onPrimary : colors.textMuted}
+              />
+              <Text style={[styles.tabBtnText, tab === 'sales' && styles.tabBtnTextActive]}>
+                My Sales
+              </Text>
             </Pressable>
           </View>
 
@@ -332,7 +385,7 @@ export default function ProfileScreen({ navigation }) {
               onPress={() =>
                 tab === 'sales'
                   ? navigation.navigate(ROUTES.MY_LISTINGS)
-                  : navigation.navigate(ROUTES.INFO, INFO_COPY.Transactions)
+                  : navigation.navigate(ROUTES.WALLET)
               }
             >
               <Text style={styles.viewAllText}>View All</Text>
@@ -435,45 +488,16 @@ export default function ProfileScreen({ navigation }) {
         </View>
       </ScrollView>
 
-      {/* Logout Confirmation Modal */}
-      <Modal
+      <LogoutConfirmModal
         visible={showLogoutModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowLogoutModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable 
-            style={styles.modalBackdrop}
-            onPress={() => setShowLogoutModal(false)}
-          />
-          <View style={styles.modalContent}>
-            <View style={styles.modalIconContainer}>
-              <Ionicons name="log-out-outline" size={40} color={colors.danger} />
-            </View>
-            <Text style={styles.modalTitle}>Logout</Text>
-            <Text style={styles.modalMessage}>Are you sure you want to logout? You'll need to login again to access your account.</Text>
-            
-            <View style={styles.modalButtons}>
-              <Pressable
-                style={styles.modalCancelButton}
-                onPress={() => setShowLogoutModal(false)}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalLogoutButton}
-                onPress={async () => {
-                  await logout();
-                  navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
-                }}
-              >
-                <Text style={styles.modalLogoutText}>Logout</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        userName={user?.name}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={async () => {
+          setShowLogoutModal(false);
+          await logout();
+          navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+        }}
+      />
     </View>
   );
 }
@@ -691,31 +715,32 @@ const createStyles = (colors) => ({
     fontWeight: '600',
     textAlign: 'center',
   },
-  toggleRow: {
+  tabsTrack: {
     flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: 26,
+    backgroundColor: colors.iconBackground,
+    borderRadius: 14,
+    padding: 4,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 4,
   },
-  toggleItem: {
+  tabBtn: {
     flex: 1,
-  },
-  toggleInner: {
-    borderRadius: 22,
-    paddingVertical: 12,
+    height: 40,
+    borderRadius: 11,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
-  toggleInnerActive: {
-    backgroundColor: colors.gradientStart,
+  tabBtnActive: {
+    backgroundColor: colors.primary,
   },
-  toggleText: {
-    fontSize: 15,
+  tabBtnText: {
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: colors.textMuted,
   },
-  toggleTextActive: {
+  tabBtnTextActive: {
     color: colors.onPrimary,
   },
   sectionHeader: {

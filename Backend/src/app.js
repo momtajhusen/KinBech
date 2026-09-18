@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const listingRoutes = require('./routes/listings');
@@ -9,6 +10,9 @@ const notificationRoutes = require('./routes/notifications');
 const reportRoutes = require('./routes/reports');
 const reviewRoutes = require('./routes/reviews');
 const shopRoutes = require('./routes/shops');
+const sellerRoutes = require('./routes/sellers');
+const categoryRoutes = require('./routes/categories');
+const mapRoutes = require('./routes/map');
 const { notFound, errorHandler } = require('./middleware/error');
 
 const app = express();
@@ -22,6 +26,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '5mb' }));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Log all requests for debugging
 app.use((req, res, next) => {
@@ -41,6 +46,9 @@ app.use('/notifications', notificationRoutes);
 app.use('/reports', reportRoutes);
 app.use('/reviews', reviewRoutes);
 app.use('/shops', shopRoutes);
+app.use('/sellers', sellerRoutes);
+app.use('/categories', categoryRoutes);
+app.use('/map', mapRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

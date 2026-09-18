@@ -6,8 +6,6 @@ import {
   Pressable,
   ScrollView,
   LayoutAnimation,
-  Platform,
-  UIManager,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,13 +25,6 @@ function resolveColor(colorRef, colors) {
     return colors[colorKey] || colorRef;
   }
   return colorRef;
-}
-
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 const CATEGORIES = [
@@ -122,7 +113,7 @@ export default function HelpSupportScreen({ navigation }) {
     : FAQS;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['left', 'right']}>
       <ThemeStatusBar variant="header" />
       <LinearGradient
         colors={[colors.gradientStart, colors.gradientEnd]}
@@ -138,8 +129,10 @@ export default function HelpSupportScreen({ navigation }) {
       </LinearGradient>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={colors.textMuted} />
@@ -233,7 +226,7 @@ export default function HelpSupportScreen({ navigation }) {
             <Text style={styles.supportBody}>
               Our support team is here to assist you 24/7.
             </Text>
-            <Pressable onPress={() => navigation.navigate(ROUTES.CHAT, { name: 'KinBech Support' })}>
+            <Pressable onPress={() => navigation.navigate(ROUTES.CONTACT_US)}>
               <LinearGradient
                 colors={[colors.gradientStart, colors.gradientEnd]}
                 start={{ x: 0, y: 0 }}
@@ -265,6 +258,33 @@ export default function HelpSupportScreen({ navigation }) {
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
           ))}
+        </View>
+
+        <Text style={styles.sectionHeading}>Legal & Policies</Text>
+        <View style={styles.articlesList}>
+          <Pressable style={styles.articleRow} onPress={() => navigation.navigate(ROUTES.LEGAL_HUB)}>
+            <View style={styles.articleIconWrap}>
+              <Ionicons name="library-outline" size={20} color={colors.gradientStart} />
+            </View>
+            <View style={styles.articleTextWrap}>
+              <Text style={styles.articleTitle}>All legal documents</Text>
+              <Text style={styles.articleSubtitle}>Privacy, terms, permissions, account deletion</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
+          <Pressable
+            style={styles.articleRow}
+            onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}
+          >
+            <View style={styles.articleIconWrap}>
+              <Ionicons name="phone-portrait-outline" size={20} color={colors.gradientStart} />
+            </View>
+            <View style={styles.articleTextWrap}>
+              <Text style={styles.articleTitle}>App permissions & data use</Text>
+              <Text style={styles.articleSubtitle}>What KinBech accesses on your device</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>

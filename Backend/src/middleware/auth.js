@@ -59,4 +59,22 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-module.exports = { requireAuth, requireAdmin };
+async function optionalAuth(req, _res, next) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(payload.userId);
+    req.user = user || null;
+    next();
+  } catch (_error) {
+    req.user = null;
+    next();
+  }
+}
+
+module.exports = { requireAuth, requireAdmin, optionalAuth };

@@ -4,9 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
   ActivityIndicator,
-  Dimensions,
   Image,
-  Keyboard,
+  StyleSheet,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -20,8 +19,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
-import { EXTRA_PHOTO_SLOTS, MAX_LISTING_PHOTOS, MAX_LISTING_VIDEOS, pickListingPhoto, pickListingVideo } from '../utils/listingPhotos';
+import { useCategories } from '../utils/categories';
+import { formatCityDistrict } from '../utils/locations';
+import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import ListingMediaPreview from '../components/ListingMediaPreview';
+import {
+  EXTRA_PHOTO_SLOTS,
+  MAX_LISTING_PHOTOS,
+  MAX_LISTING_VIDEOS,
+  pickListingPhoto,
+  recordListingVideo,
+  MAX_VIDEO_DURATION_SEC,
+} from '../utils/listingPhotos';
 
 function resolveColor(colorRef, colors) {
   if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
@@ -32,32 +41,27 @@ function resolveColor(colorRef, colors) {
 }
 
 const TOTAL_STEPS = 3;
-const PHOTO_GAP = 10;
-const CONTENT_PAD = 16;
+const STEP_LABELS = ['Photos', 'Details', 'Meetup'];
+const VIDEO_SLOT_INDEX = EXTRA_PHOTO_SLOTS + 1;
+const MAX_MEDIA_SLOTS = MAX_LISTING_PHOTOS + MAX_LISTING_VIDEOS;
 
-function getPhotoLayout() {
-  const screenWidth = Dimensions.get('window').width;
-  const gridWidth = screenWidth - CONTENT_PAD * 2;
-  // Main photo takes 60% of width
-  const mainSize = Math.floor(gridWidth * 0.6);
-  const remainingWidth = gridWidth - mainSize - PHOTO_GAP;
-  // Extra photos in 2x2 grid on the right (40% of width)
-  const smallSize = Math.floor(remainingWidth / 2);
-  return { gridWidth, smallSize, mainSize };
+function countListingPhotos(items) {
+  return (items || []).filter((item) => item && item.type !== 'video').length;
 }
 
-const PHOTO_LAYOUT = getPhotoLayout();
+function countListingVideos(items) {
+  return (items || []).filter((item) => item?.type === 'video').length;
+}
 
-const CATEGORIES = [
-  { label: 'Mobiles', icon: 'phone-portrait-outline', colorKey: 'category.mobiles' },
-  { label: 'Laptops', icon: 'laptop-outline', colorKey: 'category.laptops' },
-  { label: 'Electronics', icon: 'headset-outline', colorKey: 'category.electronics' },
-  { label: 'Furniture', icon: 'bed-outline', colorKey: 'category.furniture' },
-  { label: 'Vehicles', icon: 'car-outline', colorKey: 'category.vehicles' },
-  { label: 'Fashion', icon: 'shirt-outline', colorKey: 'category.fashion' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', colorKey: 'category.sports' },
-  { label: 'More', icon: 'grid-outline', colorKey: 'category.more' },
-];
+function assignVideoSlot(prev, videoItem) {
+  const withoutVideo = (prev || []).filter((item) => item?.type !== 'video');
+  const next = [...withoutVideo];
+  while (next.length < VIDEO_SLOT_INDEX) {
+    next.push(null);
+  }
+  next[VIDEO_SLOT_INDEX] = videoItem;
+  return next.slice(0, MAX_MEDIA_SLOTS);
+}
 
 const CONDITIONS = ['New', 'Good', 'Fair'];
 const MEETUP_OPTIONS = ['Public place', 'Seller location', 'Buyer location'];
@@ -69,18 +73,15 @@ function FloatingField({
   placeholder,
   multiline,
   keyboardType,
-  left,
   right,
   colors,
   styles,
-  onFocus,
   inputRef,
 }) {
   return (
     <View style={styles.floatingWrap}>
       <Text style={styles.floatingLabel}>{label}</Text>
       <View style={[styles.floatingInputRow, multiline && styles.floatingInputRowMultiline]}>
-        {left}
         <TextInput
           ref={inputRef}
           value={value}
@@ -89,7 +90,6 @@ function FloatingField({
           placeholderTextColor={colors.textTertiary}
           multiline={multiline}
           keyboardType={keyboardType}
-          onFocus={onFocus}
           style={[styles.floatingInput, multiline && styles.floatingTextarea]}
         />
         {right}
@@ -98,9 +98,7 @@ function FloatingField({
   );
 }
 
-function ProgressHeader({ step, insets, onBack, colors, styles }) {
-  const progressWidth = `${(step / TOTAL_STEPS) * 100}%`;
-
+function ProgressHeader({ step, insets, onBack, colors, styles, title }) {
   return (
     <LinearGradient
       colors={colors.gradient}
@@ -109,36 +107,50 @@ function ProgressHeader({ step, insets, onBack, colors, styles }) {
       style={[styles.header, { paddingTop: insets.top + 8 }]}
     >
       <View style={styles.headerRow}>
-        <Pressable onPress={onBack} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+        <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
         </Pressable>
-        <View style={styles.back} />
+        <View style={styles.headerTitles}>
+          <Text style={styles.headerTitle}>{title}</Text>
+          <Text style={styles.headerSubtitle}>
+            Step {step} of {TOTAL_STEPS}
+          </Text>
+        </View>
+        <View style={styles.backBtn} />
       </View>
 
-      <Text style={styles.headerTitle}>Post Your Item</Text>
-      <Text style={styles.headerSubtitle}>
-        Step {step} of {TOTAL_STEPS}
-      </Text>
-
-      <View style={styles.progressTrack}>
-        <View style={styles.progressLineBase} />
-        <LinearGradient
-          colors={[colors.warningYellow, colors.surface]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.progressLineActive, { width: progressWidth }]}
-        />
-        <View style={styles.progressDots}>
-          {Array.from({ length: TOTAL_STEPS || 3 }).map((_, index) => (
-            <View
-              key={index}
-              style={[
-                index + 1 <= step ? styles.dotActive : styles.dot,
-                index + 1 < step && styles.dotDone,
-              ]}
-            />
-          ))}
-        </View>
+      <View style={styles.stepsRow}>
+        {STEP_LABELS.map((label, index) => {
+          const n = index + 1;
+          const active = n === step;
+          const done = n < step;
+          return (
+            <View key={label} style={styles.stepItem}>
+              <View
+                style={[
+                  styles.stepNum,
+                  active && styles.stepNumActive,
+                  done && styles.stepNumDone,
+                ]}
+              >
+                {done ? (
+                  <Ionicons name="checkmark" size={12} color={colors.gradientStart} />
+                ) : (
+                  <Text style={[styles.stepNumText, active && styles.stepNumTextActive]}>{n}</Text>
+                )}
+              </View>
+              <Text
+                style={[styles.stepLabel, (active || done) && styles.stepLabelActive]}
+                numberOfLines={1}
+              >
+                {label}
+              </Text>
+              {index < STEP_LABELS.length - 1 ? (
+                <View style={[styles.stepConnector, done && styles.stepConnectorDone]} />
+              ) : null}
+            </View>
+          );
+        })}
       </View>
     </LinearGradient>
   );
@@ -148,6 +160,7 @@ export default function IndividualPostListingScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const categories = useCategories('product');
   const scrollRef = useRef(null);
   const titleRef = useRef(null);
   const descRef = useRef(null);
@@ -159,11 +172,7 @@ export default function IndividualPostListingScreen({ navigation }) {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
-
-  if (!colors) {
-    return null;
-  }
-
+  const [previewIndex, setPreviewIndex] = useState(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Mobiles');
@@ -178,11 +187,13 @@ export default function IndividualPostListingScreen({ navigation }) {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(showErrorAlert({
-          title: 'Location permission',
-          message: 'Allow location access to auto-fill your city.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        setAlertConfig(
+          showErrorAlert({
+            title: 'Location permission',
+            message: 'Allow location access to auto-fill your city.',
+            onConfirm: () => setAlertConfig(null),
+          })
+        );
         return;
       }
       const loc = await Location.getCurrentPositionAsync({
@@ -194,179 +205,181 @@ export default function IndividualPostListingScreen({ navigation }) {
       });
       const addr = geocode?.[0];
       if (!addr) {
-        setAlertConfig(showErrorAlert({
-          title: 'Could not determine location',
-          message: 'Please enter location manually.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        setAlertConfig(
+          showErrorAlert({
+            title: 'Could not determine location',
+            message: 'Please enter location manually.',
+            onConfirm: () => setAlertConfig(null),
+          })
+        );
         return;
       }
-      const city = addr.city || addr.subregion || addr.district || '';
-      const district = addr.district || addr.subregion || '';
-      const parts = [];
-      if (city && city !== district) {
-        parts.push(city);
-      }
-      if (district && !parts.includes(district)) {
-        parts.push(district);
-      }
-      if (parts.length === 0) {
-        parts.push(addr.region || addr.subregion || 'Kathmandu');
-      }
-      setLocation(parts.join(', '));
+      setLocation(formatCityDistrict(addr, 'Kathmandu'));
     } catch (e) {
-      setAlertConfig(showErrorAlert({
-        title: 'Location error',
-        message: 'Could not fetch location. Please enter manually.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Location error',
+          message: 'Could not fetch location. Please enter manually.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
     } finally {
       setLocating(false);
     }
   }, []);
 
-  const scrollToFocus = useCallback((y) => {
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 80), animated: true });
-    }, 120);
-  }, []);
-
-  const mainPhoto = photos[0]?.uri ?? null;
+  const mainPhoto = photos[0]?.type !== 'video' ? photos[0]?.uri ?? null : null;
   const extraPhotos = photos.slice(1);
+  const photoCount = countListingPhotos(photos);
+  const videoCount = countListingVideos(photos);
+
+  const openMediaPreview = (index) => {
+    const item = photos[index];
+    if (item?.uri) setPreviewIndex(index);
+  };
 
   const handleBack = () => {
+    if (previewIndex != null) {
+      setPreviewIndex(null);
+      return;
+    }
+    if (alertConfig) {
+      setAlertConfig(null);
+      return;
+    }
     if (step > 1) {
       setStep((value) => value - 1);
       return;
     }
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    }
+    if (navigation.canGoBack()) navigation.goBack();
   };
-
-  const photoCount = photos.filter((p) => p.type !== 'video').length;
-  const videoCount = photos.filter((p) => p.type === 'video').length;
 
   const pickPhoto = async (index) => {
     setPickingIndex(index);
     try {
       const uri = await pickListingPhoto(index === 0 ? 'main' : 'extra');
-      if (!uri) {
-        return;
-      }
+      if (!uri) return;
       setPhotos((prev) => {
-        const next = [...prev];
+        const next = [...(prev || [])];
+        while (next.length <= index) next.push(null);
         next[index] = { id: `${Date.now()}-${index}`, uri, type: 'image' };
-        return next.slice(0, MAX_LISTING_PHOTOS + MAX_LISTING_VIDEOS);
+        return next.slice(0, MAX_MEDIA_SLOTS);
       });
     } finally {
       setPickingIndex(null);
     }
   };
 
-  const VIDEO_SLOT_INDEX = EXTRA_PHOTO_SLOTS + 1;
-
   const pickVideo = async (index) => {
     setPickingIndex(index);
     try {
-      const result = await pickListingVideo();
-      if (!result) {
-        return;
-      }
-      setPhotos((prev) => {
-        const next = [...prev];
-        const existingVideoIdx = next.findIndex((p) => p.type === 'video');
-        if (existingVideoIdx !== -1 && existingVideoIdx !== VIDEO_SLOT_INDEX) {
-          next.splice(existingVideoIdx, 1);
-        }
-        if (existingVideoIdx === VIDEO_SLOT_INDEX) {
-          next.splice(VIDEO_SLOT_INDEX, 1);
-        }
-        next[VIDEO_SLOT_INDEX] = {
+      const result = await recordListingVideo();
+      if (!result) return;
+      setPhotos((prev) =>
+        assignVideoSlot(prev, {
           id: `${Date.now()}-${VIDEO_SLOT_INDEX}`,
           uri: result.uri,
           duration: result.duration,
           type: 'video',
-        };
-        return next.slice(0, MAX_LISTING_PHOTOS + MAX_LISTING_VIDEOS);
-      });
+        }),
+      );
     } finally {
       setPickingIndex(null);
     }
   };
 
   const removePhoto = (index) => {
-    setPhotos((prev) => prev.filter((_, i) => i !== index));
+    if (previewIndex === index) setPreviewIndex(null);
+    setPhotos((prev) => {
+      const next = [...(prev || [])];
+      next[index] = null;
+      return next;
+    });
   };
 
   const validateStep1 = () => {
     if (!mainPhoto) {
-      setAlertConfig(showErrorAlert({
-        title: 'Main photo required',
-        message: 'Add a clear main photo for your listing.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Main photo required',
+          message: 'Add a clear main photo for your listing.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
       return false;
     }
+    return true;
+  };
+
+  const validateStep2 = () => {
     if (!title.trim()) {
-      setAlertConfig(showErrorAlert({
-        title: 'Title required',
-        message: 'Enter a title for your item.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Title required',
+          message: 'Enter a title for your item.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
       return false;
     }
     if (!price.trim()) {
-      setAlertConfig(showErrorAlert({
-        title: 'Price required',
-        message: 'Enter a price in NPR.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Price required',
+          message: 'Enter a price in NPR.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
       return false;
     }
+    return true;
+  };
+
+  const validateStep3 = () => {
     if (!location.trim()) {
-      setAlertConfig(showErrorAlert({
-        title: 'Location required',
-        message: 'Enter your location.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Location required',
+          message: 'Enter your location.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
       return false;
     }
     return true;
   };
 
   const goNext = async () => {
-    if (step === 1 && !validateStep1()) {
-      return;
-    }
+    if (step === 1 && !validateStep1()) return;
+    if (step === 2 && !validateStep2()) return;
     if (step < TOTAL_STEPS) {
       setStep((value) => value + 1);
       return;
     }
-    if (submitting) {
-      return;
-    }
+    if (!validateStep3() || submitting) return;
     setSubmitting(true);
-    
+
     const { data, error } = await api.createListing({
       title: title.trim(),
       description: description.trim(),
       price,
       category,
       condition,
-      photos: photos.map((photo) => photo.uri).filter(Boolean),
+      photos: photos.filter((item) => item?.uri).map((item) => item.uri),
       location: location.trim(),
       meetupOption: meetup,
       sellerType: 'individual',
     });
-    
+
     setSubmitting(false);
     if (error) {
-      setAlertConfig(showErrorAlert({
-        title: 'Could not post listing',
-        message: error,
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Could not post listing',
+          message: error,
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
       return;
     }
     navigation.navigate(ROUTES.LISTING_SUCCESS, {
@@ -383,36 +396,45 @@ export default function IndividualPostListingScreen({ navigation }) {
   };
 
   const previewPrice = useMemo(() => {
-    const numeric = Number(price.replace(/[^\d]/g, ''));
-    if (!numeric) {
-      return 'Rs —';
-    }
+    const numeric = Number(String(price).replace(/[^\d]/g, ''));
+    if (!numeric) return 'Rs —';
     return `Rs ${numeric.toLocaleString('en-NP')}`;
   }, [price]);
+
+  if (!colors) return null;
 
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <ProgressHeader step={step} insets={insets} onBack={handleBack} colors={colors} styles={styles} />
+      <ProgressHeader
+        step={step}
+        insets={insets}
+        onBack={handleBack}
+        colors={colors}
+        styles={styles}
+        title="Post Your Item"
+      />
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 220 }]}
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          scrollEventThrottle={16}
-          onScrollBeginDrag={Keyboard.dismiss}
         >
           {step === 1 && (
             <>
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.photoSectionTitle}>Add Photos & Video</Text>
+                <View>
+                  <Text style={styles.sectionTitle}>Photos & video</Text>
+                  <Text style={styles.sectionHint}>Add a clear main photo first</Text>
+                </View>
                 <View style={styles.mediaCountRow}>
                   <View style={styles.countChip}>
                     <Ionicons name="image" size={12} color={colors.primary} />
@@ -429,156 +451,142 @@ export default function IndividualPostListingScreen({ navigation }) {
                 </View>
               </View>
 
-              <View style={[styles.photoGrid, { width: PHOTO_LAYOUT.gridWidth }]}>
-                <Pressable
-                  style={[
-                    styles.mainPhotoBox,
-                    {
-                      width: PHOTO_LAYOUT.mainSize,
-                      height: PHOTO_LAYOUT.mainSize,
-                    },
-                  ]}
-                  onPress={() => pickPhoto(0)}
-                  disabled={pickingIndex === 0}
-                >
-                  {mainPhoto ? (
-                    <>
-                      <Image source={{ uri: mainPhoto }} style={styles.mainPhotoImage} resizeMode="cover" />
-                      {photos[0]?.type === 'video' ? (
-                        <View style={styles.mainPlayOverlay}>
-                          <View style={styles.mainPlayIcon}>
-                            <Ionicons name="play" size={28} color="#fff" />
-                          </View>
-                        </View>
-                      ) : null}
-                      <View style={[styles.typeBadge, photos[0]?.type === 'video' ? styles.typeBadgeVideo : styles.typeBadgeImage]}>
-                        <Ionicons
-                          name={photos[0]?.type === 'video' ? 'videocam' : 'image'}
-                          size={11}
-                          color="#fff"
-                        />
-                      </View>
-                      <Pressable style={styles.removeBadge} onPress={() => removePhoto(0)} hitSlop={8}>
-                        <Ionicons name="close" size={14} color={colors.onGradient} />
-                      </Pressable>
-                    </>
-                  ) : pickingIndex === 0 ? (
-                    <ActivityIndicator color={colors.primary} />
-                  ) : (
-                    <View style={styles.mainPhotoEmpty}>
-                      <View style={styles.mainPhotoIconWrap}>
-                        <Ionicons name="camera" size={28} color={colors.onGradient} />
-                        <View style={styles.mainPhotoBadge}>
-                          <Ionicons name="add" size={13} color={colors.primary} />
-                        </View>
-                      </View>
-                      <Text style={styles.mainPhotoTitle}>Add Main Photo</Text>
-                      <Text style={styles.mainPhotoSub}>Make it clear and attractive</Text>
+              <Pressable
+                style={styles.mainPhotoBox}
+                onPress={() => {
+                  if (photos[0]?.uri) openMediaPreview(0);
+                  else pickPhoto(0);
+                }}
+                disabled={pickingIndex === 0}
+              >
+                {mainPhoto ? (
+                  <>
+                    <Image source={{ uri: mainPhoto }} style={styles.mainPhotoImage} />
+                    <View style={styles.tapPreviewHint} pointerEvents="none">
+                      <Ionicons name="expand-outline" size={14} color="#fff" />
                     </View>
-                  )}
-                </Pressable>
+                    {photos[0]?.type === 'video' ? (
+                      <View style={styles.mainPlayOverlay} pointerEvents="none">
+                        <View style={styles.mainPlayIcon}>
+                          <Ionicons name="play" size={28} color="#fff" />
+                        </View>
+                      </View>
+                    ) : null}
+                    <View style={styles.mainBadge} pointerEvents="none">
+                      <Text style={styles.mainBadgeText}>Cover</Text>
+                    </View>
+                    <Pressable style={styles.removeBadge} onPress={() => removePhoto(0)} hitSlop={8}>
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </Pressable>
+                  </>
+                ) : pickingIndex === 0 ? (
+                  <ActivityIndicator color={colors.primary} />
+                ) : (
+                  <View style={styles.mainPhotoEmpty}>
+                    <View style={styles.mainPhotoIconWrap}>
+                      <Ionicons name="camera" size={26} color={colors.primary} />
+                    </View>
+                    <Text style={styles.mainPhotoTitle}>Add cover photo</Text>
+                    <Text style={styles.mainPhotoSub}>Square, well-lit, item in focus</Text>
+                  </View>
+                )}
+              </Pressable>
 
-                <View
-                  style={[
-                    styles.extraGrid,
-                    {
-                      width: PHOTO_LAYOUT.smallSize * 2 + PHOTO_GAP,
-                      height: PHOTO_LAYOUT.mainSize,
-                    },
-                  ]}
-                >
-                  {Array.from({ length: EXTRA_PHOTO_SLOTS + 1 || 4 }).map((_, index) => {
-                    const isVideoSlot = index === EXTRA_PHOTO_SLOTS;
-                    const photo = extraPhotos[index];
-                    const slotIndex = index + 1;
-                    const loading = pickingIndex === slotIndex;
-                    
-                    return (
-                      <View
-                        key={index}
-                        style={[
-                          styles.extraBox,
-                          isVideoSlot && styles.extraBoxVideo,
-                          {
-                            width: PHOTO_LAYOUT.smallSize,
-                            height: PHOTO_LAYOUT.smallSize,
-                          },
-                        ]}
-                      >
-                        {photo ? (
-                          <>
-                            <Image source={{ uri: photo.uri }} style={styles.extraPhotoImage} resizeMode="cover" />
+              <View style={styles.extraRow}>
+                {Array.from({ length: EXTRA_PHOTO_SLOTS + 1 }).map((_, index) => {
+                  const isVideoSlot = index === EXTRA_PHOTO_SLOTS;
+                  const photo = extraPhotos[index];
+                  const slotIndex = index + 1;
+                  const loading = pickingIndex === slotIndex;
+
+                  return (
+                    <View
+                      key={index}
+                      style={[styles.extraBox, isVideoSlot && styles.extraBoxVideo]}
+                    >
+                      {photo?.uri ? (
+                        <>
+                          <Pressable
+                            style={styles.extraSlotFill}
+                            onPress={() => openMediaPreview(slotIndex)}
+                          >
                             {photo.type === 'video' ? (
-                              <View style={styles.extraPlayOverlay}>
+                              <View style={[styles.extraPhotoImage, styles.extraVideoPlaceholder]}>
+                                <Ionicons name="videocam" size={22} color="#E53935" />
+                              </View>
+                            ) : (
+                              <Image source={{ uri: photo.uri }} style={styles.extraPhotoImage} />
+                            )}
+                            {photo.type === 'video' ? (
+                              <View style={styles.extraPlayOverlay} pointerEvents="none">
                                 <Ionicons name="play" size={14} color="#fff" />
                               </View>
-                            ) : null}
-                            <View style={[styles.typeBadgeSmall, photo.type === 'video' ? styles.typeBadgeVideoSmall : styles.typeBadgeImageSmall]}>
-                              <Ionicons
-                                name={photo.type === 'video' ? 'videocam' : 'image'}
-                                size={9}
-                                color="#fff"
-                              />
-                            </View>
-                            <Pressable
-                              style={styles.removeBadgeSmall}
-                              onPress={() => removePhoto(slotIndex)}
-                              hitSlop={8}
-                            >
-                              <Ionicons name="close" size={12} color={colors.onGradient} />
-                            </Pressable>
-                          </>
-                        ) : loading ? (
-                          <ActivityIndicator size="small" color={isVideoSlot ? '#E53935' : colors.primary} />
-                        ) : isVideoSlot ? (
+                            ) : (
+                              <View style={styles.extraPreviewHint} pointerEvents="none">
+                                <Ionicons name="expand-outline" size={11} color="#fff" />
+                              </View>
+                            )}
+                          </Pressable>
                           <Pressable
-                            style={styles.extraSlotVideoOnly}
-                            onPress={() => {
-                              if (videoCount >= MAX_LISTING_VIDEOS) {
-                                setAlertConfig(showErrorAlert({
+                            style={styles.removeBadgeSmall}
+                            onPress={() => removePhoto(slotIndex)}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="close" size={11} color="#fff" />
+                          </Pressable>
+                        </>
+                      ) : loading ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={isVideoSlot ? '#E53935' : colors.primary}
+                        />
+                      ) : isVideoSlot ? (
+                        <Pressable
+                          style={styles.extraSlotFill}
+                          onPress={() => {
+                            if (videoCount >= MAX_LISTING_VIDEOS) {
+                              setAlertConfig(
+                                showErrorAlert({
                                   title: 'Video limit',
                                   message: 'Only 1 video allowed. Remove existing first.',
                                   onConfirm: () => setAlertConfig(null),
-                                }));
-                                return;
-                              }
-                              if (!mainPhoto) {
-                                setAlertConfig(showErrorAlert({
-                                  title: 'Main photo first',
-                                  message: 'Please add a main photo before adding video.',
+                                })
+                              );
+                              return;
+                            }
+                            if (!mainPhoto) {
+                              setAlertConfig(
+                                showErrorAlert({
+                                  title: 'Cover photo first',
+                                  message: 'Add a cover photo before adding a video.',
                                   onConfirm: () => setAlertConfig(null),
-                                }));
-                                return;
-                              }
-                              pickVideo(slotIndex);
-                            }}
-                            hitSlop={6}
-                          >
-                            <View style={styles.extraVideoIconWrap}>
-                              <Ionicons name="videocam" size={18} color="#E53935" />
-                            </View>
-                            <Text style={styles.extraVideoText}>Add Video</Text>
-                          </Pressable>
-                        ) : (
-                          <Pressable
-                            style={styles.extraSlot}
-                            onPress={() => pickPhoto(slotIndex)}
-                            hitSlop={6}
-                          >
-                            <Ionicons name="add" size={18} color={colors.primary} />
-                          </Pressable>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
+                                })
+                              );
+                              return;
+                            }
+                            pickVideo(slotIndex);
+                          }}
+                        >
+                          <Ionicons name="videocam" size={18} color="#E53935" />
+                          <Text style={styles.extraVideoText}>Record</Text>
+                          <Text style={styles.extraVideoHint}>Max {MAX_VIDEO_DURATION_SEC}s</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable style={styles.extraSlotFill} onPress={() => pickPhoto(slotIndex)}>
+                          <Ionicons name="add" size={20} color={colors.primary} />
+                        </Pressable>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             </>
           )}
 
           {step === 2 && (
             <>
-              <Text style={styles.sectionTitle}>Item Details</Text>
+              <Text style={styles.sectionTitle}>Item details</Text>
+              <Text style={styles.sectionHint}>Tell buyers what you are selling</Text>
 
               <FloatingField
                 label="Title"
@@ -588,48 +596,47 @@ export default function IndividualPostListingScreen({ navigation }) {
                 colors={colors}
                 styles={styles}
                 inputRef={titleRef}
-                onFocus={() => scrollToFocus(200)}
               />
 
               <FloatingField
                 label="Description"
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Describe your item..."
+                placeholder="Condition, age, reason for selling…"
                 multiline
                 colors={colors}
                 styles={styles}
                 inputRef={descRef}
-                onFocus={() => scrollToFocus(300)}
               />
 
               <Text style={styles.fieldLabel}>Category</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.categoryScroll}
-              >
-                {CATEGORIES.map((cat) => {
-                  const categoryColor = resolveColor(`colors.${cat.colorKey}`, colors);
+              <View style={styles.chipWrap}>
+                {categories.map((cat) => {
+                  const categoryColor = cat.color || colors.primary;
+                  const active = category === cat.label;
                   return (
                     <Pressable
                       key={cat.label}
                       style={[
                         styles.categoryChip,
-                        category === cat.label && styles.categoryChipActive,
-                        category === cat.label && { backgroundColor: categoryColor },
+                        active && styles.categoryChipActive,
+                        active && { backgroundColor: categoryColor, borderColor: categoryColor },
                       ]}
                       onPress={() => setCategory(cat.label)}
                     >
-                      <Ionicons
-                        name={cat.icon}
-                        size={18}
-                        color={category === cat.label ? colors.onPrimary : colors.textSecondary}
-                      />
+                      {cat.imageUrl ? (
+                        <Image source={{ uri: cat.imageUrl }} style={{ width: 16, height: 16, borderRadius: 4 }} />
+                      ) : (
+                        <Ionicons
+                          name={cat.icon}
+                          size={16}
+                          color={active ? colors.onPrimary : colors.textSecondary}
+                        />
+                      )}
                       <Text
                         style={[
                           styles.categoryChipText,
-                          category === cat.label && styles.categoryChipTextActive,
+                          active && styles.categoryChipTextActive,
                         ]}
                       >
                         {cat.label}
@@ -637,34 +644,30 @@ export default function IndividualPostListingScreen({ navigation }) {
                     </Pressable>
                   );
                 })}
-              </ScrollView>
+              </View>
 
               <Text style={styles.fieldLabel}>Condition</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.categoryScroll}
-              >
-                {CONDITIONS.map((cond) => (
-                  <Pressable
-                    key={cond}
-                    style={[
-                      styles.categoryChip,
-                      condition === cond && styles.categoryChipActive,
-                    ]}
-                    onPress={() => setCondition(cond)}
-                  >
-                    <Text
-                      style={[
-                        styles.categoryChipText,
-                        condition === cond && styles.categoryChipTextActive,
-                      ]}
+              <View style={styles.chipWrap}>
+                {CONDITIONS.map((cond) => {
+                  const active = condition === cond;
+                  return (
+                    <Pressable
+                      key={cond}
+                      style={[styles.categoryChip, active && styles.categoryChipActive]}
+                      onPress={() => setCondition(cond)}
                     >
-                      {cond}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+                      <Text
+                        style={[
+                          styles.categoryChipText,
+                          active && styles.categoryChipTextActive,
+                        ]}
+                      >
+                        {cond}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <FloatingField
                 label="Price (NPR)"
@@ -675,11 +678,13 @@ export default function IndividualPostListingScreen({ navigation }) {
                 colors={colors}
                 styles={styles}
                 inputRef={priceRef}
-                onFocus={() => scrollToFocus(400)}
               />
 
               <View style={styles.toggleRow}>
-                <Text style={styles.toggleLabel}>Price negotiable</Text>
+                <View>
+                  <Text style={styles.toggleLabel}>Price negotiable</Text>
+                  <Text style={styles.toggleHint}>Buyers can make an offer</Text>
+                </View>
                 <Switch
                   value={negotiable}
                   onValueChange={setNegotiable}
@@ -692,74 +697,70 @@ export default function IndividualPostListingScreen({ navigation }) {
 
           {step === 3 && (
             <>
-              <Text style={styles.sectionTitle}>Location & Meetup</Text>
+              <Text style={styles.sectionTitle}>Location & meetup</Text>
+              <Text style={styles.sectionHint}>Meet in a public place when you can</Text>
 
               <FloatingField
                 label="Location"
                 value={location}
                 onChangeText={setLocation}
-                placeholder="Enter your city"
+                placeholder="City or area"
                 right={
-                  <Pressable onPress={getCurrentLocation} disabled={locating}>
+                  <Pressable onPress={getCurrentLocation} disabled={locating} style={styles.locBtn}>
                     {locating ? (
                       <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
-                      <Ionicons name="location" size={20} color={colors.primary} />
+                      <Ionicons name="locate" size={20} color={colors.primary} />
                     )}
                   </Pressable>
                 }
                 colors={colors}
                 styles={styles}
                 inputRef={locationRef}
-                onFocus={() => scrollToFocus(500)}
               />
 
-              <Text style={styles.fieldLabel}>Meetup Option</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.categoryScroll}
-              >
-                {MEETUP_OPTIONS.map((option) => (
-                  <Pressable
-                    key={option}
-                    style={[
-                      styles.categoryChip,
-                      meetup === option && styles.categoryChipActive,
-                    ]}
-                    onPress={() => setMeetup(option)}
-                  >
-                    <Text
-                      style={[
-                        styles.categoryChipText,
-                        meetup === option && styles.categoryChipTextActive,
-                      ]}
+              <Text style={styles.fieldLabel}>Meetup option</Text>
+              <View style={styles.chipWrap}>
+                {MEETUP_OPTIONS.map((option) => {
+                  const active = meetup === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      style={[styles.categoryChip, active && styles.categoryChipActive]}
+                      onPress={() => setMeetup(option)}
                     >
-                      {option}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+                      <Text
+                        style={[
+                          styles.categoryChipText,
+                          active && styles.categoryChipTextActive,
+                        ]}
+                      >
+                        {option}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <View style={styles.previewCard}>
-                <Text style={styles.previewTitle}>Preview</Text>
-                {mainPhoto && (
-                  <Image source={{ uri: mainPhoto }} style={styles.previewImage} resizeMode="cover" />
-                )}
-                <Text style={styles.previewItemTitle}>{title || 'Item Title'}</Text>
+                <Text style={styles.previewEyebrow}>Preview</Text>
+                {mainPhoto ? (
+                  <Pressable onPress={() => openMediaPreview(0)}>
+                    <Image source={{ uri: mainPhoto }} style={styles.previewImage} />
+                  </Pressable>
+                ) : null}
+                <Text style={styles.previewItemTitle}>{title || 'Item title'}</Text>
                 <Text style={styles.previewPrice}>{previewPrice}</Text>
-                <Text style={styles.previewLocation}>{location || 'Location'}</Text>
+                <Text style={styles.previewLocation}>
+                  {location || 'Location'} · {condition}
+                </Text>
               </View>
             </>
           )}
         </ScrollView>
 
-        <View style={[styles.bottomBar, { paddingBottom: insets.bottom }]}>
-          <Pressable
-            style={styles.continueBtn}
-            onPress={goNext}
-            disabled={submitting}
-          >
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+          <Pressable style={styles.continueBtn} onPress={goNext} disabled={submitting}>
             {submitting ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
@@ -771,13 +772,17 @@ export default function IndividualPostListingScreen({ navigation }) {
         </View>
       </KeyboardAvoidingView>
 
-      {alertConfig && (
-        <AlertModal
-          title={alertConfig.title}
-          message={alertConfig.message}
-          onConfirm={alertConfig.onConfirm}
-        />
-      )}
+      <ListingMediaPreview
+        visible={previewIndex != null}
+        item={previewIndex != null ? photos[previewIndex] : null}
+        onClose={() => setPreviewIndex(null)}
+      />
+
+      <AlertModal
+        visible={!!alertConfig}
+        onClose={() => setAlertConfig(null)}
+        {...(alertConfig || {})}
+      />
     </View>
   );
 }
@@ -785,97 +790,132 @@ export default function IndividualPostListingScreen({ navigation }) {
 const createStyles = (colors) => ({
   root: {
     flex: 1,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
   },
   flex: { flex: 1 },
   header: {
-    backgroundColor: colors.gradientStart,
-    paddingTop: 0,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  back: {
-    width: 36,
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  headerTitles: {
+    flex: 1,
+    alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.onGradient,
   },
   headerSubtitle: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.85)',
-    marginTop: 4,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 2,
   },
-  progressTrack: {
-    position: 'relative',
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 2,
-    marginTop: 16,
-  },
-  progressLineBase: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 2,
-  },
-  progressLineActive: {
-    height: 4,
-    borderRadius: 2,
-  },
-  progressDots: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  dotActive: {
-    backgroundColor: colors.warningYellow,
-  },
-  dotDone: {
-    backgroundColor: colors.surface,
-  },
-  content: {
-    paddingTop: 20,
-  },
-  sectionHeaderRow: {
+  stepsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
   },
-  photoSectionTitle: {
+  stepItem: {
+    flex: 1,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  stepNum: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    backgroundColor: 'transparent',
+  },
+  stepNumActive: {
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+  },
+  stepNumDone: {
+    backgroundColor: colors.surface,
+    borderColor: colors.surface,
+  },
+  stepNumText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.85)',
+  },
+  stepNumTextActive: {
+    color: colors.gradientStart,
+  },
+  stepLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.65)',
+  },
+  stepLabelActive: {
+    color: colors.onGradient,
+  },
+  stepConnector: {
+    position: 'absolute',
+    top: 11,
+    left: '62%',
+    right: '-38%',
+    height: 1.5,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  stepConnectorDone: {
+    backgroundColor: colors.surface,
+  },
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 12,
+  },
+  sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
+  },
+  sectionHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+    marginBottom: 12,
   },
   mediaCountRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   countChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 10,
     backgroundColor: colors.iconBackground,
   },
   countChipVideo: {
@@ -883,28 +923,26 @@ const createStyles = (colors) => ({
   },
   countChipText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.primary,
   },
-  photoGrid: {
-    alignSelf: 'center',
-    marginBottom: 24,
-  },
   mainPhotoBox: {
+    width: '100%',
+    aspectRatio: 16 / 10,
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: colors.iconBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mainPhotoImage: {
     width: '100%',
     height: '100%',
   },
   mainPlayOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -917,107 +955,104 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  typeBadge: {
+  mainBadge: {
     position: 'absolute',
-    top: 8,
-    left: 8,
-    paddingHorizontal: 6,
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.6)',
   },
-  typeBadgeImage: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  typeBadgeVideo: {
-    backgroundColor: '#E53935',
+  mainBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   removeBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: 10,
+    right: 10,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 3,
+  },
+  tapPreviewHint: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   mainPhotoEmpty: {
-    width: '100%',
-    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 16,
   },
   mainPhotoIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
-  },
-  mainPhotoBadge: {
-    position: 'absolute',
-    bottom: -4,
-    right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   mainPhotoTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.onGradient,
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
     marginBottom: 4,
   },
   mainPhotoSub: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    color: colors.textSecondary,
   },
-  extraGrid: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
+  extraRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
   },
   extraBox: {
-    backgroundColor: colors.iconBackground,
+    flex: 1,
+    aspectRatio: 1,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: colors.iconBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   extraBoxVideo: {
-    backgroundColor: 'rgba(229, 57, 53, 0.05)',
+    borderColor: 'rgba(229, 57, 53, 0.35)',
+    backgroundColor: 'rgba(229, 57, 53, 0.06)',
   },
   extraPhotoImage: {
     width: '100%',
     height: '100%',
   },
+  extraVideoPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+  },
   extraPlayOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  typeBadgeSmall: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  typeBadgeImageSmall: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  typeBadgeVideoSmall: {
-    backgroundColor: '#E53935',
   },
   removeBadgeSmall: {
     position: 'absolute',
@@ -1029,55 +1064,60 @@ const createStyles = (colors) => ({
     backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 3,
   },
-  extraSlot: {
+  extraPreviewHint: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  extraSlotFill: {
     width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
-    borderRadius: 12,
-  },
-  extraSlotVideoOnly: {
-    backgroundColor: 'rgba(229, 57, 53, 0.05)',
-  },
-  extraVideoIconWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
+    gap: 4,
   },
   extraVideoText: {
-    fontSize: 9,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: '#E53935',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 16,
+  extraVideoHint: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: colors.textMuted,
+    marginTop: 2,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: colors.textSecondary,
     marginBottom: 8,
+    marginTop: 4,
   },
-  categoryScroll: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
   },
   categoryChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 18,
     backgroundColor: colors.iconBackground,
     borderWidth: 1,
     borderColor: colors.border,
-    marginRight: 8,
   },
   categoryChipActive: {
     backgroundColor: colors.primary,
@@ -1095,34 +1135,47 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 16,
-    marginBottom: 24,
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   toggleLabel: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
+  toggleHint: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   floatingWrap: {
-    marginBottom: 16,
+    marginBottom: 14,
   },
   floatingLabel: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.textSecondary,
     marginBottom: 6,
   },
   floatingInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.iconBackground,
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   floatingInputRowMultiline: {
     alignItems: 'flex-start',
-    paddingTop: 14,
+    paddingTop: 12,
   },
   floatingInput: {
     flex: 1,
@@ -1130,30 +1183,37 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   floatingTextarea: {
-    minHeight: 80,
+    minHeight: 88,
     textAlignVertical: 'top',
   },
-  previewCard: {
-    backgroundColor: colors.iconBackground,
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 16,
+  locBtn: {
+    paddingLeft: 8,
   },
-  previewTitle: {
-    fontSize: 16,
+  previewCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  previewEyebrow: {
+    fontSize: 12,
     fontWeight: '700',
-    color: colors.text,
-    marginBottom: 12,
+    color: colors.textSecondary,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   previewImage: {
     width: '100%',
-    height: 200,
+    height: 180,
     borderRadius: 12,
     marginBottom: 12,
   },
   previewItemTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
     marginBottom: 4,
   },
@@ -1168,10 +1228,6 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
   },
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: colors.surface,
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -1180,13 +1236,13 @@ const createStyles = (colors) => ({
   },
   continueBtn: {
     backgroundColor: colors.primary,
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   continueBtnText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.onPrimary,
   },
 });

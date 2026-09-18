@@ -17,6 +17,7 @@ import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const STATUS_STYLES = {
   active: { bg: 'statusActive', label: 'Active' },
@@ -42,10 +43,17 @@ export default function MyListingsScreen({ navigation, route }) {
   const [sortBy, setSortBy] = useState('newest');
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [myShop, setMyShop] = useState(null);
+
+  const isShopAccount =
+    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
 
   const loadListings = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await api.getMyListings();
+    const [{ data, error }, shopRes] = await Promise.all([
+      api.getMyListings(),
+      isShopAccount ? api.getMyShop() : Promise.resolve({ data: null }),
+    ]);
     setLoading(false);
     if (error) {
       console.error('Failed to load my listings:', error);
@@ -61,7 +69,10 @@ export default function MyListingsScreen({ navigation, route }) {
         }))
       );
     }
-  }, []);
+    setMyShop(shopRes.data?.shop || null);
+  }, [isShopAccount]);
+
+  const { refreshing, onRefresh } = usePullRefresh(loadListings);
 
   useFocusEffect(
     useCallback(() => {
@@ -111,20 +122,36 @@ export default function MyListingsScreen({ navigation, route }) {
   return (
     <View style={styles.container}>
       <ThemeStatusBar variant="header" />
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 96 }}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.headerRow}>
             <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
               <Ionicons name="chevron-back" size={24} color={colors.onPrimary} />
             </Pressable>
             <Text style={styles.headerTitle}>My Listings</Text>
-            <Pressable
-              onPress={() => navigation.navigate(ROUTES.POST_LISTING)}
-              hitSlop={12}
-              style={styles.navBtn}
-            >
-              <Ionicons name="add" size={26} color={colors.onPrimary} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              {isShopAccount && myShop ? (
+                <Pressable
+                  onPress={() => navigation.navigate(ROUTES.SHOP_DASHBOARD)}
+                  hitSlop={12}
+                  style={styles.navBtn}
+                >
+                  <Ionicons name="analytics-outline" size={22} color={colors.onPrimary} />
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => navigation.navigate(ROUTES.POST_LISTING)}
+                hitSlop={12}
+                style={styles.navBtn}
+              >
+                <Ionicons name="add" size={26} color={colors.onPrimary} />
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.profileRow}>
@@ -161,13 +188,19 @@ export default function MyListingsScreen({ navigation, route }) {
                   </View>
                   <Text style={styles.statLabel}>Sold</Text>
                 </View>
-                <View style={styles.statCol}>
-                  <View style={styles.statTop}>
-                    <Ionicons name="star" size={14} color="#FFD700" />
-                    <Text style={styles.statValue}>{user?.rating || '4.8'}</Text>
+                {isShopAccount && myShop ? (
+                  <View style={styles.statCol}>
+                    <View style={styles.statTop}>
+                      <Ionicons name="star" size={14} color="#FFD700" />
+                      <Text style={styles.statValue}>
+                        {myShop.reviewCount
+                          ? Number(myShop.ratingAverage || 0).toFixed(1)
+                          : 'New'}
+                      </Text>
+                    </View>
+                    <Text style={styles.statLabel}>Rating</Text>
                   </View>
-                  <Text style={styles.statLabel}>Rating</Text>
-                </View>
+                ) : null}
               </View>
             </View>
           </View>
@@ -295,7 +328,20 @@ export default function MyListingsScreen({ navigation, route }) {
                   <Pressable
                     style={styles.actionBtnShare}
                     hitSlop={6}
-                    onPress={() => Alert.alert('Share', 'Share feature coming soon')}
+                    onPress={() =>
+                      navigation.navigate(ROUTES.LISTING_SUCCESS, {
+                        mode: 'share',
+                        listing: {
+                          id: item.id,
+                          title: item.title,
+                          price: item.price,
+                          location: item.location,
+                          imageUrl: item.imageUrl || item.photos?.[0],
+                          condition: item.condition,
+                          category: item.category,
+                        },
+                      })
+                    }
                   >
                     <Ionicons name="share-social-outline" size={16} color={colors.textSecondary} />
                   </Pressable>
@@ -404,6 +450,11 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   navBtn: {
     width: 40,

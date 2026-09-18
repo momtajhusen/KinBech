@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -16,6 +16,7 @@ import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 /**
  * Resolve color references (e.g., 'colors.iconBackground') to actual color values
@@ -63,22 +64,25 @@ export default function ChatScreen({ navigation, route }) {
   const contactName = route?.params?.name || 'Seller';
   const chatId = route?.params?.chatId;
   const listing = route?.params?.listing;
+  const otherUserId = route?.params?.otherUserId;
   const listingId = listing?.id || listing?._id;
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
 
+  const loadMessages = useCallback(async () => {
+    if (!chatId) return;
+    const { data } = await api.getMessages(chatId);
+    setMessages((data?.messages || []).map(mapMessage));
+  }, [chatId]);
+
+  const { refreshing, onRefresh } = usePullRefresh(loadMessages);
+
   useEffect(() => {
     if (!chatId) return undefined;
-    let active = true;
-    (async () => {
-      const { data } = await api.getMessages(chatId);
-      if (!active) return;
-      setMessages((data?.messages || []).map(mapMessage));
-    })();
-    return () => {
-      active = false;
-    };
-  }, [chatId]);
+    loadMessages();
+    const interval = setInterval(loadMessages, 4000);
+    return () => clearInterval(interval);
+  }, [chatId, loadMessages]);
 
   const send = async (text) => {
     const value = text.trim();
@@ -126,7 +130,7 @@ export default function ChatScreen({ navigation, route }) {
             <Pressable hitSlop={10} style={styles.iconBtn}>
               <Ionicons name="call-outline" size={22} color={colors.onGradient} />
             </Pressable>
-            <Pressable hitSlop={10} style={styles.iconBtn} onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: contactName })}>
+            <Pressable hitSlop={10} style={styles.iconBtn} onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: otherUserId })}>
               <Ionicons name="ellipsis-vertical" size={22} color={colors.onGradient} />
             </Pressable>
           </View>
@@ -149,11 +153,37 @@ export default function ChatScreen({ navigation, route }) {
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
         </Pressable>
+        {chatId ? (
+          <Pressable
+            style={[styles.pinnedCard, { marginTop: 8 }]}
+            onPress={() =>
+              navigation.navigate(ROUTES.MEETUP, {
+                chatId,
+                seller: { name: contactName, id: otherUserId },
+                listing,
+              })
+            }
+          >
+            <View style={styles.pinnedThumb}>
+              <Ionicons name="location-outline" size={26} color={colors.primary} />
+            </View>
+            <View style={styles.pinnedInfo}>
+              <Text style={styles.pinnedTitle}>Confirm meetup</Text>
+              <Text style={styles.pinnedLabel}>
+                {listing?.sellerType === 'shop'
+                  ? 'Meet in a public place, then rate the shop'
+                  : 'Meet in a public place and keep chat in the app'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
       </LinearGradient>
 
       <ScrollView
         contentContainerStyle={styles.messages}
         showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
         {messages.length === 0 ? (
           <EmptyState

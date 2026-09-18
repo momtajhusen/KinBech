@@ -126,7 +126,7 @@ export function AlertModal({
   const getIconColors = () => {
     switch (type) {
       case 'success':
-        return { bg: '#10B981', glow: '#10B981', icon: '#FFFFFF' };
+        return { bg: '#047857', glow: '#047857', icon: '#FFFFFF' };
       case 'error':
         return { bg: '#EF4444', glow: '#EF4444', icon: '#FFFFFF' };
       case 'warning':
@@ -160,7 +160,10 @@ export function AlertModal({
             {primaryButton && (
               <TouchableOpacity
                 activeOpacity={0.8}
-                onPress={primaryButton.onPress}
+                onPress={() => {
+                  primaryButton.onPress?.();
+                  onClose?.();
+                }}
                 disabled={loading}
                 style={styles.button}
               >
@@ -180,7 +183,10 @@ export function AlertModal({
             {secondaryButton && (
               <TouchableOpacity
                 activeOpacity={0.7}
-                onPress={secondaryButton.onPress}
+                onPress={() => {
+                  secondaryButton.onPress?.();
+                  onClose?.();
+                }}
                 disabled={loading}
                 style={styles.secondaryButton}
               >

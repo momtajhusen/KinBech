@@ -6,7 +6,6 @@ import {
   ScrollView,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -133,44 +132,27 @@ export default function SellerTypeSelectionScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const { user, saveSession } = useAuth();
   const { fromSettings = false } = route.params || {};
 
   const handleIndividualPress = useCallback(async () => {
-    // Update user preference if coming from settings
-    if (fromSettings) {
-      const { data, error } = await api.updateProfile({ sellerTypePreference: 'individual' });
-      if (!error) {
-        await saveSession(data.token, data.user);
-      }
-      navigation.navigate(ROUTES.INDIVIDUAL_POST_LISTING);
-    } else {
-      // New user signup flow - go to profile setup
-      const { data, error } = await api.updateProfile({ sellerTypePreference: 'individual' });
-      if (!error) {
-        await saveSession(data.token, data.user);
-      }
-      navigation.replace(ROUTES.PROFILE_SETUP);
+    const { data, error } = await api.updateProfile({ sellerTypePreference: 'individual' });
+    if (!error && data?.token) {
+      await saveSession(data.token, data.user);
     }
+    if (fromSettings) {
+      navigation.goBack();
+      return;
+    }
+    navigation.replace(ROUTES.PROFILE_SETUP);
   }, [navigation, fromSettings, saveSession]);
 
   const handleShopPress = useCallback(async () => {
-    // Update user preference if coming from settings
-    if (fromSettings) {
-      const { data, error } = await api.updateProfile({ sellerTypePreference: 'shop' });
-      if (!error) {
-        await saveSession(data.token, data.user);
-      }
-      navigation.navigate(ROUTES.SHOP_POST_LISTING);
-    } else {
-      // New user signup flow - go to store category selection
-      const { data, error } = await api.updateProfile({ sellerTypePreference: 'shop' });
-      if (!error) {
-        await saveSession(data.token, data.user);
-      }
-      navigation.navigate(ROUTES.STORE_CATEGORY_SELECTION);
+    const { data, error } = await api.updateProfile({ sellerTypePreference: 'shop' });
+    if (!error && data?.token) {
+      await saveSession(data.token, data.user);
     }
+    navigation.navigate(ROUTES.STORE_CATEGORY_SELECTION, { fromSettings });
   }, [navigation, fromSettings, saveSession]);
 
   const handleBack = useCallback(() => {
@@ -197,7 +179,12 @@ export default function SellerTypeSelectionScreen({ navigation, route }) {
         <Text style={styles.headerSubtitle}>{fromSettings ? 'Update your default selling preference' : 'Choose the selling option that fits your needs'}</Text>
       </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40, flexGrow: 1 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.sectionTitle}>Select selling type</Text>
 
         {/* Individual Seller Card */}

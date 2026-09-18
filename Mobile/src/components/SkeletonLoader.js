@@ -66,16 +66,34 @@ export function Skeleton({
   );
 }
 
-export function ProductCardSkeleton({ width, compact = false }) {
+export function ProductCardSkeleton({ width, compact = true }) {
+  const { colors } = useTheme();
   const imageHeight = compact ? Math.round(width * 0.78) : 110;
 
   return (
-    <View style={{ width, borderRadius: 16, overflow: 'hidden' }}>
-      <Skeleton width={width} height={imageHeight} borderRadius={16} />
-      <View style={{ padding: 8, gap: 3 }}>
-        <Skeleton width={width * 0.8} height={12} borderRadius={4} />
-        <Skeleton width={width * 0.5} height={14} borderRadius={4} />
-        <Skeleton width={width * 0.6} height={10} borderRadius={4} />
+    <View
+      style={{
+        width,
+        backgroundColor: colors.surface,
+        borderRadius: 16,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
+      <View>
+        <Skeleton width={width} height={imageHeight} borderRadius={0} />
+        <View style={{ position: 'absolute', top: 8, right: 8 }}>
+          <Skeleton width={32} height={32} borderRadius={16} />
+        </View>
+      </View>
+      <View style={{ padding: 8, gap: 6 }}>
+        <Skeleton width={width * 0.82} height={12} borderRadius={4} />
+        <Skeleton width={width * 0.42} height={13} borderRadius={4} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Skeleton width={12} height={12} borderRadius={6} />
+          <Skeleton width={width * 0.55} height={10} borderRadius={4} />
+        </View>
       </View>
     </View>
   );
@@ -115,29 +133,45 @@ export function BannerSkeleton() {
 }
 
 export function SellerProfileCardSkeleton({ width = 200 }) {
+  const { colors } = useTheme();
+
   return (
-    <View style={{ width, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: '#e5e7eb' }}>
+    <View
+      style={{
+        width,
+        backgroundColor: colors.surface,
+        borderRadius: 18,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.border,
+      }}
+    >
       <Skeleton width={width} height={80} borderRadius={0} />
-      <View style={{ paddingTop: 35, paddingHorizontal: 12, paddingBottom: 12 }}>
+      <View style={{ position: 'absolute', top: 50, left: 12 }}>
+        <Skeleton width={60} height={60} borderRadius={30} />
+      </View>
+      <View style={{ paddingTop: 38, paddingHorizontal: 12, paddingBottom: 12 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
           <View style={{ flex: 1, marginLeft: 8 }}>
-            <Skeleton width={width * 0.7} height={14} borderRadius={4} marginBottom={4} />
-            <Skeleton width={width * 0.4} height={10} borderRadius={4} />
+            <Skeleton width={width * 0.55} height={14} borderRadius={4} marginBottom={6} />
+            <Skeleton width={width * 0.32} height={10} borderRadius={4} />
           </View>
           <Skeleton width={32} height={32} borderRadius={16} />
         </View>
-        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-          <Skeleton width={50} height={10} borderRadius={4} />
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+          <Skeleton width={48} height={10} borderRadius={4} />
           <Skeleton width={40} height={10} borderRadius={4} />
-          <Skeleton width={35} height={10} borderRadius={4} />
+          <Skeleton width={36} height={10} borderRadius={4} />
         </View>
-        <Skeleton width={width * 0.7} height={10} borderRadius={4} marginBottom={8} />
-        <Skeleton width={width * 0.5} height={32} borderRadius={10} marginBottom={8} />
-        <Skeleton width={50} height={10} borderRadius={4} marginBottom={6} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 }}>
+          <Skeleton width={12} height={12} borderRadius={6} />
+          <Skeleton width={width * 0.62} height={10} borderRadius={4} />
+        </View>
+        <Skeleton width={width - 24} height={32} borderRadius={10} marginBottom={10} />
+        <Skeleton width={54} height={10} borderRadius={4} marginBottom={8} />
         <View style={{ flexDirection: 'row', gap: 6 }}>
-          <Skeleton width={60} height={60} borderRadius={10} />
-          <Skeleton width={60} height={60} borderRadius={10} />
-          <Skeleton width={60} height={60} borderRadius={10} />
+          <Skeleton width={70} height={70} borderRadius={10} />
+          <Skeleton width={70} height={70} borderRadius={10} />
         </View>
       </View>
     </View>

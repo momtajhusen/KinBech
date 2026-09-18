@@ -14,7 +14,7 @@ function otpExpiry() {
 }
 
 function makeOtp() {
-  return String(crypto.randomInt(100000, 1000000));
+  return String(crypto.randomInt(0, 10000)).padStart(4, '0');
 }
 
 async function issueOtp(phone, purpose, name = '') {
@@ -108,6 +108,10 @@ async function verifyOtp(req, res, next) {
       return res.status(400).json({ message: 'Phone number and verification code are required' });
     }
 
+    if (code.length !== 4) {
+      return res.status(400).json({ message: 'Please enter the 4-digit verification code' });
+    }
+
     const record = await Otp.findOne({
       phone,
       consumed: false,
@@ -147,7 +151,7 @@ async function verifyOtp(req, res, next) {
     const token = signUserToken(user);
     return res.json({
       token,
-      user: publicUser(user),
+      user: publicUser(user, { includePrivate: true }),
       isNewUser: false,
     });
   } catch (error) {
@@ -156,7 +160,7 @@ async function verifyOtp(req, res, next) {
 }
 
 async function me(req, res) {
-  res.json({ user: publicUser(req.user) });
+  res.json({ user: publicUser(req.user, { includePrivate: true }) });
 }
 
 async function completeSignup(req, res, next) {
@@ -185,7 +189,7 @@ async function completeSignup(req, res, next) {
     const token = signUserToken(user);
     return res.json({
       token,
-      user: publicUser(user),
+      user: publicUser(user, { includePrivate: true }),
     });
   } catch (error) {
     next(error);
@@ -196,6 +200,9 @@ async function updateMe(req, res, next) {
   try {
     if (req.body.name !== undefined) {
       req.user.name = String(req.body.name).trim();
+    }
+    if (req.body.bio !== undefined) {
+      req.user.bio = String(req.body.bio).trim().slice(0, 200);
     }
     if (req.body.avatarUrl !== undefined) {
       req.user.avatarUrl = String(req.body.avatarUrl).trim();
@@ -220,7 +227,7 @@ async function updateMe(req, res, next) {
     const token = signUserToken(req.user);
     return res.json({
       token,
-      user: publicUser(req.user),
+      user: publicUser(req.user, { includePrivate: true }),
     });
   } catch (error) {
     next(error);
@@ -241,12 +248,21 @@ async function updatePreferences(req, res, next) {
       req.user.preferences = req.user.preferences || {};
       req.user.preferences.currency = String(req.body.currency);
     }
+    if (req.body.showPhone !== undefined) {
+      req.user.preferences = req.user.preferences || {};
+      req.user.preferences.showPhone = Boolean(req.body.showPhone);
+    }
+    if (req.body.showLocation !== undefined) {
+      req.user.preferences = req.user.preferences || {};
+      req.user.preferences.showLocation = Boolean(req.body.showLocation);
+    }
+    req.user.markModified('preferences');
 
     await req.user.save();
     const token = signUserToken(req.user);
     return res.json({
       token,
-      user: publicUser(req.user),
+      user: publicUser(req.user, { includePrivate: true }),
     });
   } catch (error) {
     next(error);
@@ -295,7 +311,7 @@ async function adminLogin(req, res, next) {
     const token = signUserToken(user);
     return res.json({
       token,
-      user: publicUser(user),
+      user: publicUser(user, { includePrivate: true }),
     });
   } catch (error) {
     next(error);
@@ -422,6 +438,65 @@ async function getDashboardStats(req, res, next) {
       return { day, listings: dayData ? dayData.count : 0 };
     });
 
+    const pendingReportDocs = await Report.find({ status: 'pending' })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+    const pendingShopDocs = await Shop.find({ isVerified: false, status: 'active' })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('name createdAt')
+      .lean();
+    const latestListings = await Listing.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('title createdAt status')
+      .lean();
+
+    const recentActivity = [
+      ...pendingReportDocs.map((r) => ({
+        id: String(r._id),
+        type: 'report',
+        message: `New report: ${r.reason || 'user report'}`,
+        time: r.createdAt,
+      })),
+      ...pendingShopDocs.map((s) => ({
+        id: String(s._id),
+        type: 'verification',
+        message: `Shop pending verification: ${s.name}`,
+        time: s.createdAt,
+      })),
+      ...latestListings.map((l) => ({
+        id: String(l._id),
+        type: 'system',
+        message: `Listing ${l.status}: ${l.title}`,
+        time: l.createdAt,
+      })),
+    ]
+      .sort((a, b) => new Date(b.time) - new Date(a.time))
+      .slice(0, 8)
+      .map((item) => ({
+        ...item,
+        time: item.time ? new Date(item.time).toLocaleString() : '',
+      }));
+
+    const attentionItems = [
+      ...pendingReportDocs.slice(0, 3).map((r) => ({
+        id: String(r._id),
+        priority: 'High',
+        title: 'Pending report',
+        description: r.reason || 'A user report needs review',
+        time: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
+      })),
+      ...pendingShopDocs.slice(0, 3).map((s) => ({
+        id: String(s._id),
+        priority: 'Medium',
+        title: 'Shop verification',
+        description: `${s.name} is waiting for verification`,
+        time: s.createdAt ? new Date(s.createdAt).toLocaleString() : '',
+      })),
+    ];
+
     res.json({
       stats: {
         totalUsers,
@@ -429,7 +504,9 @@ async function getDashboardStats(req, res, next) {
         pendingReports,
         pendingShops,
       },
-      weeklyData
+      weeklyData,
+      recentActivity,
+      attentionItems,
     });
   } catch (error) {
     next(error);
@@ -499,7 +576,7 @@ async function updateUserStatus(req, res, next) {
 
     res.json({ 
       message: 'User status updated successfully',
-      user: publicUser(user)
+      user: publicUser(user, { includePrivate: true })
     });
   } catch (error) {
     next(error);

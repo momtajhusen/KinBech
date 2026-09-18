@@ -1,6 +1,10 @@
 const Chat = require('../models/Chat');
 const Message = require('../models/Message');
+const Notification = require('../models/Notification');
+const Listing = require('../models/Listing');
+const Shop = require('../models/Shop');
 const { publicUser } = require('../utils/token');
+const { recordShopMetric } = require('../utils/shopAnalytics');
 
 function otherParticipant(chat, userId) {
   return (chat.participants || []).find(
@@ -11,7 +15,7 @@ function otherParticipant(chat, userId) {
 async function getChats(req, res, next) {
   try {
     const chats = await Chat.find({ participants: req.user._id })
-      .populate('participants', 'name phone avatarUrl rating')
+      .populate('participants', 'name phone avatarUrl rating preferences location')
       .populate('listing', 'title photos price')
       .sort({ lastMessageAt: -1 });
 
@@ -52,9 +56,23 @@ async function createChat(req, res, next) {
         listing: listingId || undefined,
         participants: [req.user._id, userId],
       });
+
+      if (listingId) {
+        Listing.findById(listingId)
+          .select('shopId')
+          .lean()
+          .then(async (listing) => {
+            if (!listing?.shopId) return;
+            const shop = await Shop.findById(listing.shopId).select('owner').lean();
+            if (shop && String(req.user._id) !== String(shop.owner)) {
+              await recordShopMetric(listing.shopId, 'inquiries');
+            }
+          })
+          .catch(() => {});
+      }
     }
 
-    await chat.populate('participants', 'name phone avatarUrl rating');
+    await chat.populate('participants', 'name phone avatarUrl rating preferences location');
     await chat.populate('listing', 'title photos price');
 
     res.status(201).json({
@@ -123,6 +141,26 @@ async function sendMessage(req, res, next) {
     chat.lastMessageAt = new Date();
     await chat.save();
 
+    const otherId = (chat.participants || []).find(
+      (person) => String(person._id || person) !== String(req.user._id)
+    );
+    if (otherId) {
+      try {
+        await Notification.create({
+          user: otherId,
+          type: 'chat',
+          title: 'New message',
+          body: text.slice(0, 140),
+          icon: 'chatbubble-outline',
+          route: 'Chat',
+          params: { chatId: String(chat._id) },
+          relatedChat: chat._id,
+        });
+      } catch {
+        /* notification is best-effort */
+      }
+    }
+
     res.status(201).json({
       message: {
         id: message._id,
@@ -137,4 +175,35 @@ async function sendMessage(req, res, next) {
   }
 }
 
-module.exports = { getChats, createChat, getMessages, sendMessage };
+async function confirmMeetup(req, res, next) {
+  try {
+    const chat = await Chat.findOne({
+      _id: req.params.id,
+      participants: req.user._id,
+    }).populate('listing', 'title photos price condition sellerType shopId seller');
+
+    if (!chat) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
+
+    chat.meetupConfirmed = true;
+    chat.meetupPlace = String(req.body.place || chat.meetupPlace || 'Public place');
+    chat.meetupAt = new Date();
+    await chat.save();
+
+    res.json({
+      ok: true,
+      chat: {
+        id: chat._id,
+        meetupConfirmed: true,
+        meetupPlace: chat.meetupPlace,
+        meetupAt: chat.meetupAt,
+        listing: chat.listing,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { getChats, createChat, getMessages, sendMessage, confirmMeetup };

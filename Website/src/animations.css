@@ -1,0 +1,333 @@
+/* ── Scroll reveal ── */
+.reveal {
+  opacity: 0;
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+}
+
+.reveal--up {
+  transform: translateY(28px);
+}
+
+.reveal--down {
+  transform: translateY(-20px);
+}
+
+.reveal--left {
+  transform: translateX(-24px);
+}
+
+.reveal--right {
+  transform: translateX(24px);
+}
+
+.reveal--scale {
+  transform: scale(0.94);
+}
+
+.reveal--fade {
+  transform: none;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ── Hero entrance (page load) ── */
+@keyframes heroFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes heroFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes floatPhone {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulseDot {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(4, 120, 87, 0.55);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 8px rgba(4, 120, 87, 0);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes slideCardIn {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes trustFill {
+  from { width: 0; }
+  to { width: 88%; }
+}
+
+@keyframes iconPop {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes navFadeDown {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-badge {
+  animation: heroFadeUp 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.1s both;
+}
+
+.hero h1 {
+  animation: heroFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+}
+
+.hero-lead {
+  animation: heroFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.32s both;
+}
+
+.hero-actions {
+  animation: heroFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.44s both;
+}
+
+.hero-stats {
+  animation: heroFadeUp 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.56s both;
+}
+
+.phone-mock {
+  animation:
+    heroFadeIn 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.35s both,
+    floatPhone 5s ease-in-out 1.2s infinite;
+}
+
+.hero-badge span {
+  animation: pulseDot 2.4s ease-in-out infinite;
+}
+
+.nav {
+  animation: navFadeDown 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Phone mock inner cards stagger */
+.mini-card:nth-child(1) {
+  animation: slideCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
+}
+
+.mini-card:nth-child(2) {
+  animation: slideCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1.05s both;
+}
+
+.mini-card:nth-child(3) {
+  animation: slideCardIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) 1.2s both;
+}
+
+.phone-search {
+  animation: heroFadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) 0.75s both;
+}
+
+/* ── Micro-interactions ── */
+.btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.35) 0%, transparent 65%);
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.35s, transform 0.35s;
+  pointer-events: none;
+}
+
+.btn:hover::after {
+  opacity: 1;
+  transform: scale(1.2);
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.feature-card:hover .feature-icon,
+.step-card:hover .step-icon,
+.category-card:hover .category-card-icon,
+.stat-card:hover .stat-card-icon,
+.safety-card:hover .safety-icon {
+  animation: iconPop 0.45s ease;
+}
+
+.category-card-arrow {
+  transition: opacity 0.25s, transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.feature-card,
+.step-card,
+.category-card,
+.stat-card,
+.seller-card,
+.safety-card {
+  transition:
+    transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.35s ease;
+}
+
+.nav-links a {
+  position: relative;
+}
+
+.nav-links a::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  opacity: 0.5;
+}
+
+.nav-links a:hover::after {
+  transform: scaleX(1);
+}
+
+.reveal.trust-panel.is-visible .trust-meter-bar {
+  animation: trustFill 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both;
+}
+
+.reveal.trust-panel.is-visible .trust-badge {
+  animation: heroFadeUp 0.55s cubic-bezier(0.22, 1, 0.36, 1) var(--badge-delay, 0ms) both;
+}
+
+.reveal.trust-panel .trust-badge {
+  opacity: 0;
+}
+
+.reveal.trust-panel.is-visible .trust-badge {
+  opacity: 1;
+}
+
+.section-header--center .section-label {
+  padding-left: 0;
+}
+
+.section-header--center .section-label::before {
+  display: none;
+}
+
+.faq-item {
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+.faq-item.open {
+  box-shadow: var(--shadow);
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border));
+}
+
+.faq-a {
+  transition: max-height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.faq-q span {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.section-label {
+  position: relative;
+  padding-left: 14px;
+}
+
+.section-label::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary-bright);
+  transform: translateY(-50%);
+  animation: pulseDot 2.4s ease-in-out infinite;
+}
+
+.download-phone {
+  animation: floatPhone 4s ease-in-out infinite;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .hero-badge,
+  .hero h1,
+  .hero-lead,
+  .hero-actions,
+  .hero-stats,
+  .phone-mock,
+  .mini-card,
+  .phone-search,
+  .nav,
+  .download-phone {
+    animation: none;
+  }
+
+  .btn:hover {
+    transform: none;
+  }
+
+  .feature-card:hover .feature-icon,
+  .step-card:hover .step-icon,
+  .category-card:hover .category-card-icon,
+  .stat-card:hover .stat-card-icon,
+  .safety-card:hover .safety-icon {
+    animation: none;
+  }
+}

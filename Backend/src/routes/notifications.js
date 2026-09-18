@@ -4,10 +4,10 @@ const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 const router = Router();
 
-// User routes
+// User routes — /read-all before /:id/read
 router.get('/', requireAuth, getNotifications);
-router.patch('/:id/read', requireAuth, markAsRead);
 router.patch('/read-all', requireAuth, markAllAsRead);
+router.patch('/:id/read', requireAuth, markAsRead);
 
 // Admin routes
 router.post('/admin/broadcast', requireAdmin, createBroadcastNotification);

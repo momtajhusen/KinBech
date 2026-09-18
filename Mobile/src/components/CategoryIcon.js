@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, Text, View, Animated } from 'react-native';
+import { Pressable, Text, View, Animated, Image } from 'react-native';
 import { useRef } from 'react';
 import { useTheme, useThemedStyles } from '../theme';
 
@@ -12,9 +12,14 @@ const createStyles = (colors) => ({
   icon: {
     width: 56,
     height: 56,
-    borderRadius: 28,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  image: {
+    width: 56,
+    height: 56,
   },
   emoji: {
     fontSize: 22,
@@ -31,6 +36,7 @@ export default function CategoryIcon({
   label,
   emoji = '📦',
   icon,
+  imageUrl,
   color,
   onPress,
 }) {
@@ -69,7 +75,9 @@ export default function CategoryIcon({
         style={styles.wrap}
       >
         <View style={[styles.icon, { backgroundColor: iconBackground }]}>
-          {icon ? (
+          {imageUrl ? (
+            <Image source={{ uri: imageUrl }} style={styles.image} />
+          ) : icon ? (
             <Ionicons name={icon} size={22} color={onPrimaryColor} />
           ) : (
             <Text style={styles.emoji}>{emoji}</Text>

@@ -92,7 +92,7 @@ KinBech इन सभी problems को solve करता है by focusing o
 ## 🏗️ Technology Stack
 
 ### Frontend (Mobile App)
-- **Framework:** React Native with Expo SDK 54
+- **Framework:** React Native with Expo SDK 57
 - **Language:** JavaScript/JSX
 - **Navigation:** React Navigation v7
 - **State Management:** React Context API

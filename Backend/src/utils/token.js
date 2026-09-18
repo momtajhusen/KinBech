@@ -8,24 +8,34 @@ function signUserToken(user) {
   );
 }
 
-function publicUser(user) {
-  const defaultPrefs = { notifications: true, language: 'English', currency: 'NPR (₨)' };
+function publicUser(user, options = {}) {
+  const defaultPrefs = {
+    notifications: true,
+    language: 'English',
+    currency: 'NPR (₨)',
+    showPhone: false,
+    showLocation: true,
+  };
   const prefs = user.preferences
     ? { ...defaultPrefs, ...(user.preferences.toObject ? user.preferences.toObject() : user.preferences) }
     : defaultPrefs;
+  const includePrivate = options.includePrivate === true;
   return {
     id: user._id.toString(),
     name: user.name,
-    phone: user.phone,
-    email: user.email || '',
+    phone: includePrivate || prefs.showPhone ? user.phone : '',
+    email: includePrivate ? user.email || '' : '',
     role: user.role || 'user',
     avatarUrl: user.avatarUrl,
+    bio: user.bio || '',
     soldCount: user.soldCount,
     boughtCount: user.boughtCount,
+    sellerTypePreference: user.sellerTypePreference || 'individual',
     preferences: prefs,
-    location: user.location || '',
-    coordinates: user.coordinates || null,
+    location: includePrivate || prefs.showLocation !== false ? user.location || '' : '',
+    coordinates: includePrivate || prefs.showLocation !== false ? user.coordinates || null : null,
     blockedCount: Array.isArray(user.blockedUserIds) ? user.blockedUserIds.length : 0,
+    joinedAt: user.createdAt || null,
     createdAt: user.createdAt || null,
   };
 }

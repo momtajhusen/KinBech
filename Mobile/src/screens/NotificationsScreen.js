@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -12,6 +12,7 @@ import { navigateToTab, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 /**
  * Resolve color references (e.g., 'colors.iconBackground') to actual color values
@@ -37,21 +38,29 @@ export default function NotificationsScreen({ navigation }) {
   const [notifications, setNotifications] = useState(NOTIFICATIONS);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoading(true);
-      const { data, error } = await api.getNotifications();
-      if (!active) return;
-      setLoading(false);
-      if (!error && data?.notifications) {
-        setNotifications(data.notifications);
-      }
-    })();
-    return () => {
-      active = false;
-    };
+  const loadNotifications = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    const { data, error } = await api.getNotifications();
+    if (!error && data?.notifications) {
+      setNotifications(
+        (data.notifications || []).map((n) => ({
+          ...n,
+          id: n.id || n._id,
+          body: n.body || n.message || '',
+          time: n.createdAt ? new Date(n.createdAt).toLocaleString() : '',
+          unread: n.unread !== false,
+          icon: n.icon || 'notifications-outline',
+        }))
+      );
+    }
+    if (!silent) setLoading(false);
   }, []);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadNotifications({ silent: true }));
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
 
   // Guard against undefined colors
   if (!colors) {
@@ -66,7 +75,13 @@ export default function NotificationsScreen({ navigation }) {
 
   const list = tab === 'unread' ? resolvedNotifications.filter((n) => n.unread) : resolvedNotifications;
 
-  const openNotification = (item) => {
+  const openNotification = async (item) => {
+    if (item.unread && item.id) {
+      await api.markNotificationRead(item.id);
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === item.id ? { ...n, unread: false } : n))
+      );
+    }
     if (item.tab) {
       navigateToTab(navigation, item.tab);
       return;
@@ -74,6 +89,11 @@ export default function NotificationsScreen({ navigation }) {
     if (item.route) {
       navigation.navigate(item.route, item.params);
     }
+  };
+
+  const markAllRead = async () => {
+    await api.markAllNotificationsRead();
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
   };
 
   return (
@@ -89,6 +109,9 @@ export default function NotificationsScreen({ navigation }) {
           <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>Notifications</Text>
+        <Pressable onPress={markAllRead} hitSlop={12}>
+          <Text style={{ color: colors.onGradient, fontWeight: '700', fontSize: 13 }}>Read all</Text>
+        </Pressable>
       </LinearGradient>
 
       <View style={styles.tabRow}>
@@ -113,7 +136,11 @@ export default function NotificationsScreen({ navigation }) {
         />
       </View>
 
-      <ScrollView contentContainerStyle={[styles.list, list.length === 0 && { flexGrow: 1 }]} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={[styles.list, list.length === 0 && { flexGrow: 1 }]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
         {list.length > 0 ? (
           (list || []).map((item) => (
             <Pressable
@@ -167,6 +194,7 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
   },
   headerTitle: {
+    flex: 1,
     marginLeft: 6,
     fontSize: 24,
     fontWeight: '800',

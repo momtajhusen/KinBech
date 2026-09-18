@@ -5,9 +5,9 @@ import ProductCard, {
   peekCardWidth,
 } from './ProductCard';
 
-export default function ProductCardCarousel({ items, onPressItem }) {
+export default function ProductCardCarousel({ items, onPressItem, contentWidth }) {
   const { width: screenWidth } = useWindowDimensions();
-  const cardWidth = peekCardWidth(screenWidth);
+  const cardWidth = peekCardWidth(contentWidth || screenWidth);
   const safeItems = items || [];
 
   return (
@@ -29,6 +29,7 @@ export default function ProductCardCarousel({ items, onPressItem }) {
           key={item.id || `${item.title}-${index}`}
           compact
           {...item}
+          width={cardWidth}
           sharedId={item.id}
           onPress={() => onPressItem?.(item)}
           onToggleSave={item.onToggleSave}

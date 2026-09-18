@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -13,25 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-
-// Local market store categories appropriate for the Nepali market
-const STORE_CATEGORIES = [
-  { label: 'Grocery & Kirana', icon: 'basket-outline', description: 'Daily essentials, grains, spices' },
-  { label: 'Electronics', icon: 'hardware-chip-outline', description: 'Mobiles, laptops, appliances' },
-  { label: 'Clothing & Fashion', icon: 'shirt-outline', description: 'Men, women, kids clothing' },
-  { label: 'Furniture & Home', icon: 'home-outline', description: 'Furniture, home decor, kitchen' },
-  { label: 'Medical & Pharmacy', icon: 'medkit-outline', description: 'Medicines, health products' },
-  { label: 'Food & Restaurant', icon: 'restaurant-outline', description: 'Food items, restaurants, cafes' },
-  { label: 'Books & Stationery', icon: 'book-outline', description: 'Books, school supplies, office' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', description: 'Sports equipment, gym gear' },
-  { label: 'Automotive', icon: 'car-outline', description: 'Vehicle parts, accessories' },
-  { label: 'Beauty & Personal Care', icon: 'flower-outline', description: 'Cosmetics, personal care' },
-  { label: 'Jewelry & Accessories', icon: 'diamond-outline', description: 'Jewelry, watches, accessories' },
-  { label: 'Hardware & Tools', icon: 'construct-outline', description: 'Construction tools, hardware' },
-  { label: 'Pet Supplies', icon: 'paw-outline', description: 'Pet food, accessories' },
-  { label: 'Toys & Games', icon: 'game-controller-outline', description: 'Toys, games, entertainment' },
-  { label: 'Other', icon: 'ellipsis-horizontal-outline', description: 'Other business types' },
-];
+import { useCategories } from '../utils/categories';
 
 const createStyles = (colors) => ({
   root: {
@@ -70,7 +53,6 @@ const createStyles = (colors) => ({
     color: 'rgba(255,255,255,0.85)',
   },
   content: {
-    flex: 1,
     padding: 20,
   },
   sectionTitle: {
@@ -85,7 +67,6 @@ const createStyles = (colors) => ({
     gap: 12,
   },
   categoryCard: {
-    width: '48%',
     backgroundColor: colors.surface,
     borderRadius: 16,
     borderWidth: 2,
@@ -143,6 +124,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user, saveSession } = useAuth();
+  const shopCategories = useCategories('shop');
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -166,14 +148,17 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
       
       if (!error) {
         await saveSession(data.token, data.user);
-        navigation.navigate(ROUTES.CREATE_SHOP, { category: selectedCategory });
+        navigation.navigate(ROUTES.CREATE_SHOP, {
+          category: selectedCategory,
+          fromSettings: route.params?.fromSettings,
+        });
       }
     } catch (error) {
       console.error('Failed to update profile:', error);
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, navigation, saveSession]);
+  }, [selectedCategory, navigation, saveSession, route.params?.fromSettings]);
 
   const handleBack = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -201,15 +186,21 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
         <Text style={styles.headerSubtitle}>Choose the category that best describes your store</Text>
       </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.sectionTitle}>Business Categories</Text>
 
         <View style={styles.categoryGrid}>
-          {STORE_CATEGORIES.map((category) => (
+          {shopCategories.map((category) => (
             <Pressable
               key={category.label}
               style={[
                 styles.categoryCard,
+                { width: (width - 52) / 2 },
                 selectedCategory === category.label && styles.categoryCardActive,
               ]}
               onPress={() => handleCategorySelect(category.label)}
@@ -218,11 +209,15 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
                 styles.categoryIcon,
                 selectedCategory === category.label && styles.categoryIconActive
               ]}>
-                <Ionicons 
-                  name={category.icon} 
-                  size={24} 
-                  color={selectedCategory === category.label ? colors.onPrimary : colors.primary} 
-                />
+                {category.imageUrl ? (
+                  <Image source={{ uri: category.imageUrl }} style={{ width: 24, height: 24, borderRadius: 6 }} />
+                ) : (
+                  <Ionicons
+                    name={category.icon}
+                    size={24}
+                    color={selectedCategory === category.label ? colors.onPrimary : colors.primary}
+                  />
+                )}
               </View>
               <Text style={styles.categoryLabel}>{category.label}</Text>
               <Text style={styles.categoryDescription} numberOfLines={2}>

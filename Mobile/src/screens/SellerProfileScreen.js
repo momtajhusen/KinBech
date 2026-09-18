@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { Image, Modal } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -11,11 +11,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSharedTransition } from '../context/SharedTransitionContext';
-import { openItemDetail } from '../navigation/helpers';
+import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { formatPrice } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -507,8 +508,9 @@ export default function SellerProfileScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { tryBeginNavigation } = useSharedTransition();
-  const seller = route?.params?.seller;
-  const sellerId = seller?._id || seller?.id;
+  const initialSeller = route?.params?.seller;
+  const sellerId = route?.params?.sellerId || initialSeller?._id || initialSeller?.id || initialSeller?.userId;
+  const [seller, setSeller] = useState(initialSeller || null);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState('active');
@@ -516,37 +518,34 @@ export default function SellerProfileScreen({ navigation, route }) {
   const [selectedImage, setSelectedImage] = useState(null);
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
 
+  const loadSeller = useCallback(async ({ silent } = {}) => {
+    if (!sellerId) {
+      if (!silent) setLoading(false);
+      return;
+    }
+    if (!silent) setLoading(true);
+    const statusForApi = filterStatus === 'all' ? undefined : filterStatus;
+    const sellerRes = await api.getSeller(sellerId);
+    if (sellerRes.data?.seller) {
+      setSeller(sellerRes.data.seller);
+    }
+    const listingSellerId = sellerRes.data?.seller?.userId || sellerId;
+    const res = await api.getListings({ seller: listingSellerId, status: statusForApi });
+    let resultListings = [];
+    if (!res.error && res.data?.listings?.length) {
+      resultListings = res.data.listings;
+    }
+    resultListings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    setListings(resultListings);
+    setLoading(false);
+  }, [sellerId, filterStatus]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadSeller({ silent: true }));
+
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        setLoading(true);
-        const statusForApi = filterStatus === 'all' ? undefined : filterStatus;
-        let data = null;
-        let error = null;
-        
-        // Fetch seller listings
-        if (sellerId) {
-          const res = await api.getListings({ seller: sellerId, status: statusForApi });
-          data = res.data;
-          error = res.error;
-        } else {
-          await new Promise((r) => setTimeout(r, 300));
-        }
-        
-        if (!active) return;
-        let resultListings = [];
-        if (!error && data?.listings?.length) {
-          resultListings = data.listings;
-        }
-        resultListings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-        setListings(resultListings);
-        setLoading(false);
-      })();
-      return () => {
-        active = false;
-      };
-    }, [sellerId, filterStatus])
+      loadSeller();
+    }, [loadSeller])
   );
 
   const handleListingPress = (listing) => {
@@ -576,13 +575,20 @@ export default function SellerProfileScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl(colors, refreshing, onRefresh)}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.headerTop}>
             <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
               <Ionicons name="chevron-back" size={22} color={colors.onPrimary} />
             </Pressable>
-            <Pressable style={styles.moreBtn}>
+            <Pressable
+              style={styles.moreBtn}
+              onPress={() =>
+                navigation.navigate(ROUTES.REPORT_BLOCK, {
+                  userId: seller.userId || seller._id || seller.id,
+                })
+              }
+            >
               <Ionicons name="ellipsis-horizontal" size={22} color={colors.onPrimary} />
             </Pressable>
           </View>
@@ -621,7 +627,7 @@ export default function SellerProfileScreen({ navigation, route }) {
 
                   <View style={styles.statCol}>
                     <View style={styles.statTop}>
-                      <MaterialIcons name="bag-check-outline" size={16} color="rgba(255,255,255,0.85)" style={styles.statIcon} />
+                      <Ionicons name="bag-check-outline" size={16} color="rgba(255,255,255,0.85)" style={styles.statIcon} />
                       <Text style={styles.statValue}>{listings.filter(l => l.status === 'sold').length}</Text>
                     </View>
                     <View style={{ height: 14 }} />
@@ -765,18 +771,20 @@ export default function SellerProfileScreen({ navigation, route }) {
 
         {activeTab === 'gallery' && (
           <View style={styles.galleryGrid}>
-            {listings.flatMap(listing => listing.photos || []).map((photo, index) => (
-              <Pressable
-                key={`${listing._id}-${index}`}
-                style={styles.galleryItem}
-                onPress={() => {
-                  setSelectedImage(photo);
-                  setImageViewerVisible(true);
-                }}
-              >
-                <Image source={{ uri: photo }} style={styles.galleryImage} resizeMode="cover" />
-              </Pressable>
-            ))}
+            {listings.flatMap((listing) =>
+              (listing.photos || []).map((photo, index) => (
+                <Pressable
+                  key={`${listing._id || listing.id}-${index}`}
+                  style={styles.galleryItem}
+                  onPress={() => {
+                    setSelectedImage(photo);
+                    setImageViewerVisible(true);
+                  }}
+                >
+                  <Image source={{ uri: photo }} style={styles.galleryImage} resizeMode="cover" />
+                </Pressable>
+              ))
+            )}
           </View>
         )}
 

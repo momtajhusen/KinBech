@@ -1,6 +1,6 @@
 import { useState, memo, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Dimensions, Image, Pressable, Text, View, useWindowDimensions, Animated } from 'react-native';
+import { Dimensions, Image, Pressable, Text, View, useWindowDimensions, Animated, Platform } from 'react-native';
 import { useSharedTransition } from '../context/SharedTransitionContext';
 import { useTheme, useThemedStyles } from '../theme';
 
@@ -88,76 +88,43 @@ const createStyles = (colors) => ({
     color: '#fff',
   },
   body: {
-    padding: 8,
-    gap: 3,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   title: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     color: colors.text,
   },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   price: {
-    fontSize: 13,
+    marginTop: 4,
+    fontSize: 14,
     fontWeight: '800',
     color: colors.price,
   },
-  priceMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  metaStack: {
+    marginTop: 8,
     gap: 6,
   },
-  priceMetaItem: {
+  metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 7,
   },
-  priceMetaIcon: {
-    fontSize: 10,
-  },
-  priceMetaText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  location: {
-    fontSize: 10,
-    color: colors.textSecondary,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  sellerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  sellerTypeIcon: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.9)',
+  metaIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.iconBackground,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sellerTypeIconShop: {
-    backgroundColor: 'rgba(99, 102, 241, 0.9)',
-  },
-  sellerName: {
-    fontSize: 10,
+  metaText: {
+    flex: 1,
+    fontSize: 11,
     fontWeight: '600',
-    color: colors.textMuted,
+    color: colors.textSecondary,
   },
 });
 
@@ -195,9 +162,9 @@ const ProductCard = memo(function ProductCard({
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartScaleAnim = useRef(new Animated.Value(1)).current;
 
-  const photoTag = sharedId ? `item.${sharedId}.photo` : undefined;
-  const titleTag = sharedId ? `item.${sharedId}.title` : undefined;
-  const priceTag = sharedId ? `item.${sharedId}.price` : undefined;
+  const photoTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.photo` : undefined;
+  const titleTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.title` : undefined;
+  const priceTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.price` : undefined;
 
   const handlePress = useCallback(() => {
     if (!onPress) return;
@@ -293,45 +260,39 @@ const ProductCard = memo(function ProductCard({
           <Text numberOfLines={1} style={styles.title} sharedTransitionTag={titleTag}>
             {title}
           </Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.price} sharedTransitionTag={priceTag}>{price}</Text>
-            <View style={styles.priceMeta}>
-              {distanceLabel && (
-                <View style={styles.priceMetaItem}>
-                  <Ionicons name="navigate" size={10} color={colors.textMuted} style={styles.priceMetaIcon} />
-                  <Text style={styles.priceMetaText}>{distanceLabel}</Text>
+          <Text style={styles.price} sharedTransitionTag={priceTag}>{price}</Text>
+
+          <View style={styles.metaStack}>
+            {sellerName ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaIcon}>
+                  <Ionicons
+                    name={sellerType === 'shop' ? 'storefront-outline' : 'person-outline'}
+                    size={11}
+                    color={colors.textSecondary}
+                  />
                 </View>
-              )}
-            </View>
-          </View>
-
-          {sellerType && sellerName && (
-            <View style={styles.footerRow}>
-              <View style={styles.sellerRow}>
-                {sellerType === 'shop' && (
-                  <View style={[styles.sellerTypeIcon, styles.sellerTypeIconShop]}>
-                    <Ionicons name="storefront-outline" size={8} color="#fff" />
-                  </View>
-                )}
-                {sellerType === 'individual' && (
-                  <View style={styles.sellerTypeIcon}>
-                    <Ionicons name="person-outline" size={8} color="#333" />
-                  </View>
-                )}
-                <Text style={styles.sellerName} numberOfLines={1}>{sellerName}</Text>
+                <Text style={styles.metaText} numberOfLines={1}>{sellerName}</Text>
               </View>
+            ) : null}
+            {distanceLabel ? (
+              <View style={styles.metaRow}>
+                <View style={styles.metaIcon}>
+                  <Ionicons name="navigate-outline" size={11} color={colors.textSecondary} />
+                </View>
+                <Text style={styles.metaText} numberOfLines={1}>
+                  {distanceLabel} away
+                </Text>
+              </View>
+            ) : null}
+            <View style={styles.metaRow}>
+              <View style={styles.metaIcon}>
+                <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
+              </View>
+              <Text style={styles.metaText} numberOfLines={1}>
+                {location || 'Location'}
+              </Text>
             </View>
-          )}
-
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
-            <Text style={styles.location} numberOfLines={1}>{location || 'Location'}</Text>
-            {distanceLabel && (
-              <>
-                <Text style={styles.location}> • </Text>
-                <Text style={styles.location}>{distanceLabel}</Text>
-              </>
-            )}
           </View>
         </View>
       </Pressable>

@@ -27,6 +27,7 @@ npm install
 cd Backend && npm install && cd ..
 cd Admin && npm install && cd ..
 cd Mobile && npm install && cd ..
+cd Website && npm install && cd ..
 ```
 
 4. **Start MongoDB**
@@ -69,6 +70,17 @@ npm start          # Start Expo development server
 ```
 - Scan QR code with Expo Go app
 
+**Public Website**
+```bash
+cd Website
+npm run dev        # Development with hot reload
+npm run build      # Build for production
+npm run preview    # Preview production build
+```
+- Public site runs on: http://localhost:5180 (dev)
+
+Or from the repo root: `npm run website:dev`
+
 ## 📁 Project Structure
 
 ```
@@ -76,6 +88,7 @@ KinBech/
 ├── Backend/          # Node.js + Express API
 ├── Admin/            # React + Vite Admin Panel
 ├── Mobile/           # React Native + Expo Mobile App
+├── Website/          # React + Vite public marketing site
 ├── package.json      # Root scripts for running all services
 └── README.md         # This file
 ```
@@ -84,6 +97,15 @@ KinBech/
 
 - **Backend API:** http://localhost:5001
 - **Admin Panel:** http://localhost:5173
+- **Public Website:** http://localhost:5180
+- **Explore (live API):** http://localhost:5180/explore
+- **Categories:** http://localhost:5180/categories
+- **Features:** http://localhost:5180/features
+- **How it works:** http://localhost:5180/how-it-works
+- **For sellers:** http://localhost:5180/sellers
+- **Safety:** http://localhost:5180/safety
+- **FAQ:** http://localhost:5180/faq
+- **Download:** http://localhost:5180/download
 - **Mobile App:** Via Expo Go (scan QR code)
 
 ## 📱 Features
@@ -111,7 +133,8 @@ For detailed project documentation, see [PROJECT_REPORT.md](./PROJECT_REPORT.md)
 
 ## ⚠️ Development Notes
 
-- Admin Panel currently uses mock data (API integration pending)
+- Admin Panel connects to live Backend APIs (users, shops, listings, categories)
+- Public Website is a static marketing landing page (no API required)
 - Backend API is fully functional for mobile app
 - MongoDB connection required for backend to work
 
@@ -124,6 +147,7 @@ For detailed project documentation, see [PROJECT_REPORT.md](./PROJECT_REPORT.md)
 **Port Already in Use**
 - Backend uses port 5001
 - Admin panel uses port 5173
+- Public website uses port 5180 (dev) / 4180 (preview)
 - Mobile uses Expo's default ports
 
 **Dependencies Issues**
@@ -136,7 +160,7 @@ This project is private and confidential.
 
 ---
 
-**Last Updated:** September 5, 2026
+**Last Updated:** September 9, 2026
 
 
 ============ admin default login ===============

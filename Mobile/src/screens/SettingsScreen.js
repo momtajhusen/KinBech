@@ -4,24 +4,32 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { INFO_COPY, ROUTES } from '../navigation/helpers';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import LogoutConfirmModal from '../components/LogoutConfirmModal';
 
 const ACCOUNT_ROWS = [
-  { label: 'Edit Profile', subtitle: 'Update your personal information', icon: 'person-outline', screen: ROUTES.INFO, params: INFO_COPY.EditProfile },
-  { label: 'Privacy & Security', subtitle: 'Manage your privacy settings', icon: 'lock-open-outline', screen: ROUTES.INFO, params: INFO_COPY.Privacy },
-  { label: 'Saved Addresses', subtitle: 'Manage your saved locations', icon: 'location-outline', screen: ROUTES.INFO, params: INFO_COPY.Addresses },
-  { label: 'Payment Methods', subtitle: 'Manage your payment options', icon: 'card-outline', screen: ROUTES.INFO, params: INFO_COPY.PaymentMethods },
+  { label: 'Edit Profile', subtitle: 'Update your personal information', icon: 'person-outline', screen: ROUTES.EDIT_PROFILE },
+  { label: 'Privacy & Security', subtitle: 'Manage your privacy settings', icon: 'lock-open-outline', screen: ROUTES.PRIVACY },
+  { label: 'Saved Addresses', subtitle: 'Manage your saved locations', icon: 'location-outline', screen: ROUTES.ADDRESSES },
+  { label: 'Payment Methods', subtitle: 'Manage your payment options', icon: 'card-outline', screen: ROUTES.PAYMENT_METHODS },
+  { label: 'Wallet', subtitle: 'Sales, purchases, and deal history', icon: 'wallet-outline', screen: ROUTES.WALLET },
   { label: 'My Listings', subtitle: 'View and manage your posted items', icon: 'list-outline', screen: ROUTES.MY_LISTINGS },
-  { label: 'Seller Preference', subtitle: 'Choose how you want to sell', icon: 'storefront-outline', screen: ROUTES.SELLER_TYPE_SELECTION },
+  { label: 'Seller Preference', subtitle: 'Choose how you want to sell', icon: 'storefront-outline', screen: ROUTES.SELLER_TYPE_SELECTION, params: { fromSettings: true } },
 ];
 
 const SUPPORT_ROWS = [
   { label: 'Help Center', subtitle: 'Find answers to common questions', icon: 'help-circle-outline', screen: ROUTES.HELP },
-  { label: 'Contact Us', subtitle: 'Get in touch with our support team', icon: 'chatbubble-ellipses-outline', screen: ROUTES.INFO, params: INFO_COPY.ContactUs },
-  { label: 'Terms & Conditions', subtitle: 'Read our terms and conditions', icon: 'shield-checkmark-outline', screen: ROUTES.INFO, params: INFO_COPY.Terms },
-  { label: 'Privacy Policy', subtitle: 'Learn how we protect your data', icon: 'document-text-outline', screen: ROUTES.INFO, params: INFO_COPY.PrivacyPolicy },
+  { label: 'Contact Us', subtitle: 'Get in touch with our support team', icon: 'chatbubble-ellipses-outline', screen: ROUTES.CONTACT_US },
+];
+
+const LEGAL_ROWS = [
+  { label: 'Legal & Policies', subtitle: 'All Play Store required documents', icon: 'library-outline', screen: ROUTES.LEGAL_HUB },
+  { label: 'Privacy Policy', subtitle: 'Data collection & your rights', icon: 'document-text-outline', screen: ROUTES.PRIVACY_POLICY },
+  { label: 'Terms & Conditions', subtitle: 'Marketplace rules & liability', icon: 'shield-checkmark-outline', screen: ROUTES.TERMS },
+  { label: 'App Permissions', subtitle: 'What we access on your device', icon: 'phone-portrait-outline', screen: ROUTES.LEGAL_DOCUMENT, params: { doc: 'permissions' } },
+  { label: 'Account Deletion', subtitle: 'How to delete your data', icon: 'trash-outline', screen: ROUTES.LEGAL_DOCUMENT, params: { doc: 'accountDeletion' } },
 ];
 
 const createStyles = (colors) => ({
@@ -165,6 +173,7 @@ export default function SettingsScreen({ navigation }) {
   const [language, setLanguage] = useState('English');
   const [currency, setCurrency] = useState('NPR (₨)');
   const [loading, setLoading] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     if (user?.preferences) {
@@ -219,7 +228,11 @@ export default function SettingsScreen({ navigation }) {
         <View style={styles.back} />
       </LinearGradient>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.card}>
           {(ACCOUNT_ROWS || []).map((item, index) => (
@@ -262,7 +275,7 @@ export default function SettingsScreen({ navigation }) {
                 <Ionicons name="chevron-forward" size={18} color={colors.primary} />
               </View>
             }
-            onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.LanguageSelect)}
+            onPress={() => navigation.navigate(ROUTES.LANGUAGE_SELECT)}
           />
           <Row
             icon="moon-outline"
@@ -288,7 +301,7 @@ export default function SettingsScreen({ navigation }) {
                 <Ionicons name="chevron-forward" size={18} color={colors.primary} />
               </View>
             }
-            onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.CurrencySelect)}
+            onPress={() => navigation.navigate(ROUTES.CURRENCY_SELECT)}
           />
         </View>
 
@@ -306,12 +319,23 @@ export default function SettingsScreen({ navigation }) {
           ))}
         </View>
 
+        <Text style={styles.sectionTitle}>Legal & compliance</Text>
+        <View style={styles.card}>
+          {(LEGAL_ROWS || []).map((item, index) => (
+            <Row
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              subtitle={item.subtitle}
+              showBorder={index < LEGAL_ROWS.length - 1}
+              onPress={() => navigation.navigate(item.screen, item.params)}
+            />
+          ))}
+        </View>
+
         <Pressable
           style={styles.logoutCard}
-          onPress={async () => {
-            await logout();
-            navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
-          }}
+          onPress={() => setShowLogoutModal(true)}
         >
           <View style={styles.logoutIconCircle}>
             <Ionicons name="log-out-outline" size={20} color={colors.danger} />
@@ -325,6 +349,17 @@ export default function SettingsScreen({ navigation }) {
 
         <Text style={styles.versionText}>Version 1.0.0</Text>
       </ScrollView>
+
+      <LogoutConfirmModal
+        visible={showLogoutModal}
+        userName={user?.name}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={async () => {
+          setShowLogoutModal(false);
+          await logout();
+          navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+        }}
+      />
     </View>
   );
 }

@@ -1,22 +1,29 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
-  Image,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import FilterBottomSheet from '../components/FilterBottomSheet';
-import { useSharedTransition } from '../context/SharedTransitionContext';
+import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { openItemDetail } from '../navigation/helpers';
 import { api } from '../services/api';
-import { categoryIcon, formatPrice } from '../utils/listing';
+import { toCardItem, attachDistanceToCard } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import { useAuth } from '../context/AuthContext';
+
+const GRID_PADDING = 16;
+const GRID_GUTTER = 12;
 
 const SORT_ORDER = [
   { label: 'Nearest First', key: 'distance' },
@@ -31,20 +38,15 @@ const SORT_KEY_TO_LABEL = SORT_ORDER.reduce((acc, s) => {
   return acc;
 }, {});
 
-function distanceLabel(km) {
-  if (km == null || !Number.isFinite(km)) {
-    return null;
-  }
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  return `${km.toFixed(1)} km`;
-}
-
 export default function SearchResultsScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const { tryBeginNavigation } = useSharedTransition();
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = (windowWidth - GRID_PADDING * 2 - GRID_GUTTER) / 2;
 
+  const { user } = useAuth();
+  const [searchText, setSearchText] = useState(route?.params?.query || '');
   const [query, setQuery] = useState(route?.params?.query || '');
   const [favorites, setFavorites] = useState({});
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -67,6 +69,15 @@ export default function SearchResultsScreen({ navigation, route }) {
   });
 
   const sortLabel = SORT_KEY_TO_LABEL[sortKey] || 'Nearest First';
+  const categoryActive = Boolean(filters.category && filters.category !== 'All' && filters.category !== 'More');
+  const conditionActive = Boolean(filters.condition && filters.condition !== 'All');
+  const distanceActive = filters.radiusKm != null;
+  const priceActive = filters.priceMin != null || filters.priceMax != null || filters.minPrice != null || filters.maxPrice != null;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQuery(searchText), 350);
+    return () => clearTimeout(timer);
+  }, [searchText]);
 
   useEffect(() => {
     let active = true;
@@ -89,7 +100,7 @@ export default function SearchResultsScreen({ navigation, route }) {
         } else {
           setHasLocationPerm(false);
         }
-      } catch (err) {
+      } catch {
         if (active) setHasLocationPerm(false);
       }
     })();
@@ -101,12 +112,8 @@ export default function SearchResultsScreen({ navigation, route }) {
   const queryParams = useMemo(() => {
     const params = {};
     if (query && query.trim()) params.q = query.trim();
-    if (filters.category && filters.category !== 'All' && filters.category !== 'More') {
-      params.category = filters.category;
-    }
-    if (filters.condition && filters.condition !== 'All') {
-      params.condition = filters.condition;
-    }
+    if (categoryActive) params.category = filters.category;
+    if (conditionActive) params.condition = filters.condition;
     const minPrice = filters.priceMin ?? filters.minPrice;
     const maxPrice = filters.priceMax ?? filters.maxPrice;
     if (minPrice != null && minPrice !== '') params.minPrice = Number(minPrice);
@@ -120,26 +127,34 @@ export default function SearchResultsScreen({ navigation, route }) {
     }
     params.sort = sortKey;
     return params;
-  }, [query, filters, sortKey, userCoords]);
+  }, [query, filters, sortKey, userCoords, categoryActive, conditionActive]);
+
+  const loadResults = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    const { data, error } = await api.searchListings(queryParams);
+    if (error) {
+      console.error('Failed to load search results:', error);
+      setListings([]);
+    } else {
+      setListings(data?.listings || []);
+    }
+    if (!silent) setLoading(false);
+  }, [queryParams]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadResults({ silent: true }));
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      setLoading(true);
-      const { data, error } = await api.searchListings(queryParams);
-      if (!active) return;
-      setLoading(false);
-      if (error) {
-        console.error('Failed to load search results:', error);
-        setListings([]);
-      } else {
-        setListings(data?.listings || []);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [queryParams]);
+    loadResults();
+  }, [loadResults]);
+
+  const cards = useMemo(
+    () =>
+      (listings || [])
+        .map(toCardItem)
+        .filter(Boolean)
+        .map((it) => attachDistanceToCard(it, userCoords, user?.id)),
+    [listings, userCoords, user?.id]
+  );
 
   const cycleSort = () => {
     const idx = SORT_ORDER.findIndex((s) => s.key === sortKey);
@@ -161,26 +176,45 @@ export default function SearchResultsScreen({ navigation, route }) {
     priceMax: filters.priceMax ?? filters.maxPrice ?? 100000,
   };
 
+  const renderChip = (active, icon, label) => (
+    <Pressable
+      style={[styles.chip, active && styles.chipActive]}
+      onPress={() => setFiltersOpen(true)}
+    >
+      <Ionicons name={icon} size={14} color={active ? colors.onPrimary : colors.text} />
+      <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+      <Ionicons name="chevron-down" size={12} color={active ? colors.onPrimary : colors.textMuted} />
+    </Pressable>
+  );
+
   return (
     <View style={styles.root}>
-      <ThemeStatusBar />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <ThemeStatusBar variant="header" />
+      <LinearGradient
+        colors={colors.gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[styles.header, { paddingTop: insets.top + 8 }]}
+      >
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.back}>
-          <Ionicons name="chevron-back" size={24} color={colors.text} />
+          <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
         </Pressable>
 
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
           <TextInput
-            value={query}
-            onChangeText={setQuery}
+            value={searchText}
+            onChangeText={setSearchText}
             style={styles.searchInput}
             placeholder="Search for things you love..."
             placeholderTextColor={colors.textTertiary}
             returnKeyType="search"
+            onSubmitEditing={() => setQuery(searchText)}
           />
-          {query.length > 0 && (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+          {searchText.length > 0 && (
+            <Pressable onPress={() => setSearchText('')} hitSlop={8}>
               <Ionicons name="close-circle" size={18} color={colors.textMuted} />
             </Pressable>
           )}
@@ -189,56 +223,36 @@ export default function SearchResultsScreen({ navigation, route }) {
         <Pressable style={styles.filterIconBtn} onPress={() => setFiltersOpen(true)}>
           <Ionicons name="options-outline" size={20} color={colors.primary} />
         </Pressable>
+      </LinearGradient>
+
+      <View style={styles.chipsWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipsRow}
+        >
+          {renderChip(
+            distanceActive,
+            'location-outline',
+            distanceActive ? `${filters.radiusKm} km` : 'Distance'
+          )}
+          {renderChip(
+            categoryActive,
+            'grid-outline',
+            categoryActive ? filters.category : 'Category'
+          )}
+          {renderChip(
+            conditionActive,
+            'shield-checkmark-outline',
+            conditionActive ? filters.condition : 'Condition'
+          )}
+          {renderChip(priceActive, 'pricetag-outline', 'Price')}
+        </ScrollView>
       </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.chipsRow}
-      >
-        <Pressable
-          style={[styles.chip, filters.radiusKm != null && styles.chipActive]}
-          onPress={() => setFiltersOpen(true)}
-        >
-          <Ionicons name="location-outline" size={15} color={filters.radiusKm != null ? colors.onPrimary : colors.text} />
-          <Text style={[styles.chipText, filters.radiusKm != null && styles.chipTextActive]}>
-            {filters.radiusKm != null ? `${filters.radiusKm} km` : 'Distance'}
-          </Text>
-          <Ionicons name="chevron-down" size={14} color={filters.radiusKm != null ? colors.onPrimary : colors.textMuted} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.chip, filters.category && filters.category !== 'All' && styles.chipActive]}
-          onPress={() => setFiltersOpen(true)}
-        >
-          <Ionicons name="grid-outline" size={15} color={filters.category && filters.category !== 'All' ? colors.onPrimary : colors.text} />
-          <Text style={[styles.chipText, filters.category && filters.category !== 'All' && styles.chipTextActive]}>
-            {filters.category && filters.category !== 'All' ? filters.category : 'Category'}
-          </Text>
-          <Ionicons name="chevron-down" size={14} color={filters.category && filters.category !== 'All' ? colors.onPrimary : colors.textMuted} />
-        </Pressable>
-
-        <Pressable
-          style={[styles.chip, filters.condition && filters.condition !== 'All' && styles.chipActive]}
-          onPress={() => setFiltersOpen(true)}
-        >
-          <Ionicons name="shield-checkmark-outline" size={15} color={filters.condition && filters.condition !== 'All' ? colors.onPrimary : colors.text} />
-          <Text style={[styles.chipText, filters.condition && filters.condition !== 'All' && styles.chipTextActive]}>
-            {filters.condition && filters.condition !== 'All' ? filters.condition : 'Condition'}
-          </Text>
-          <Ionicons name="chevron-down" size={14} color={filters.condition && filters.condition !== 'All' ? colors.onPrimary : colors.textMuted} />
-        </Pressable>
-
-        <Pressable style={styles.chip} onPress={() => setFiltersOpen(true)}>
-          <Ionicons name="pricetag-outline" size={15} color={colors.text} />
-          <Text style={styles.chipText}>Price</Text>
-          <Ionicons name="chevron-down" size={14} color={colors.textMuted} />
-        </Pressable>
-      </ScrollView>
 
       <View style={styles.resultsRow}>
         <Text style={styles.resultsCount}>
-          {`${listings.length} results found`}
+          {loading ? 'Searching…' : `${cards.length} result${cards.length === 1 ? '' : 's'} found`}
         </Text>
         <Pressable style={styles.sortBtn} onPress={cycleSort}>
           <Ionicons name="swap-vertical" size={15} color={colors.text} />
@@ -258,96 +272,48 @@ export default function SearchResultsScreen({ navigation, route }) {
         </View>
       )}
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {listings.length > 0 && (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
+        {loading ? (
           <View style={styles.grid}>
-            {(listings || []).map((listing) => {
-              const photo = listing.photos?.[0];
-              const dLabel = distanceLabel(listing.distanceKm);
-              const isFav = !!favorites[listing.id];
-              return (
-                <Pressable
-                  key={listing.id}
-                  style={styles.card}
-                  onPress={() =>
-                    tryBeginNavigation(listing.id, () =>
-                      openItemDetail(navigation, { listingId: listing.id, item: listing, sharedId: listing.id })
-                    )
-                  }
-                >
-                  <View style={[styles.thumb, { backgroundColor: colors.iconBackground }]}>
-                    {photo ? (
-                      <Image
-                        source={{ uri: photo }}
-                        style={styles.thumbImage}
-                        resizeMode="cover"
-                        sharedTransitionTag={`item.${listing.id}.photo`}
-                      />
-                    ) : (
-                      <Ionicons
-                        name={categoryIcon(listing.category)}
-                        size={40}
-                        color={colors.primary}
-                        sharedTransitionTag={`item.${listing.id}.photo`}
-                      />
-                    )}
-                    <Pressable
-                      style={styles.heartBtn}
-                      hitSlop={8}
-                      onPress={() => toggleFavorite(listing.id)}
-                    >
-                      <Ionicons
-                        name={isFav ? 'heart' : 'heart-outline'}
-                        size={18}
-                        color={isFav ? colors.danger : colors.text}
-                      />
-                    </Pressable>
-                    <View style={styles.cardBadges}>
-                      {dLabel ? (
-                        <View style={styles.distanceBadge}>
-                          <Ionicons name="navigate" size={10} color={colors.onPrimary} />
-                          <Text style={styles.distanceBadgeText}>{dLabel}</Text>
-                        </View>
-                      ) : null}
-                      {listing.views != null ? (
-                        <View style={styles.viewsBadge}>
-                          <Ionicons name="eye" size={10} color="#fff" />
-                          <Text style={styles.viewsBadgeText}>
-                            {listing.views >= 1000 ? `${(listing.views / 1000).toFixed(1)}k` : listing.views}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-                  <View style={styles.cardBody}>
-                    <Text style={styles.cardTitle} numberOfLines={1} sharedTransitionTag={`item.${listing.id}.title`}>
-                      {listing.title}
-                    </Text>
-                    <Text style={styles.cardSubtitle} numberOfLines={1}>
-                      {listing.condition}
-                    </Text>
-                    <Text style={styles.cardPrice} sharedTransitionTag={`item.${listing.id}.price`}>{formatPrice(listing.price)}</Text>
-                    <View style={styles.locationRow}>
-                      <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-                      <Text style={styles.locationText} numberOfLines={1}>
-                        {listing.location || 'Unknown area'}
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-              );
-            })}
+            {[0, 1, 2, 3].map((i) => (
+              <ProductCardSkeleton key={i} width={cardWidth} compact />
+            ))}
           </View>
-        )}
-
-        {listings.length === 0 ? (
+        ) : cards.length === 0 ? (
           <EmptyState
             compact
             icon="search-outline"
             title="No results found"
             body="Try another search or change filters to find what you need."
           />
-        ) : null}
+        ) : (
+          <View style={styles.grid}>
+            {cards.map((item) => (
+              <ProductCard
+                key={item.id}
+                {...item}
+                compact
+                width={cardWidth}
+                sharedId={item.id}
+                saved={!!favorites[item.id]}
+                onToggleSave={() => toggleFavorite(item.id)}
+                onPress={() =>
+                  openItemDetail(navigation, {
+                    listingId: item.id,
+                    item: item.listing,
+                    sharedId: item.id,
+                  })
+                }
+              />
+            ))}
+          </View>
+        )}
       </ScrollView>
 
       <FilterBottomSheet
@@ -387,13 +353,17 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
   },
   back: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   searchBar: {
     flex: 1,
@@ -401,11 +371,9 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     gap: 8,
     backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
     borderRadius: 14,
-    paddingHorizontal: 14,
-    height: 46,
+    paddingHorizontal: 12,
+    height: 44,
   },
   searchInput: {
     flex: 1,
@@ -413,20 +381,22 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   filterIconBtn: {
-    width: 46,
-    height: 46,
+    width: 44,
+    height: 44,
     borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
+    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  chipsWrap: {
+    paddingTop: 12,
+    paddingBottom: 4,
   },
   chipsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    gap: 10,
-    paddingBottom: 14,
+    gap: 8,
   },
   chip: {
     flexDirection: 'row',
@@ -435,9 +405,8 @@ const createStyles = (colors) => ({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 20,
-    paddingHorizontal: 14,
-    height: 40,
-    alignSelf: 'center',
+    paddingHorizontal: 12,
+    height: 36,
     backgroundColor: colors.surface,
   },
   chipActive: {
@@ -448,7 +417,7 @@ const createStyles = (colors) => ({
     fontSize: 13,
     fontWeight: '600',
     color: colors.text,
-    flexShrink: 1,
+    maxWidth: 120,
   },
   chipTextActive: {
     color: colors.onPrimary,
@@ -458,10 +427,11 @@ const createStyles = (colors) => ({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingVertical: 10,
   },
   resultsCount: {
     fontSize: 14,
+    fontWeight: '600',
     color: colors.textMuted,
   },
   sortBtn: {
@@ -480,7 +450,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 16,
-    marginBottom: 10,
+    marginBottom: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
@@ -495,159 +465,12 @@ const createStyles = (colors) => ({
     flexShrink: 1,
   },
   content: {
-    paddingHorizontal: 16,
-    paddingBottom: 32,
+    paddingHorizontal: GRID_PADDING,
+    flexGrow: 1,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-  },
-  card: {
-    width: '48%',
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    marginBottom: 16,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  thumb: {
-    height: 130,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  thumbImage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-  },
-  heartBtn: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardBadges: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    flexDirection: 'column',
-    gap: 4,
-  },
-  distanceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: colors.primary,
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  distanceBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.onPrimary,
-  },
-  viewsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  viewsBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  cardBody: {
-    padding: 10,
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  cardSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  cardPrice: {
-    marginTop: 4,
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.price,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    gap: 3,
-  },
-  locationText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    flexShrink: 1,
-  },
-  emptyCard: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 32,
-    marginTop: 8,
-  },
-  emptyIconWrap: {
-    width: 90,
-    height: 90,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
-  },
-  sparkle: {
-    position: 'absolute',
-    fontSize: 13,
-    color: colors.primary,
-    opacity: 0.5,
-  },
-  emptyTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  emptySubtitle: {
-    marginTop: 6,
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 19,
-  },
-  loadingRow: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  loadingText: {
-    fontSize: 13,
-    color: colors.textMuted,
+    gap: GRID_GUTTER,
   },
 });

@@ -11,59 +11,30 @@ import {
   Text,
   View,
   useWindowDimensions,
-  TextInput,
   Dimensions,
   Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useSharedTransition } from '../context/SharedTransitionContext';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { attachDistanceToCard, toCardItem } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAuth } from '../context/AuthContext';
+import { useCategories, mergeSidebarCategories } from '../utils/categories';
 import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
-import ProductCardCarousel from '../components/ProductCardCarousel';
+import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
-import { Skeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
+import { BRAND_TAGLINE } from '../content/brand';
+import { ProductCardSkeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(200, SCREEN_WIDTH / 2.0);
-const SIDEBAR_WIDTH = 70;
+const SIDEBAR_WIDTH = 72;
 const GRID_GUTTER = 8;
 const GRID_PADDING = 10;
-
-// Product categories
-const PRODUCT_CATEGORIES = [
-  { label: 'Mobiles', icon: 'phone-portrait-outline', tint: '#5B39C6' },
-  { label: 'Laptops', icon: 'laptop-outline', tint: '#16A34A' },
-  { label: 'Electronics', icon: 'headset-outline', tint: '#DB2777' },
-  { label: 'Furniture', icon: 'file-tray-stacked-outline', tint: '#059669' },
-  { label: 'Vehicles', icon: 'car-outline', tint: '#4F46E5' },
-  { label: 'Fashion', icon: 'shirt-outline', tint: '#EC4899' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', tint: '#0D9488' },
-];
-
-// Business/Store categories for local market
-const BUSINESS_CATEGORIES = [
-  { label: 'Grocery & Kirana', icon: 'basket-outline', tint: '#5B39C6' },
-  { label: 'Electronics', icon: 'hardware-chip-outline', tint: '#16A34A' },
-  { label: 'Clothing & Fashion', icon: 'shirt-outline', tint: '#DB2777' },
-  { label: 'Furniture & Home', icon: 'home-outline', tint: '#059669' },
-  { label: 'Medical & Pharmacy', icon: 'medkit-outline', tint: '#4F46E5' },
-  { label: 'Food & Restaurant', icon: 'restaurant-outline', tint: '#EC4899' },
-  { label: 'Books & Stationery', icon: 'book-outline', tint: '#0D9488' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', tint: '#F59E0B' },
-  { label: 'Automotive', icon: 'car-outline', tint: '#8B5CF6' },
-  { label: 'Beauty & Personal Care', icon: 'flower-outline', tint: '#EC4899' },
-  { label: 'Jewelry & Accessories', icon: 'diamond-outline', tint: '#F59E0B' },
-  { label: 'Hardware & Tools', icon: 'construct-outline', tint: '#6B7280' },
-  { label: 'Pet Supplies', icon: 'paw-outline', tint: '#10B981' },
-  { label: 'Toys & Games', icon: 'game-controller-outline', tint: '#F43F5E' },
-  { label: 'Other', icon: 'ellipsis-horizontal-outline', tint: '#6B7280' },
-];
 
 const createStyles = (colors) => ({
   container: {
@@ -94,6 +65,16 @@ const createStyles = (colors) => ({
     color: 'rgba(255,255,255,0.85)',
     marginTop: 4,
   },
+  mapBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
   searchWrap: {
     marginTop: -20,
     paddingHorizontal: 16,
@@ -105,7 +86,7 @@ const createStyles = (colors) => ({
     paddingBottom: 20,
   },
   section: {
-    marginTop: 20,
+    marginTop: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -235,69 +216,221 @@ const createStyles = (colors) => ({
   searchTabTextActive: {
     color: colors.onPrimary,
   },
-  mainTabs: {
+  body: {
+    flex: 1,
+  },
+  toolbar: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    position: 'relative',
-    justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  mainTab: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 25,
-    backgroundColor: 'transparent',
-    borderWidth: 0,
-    borderColor: 'transparent',
-    zIndex: 1,
-    minWidth: 80,
+    paddingTop: 14,
+    paddingBottom: 10,
+    gap: 10,
   },
-  mainTabActive: {
-    backgroundColor: 'transparent',
-    borderColor: 'transparent',
-    zIndex: 1,
+  tabsTrack: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: colors.iconBackground,
+    borderRadius: 14,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  mainTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
+  tabBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
-  mainTabTextActive: {
-    color: colors.onPrimary,
-    fontWeight: '700',
-  },
-  tabIndicator: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    bottom: 4,
+  tabBtnActive: {
     backgroundColor: colors.primary,
-    borderRadius: 20,
-    width: 78, // Initial width, will be animated
   },
-  filterButton: {
-    padding: 8,
-    borderRadius: 20,
+  tabBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  tabBtnTextActive: {
+    color: colors.onPrimary,
+  },
+  filterBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 36,
-    minHeight: 36,
   },
-  tabsContainer: {
-    flexDirection: 'row',
-    gap: 2,
-    position: 'relative',
-    backgroundColor: colors.surface,
-    borderRadius: 25,
-    padding: 4,
+  filterBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.danger,
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.white || '#fff',
+  },
+  split: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebar: {
+    width: SIDEBAR_WIDTH,
+    backgroundColor: colors.iconBackground,
+    borderTopRightRadius: 18,
+    overflow: 'hidden',
+  },
+  sidebarContent: {
+    paddingTop: 0,
+    paddingBottom: 8,
+  },
+  sideItem: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 2,
+    gap: 3,
+  },
+  sideItemActive: {
+    backgroundColor: colors.background,
+  },
+  sideIndicator: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: colors.primary,
+  },
+  sideIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  sideIconImage: {
+    width: 32,
+    height: 32,
+  },
+  sideLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 11,
+    paddingHorizontal: 2,
+  },
+  sideLabelActive: {
+    color: colors.text,
+    fontWeight: '800',
+  },
+  sideCount: {
+    fontSize: 9,
+    color: colors.textMuted,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  mainContent: {
+    flex: 1,
+  },
+  resultsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  resultsTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  resultsMeta: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  filterHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+    marginBottom: 14,
+  },
+  sortChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sortChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: colors.iconBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sortChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  sortChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  sortChipTextActive: {
+    color: colors.onPrimary,
+  },
+  filterActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  clearButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  clearButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  applyButtonFlex: {
+    flex: 2,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterModal: {
     flex: 1,
@@ -396,119 +529,14 @@ const createStyles = (colors) => ({
   searchContent: {
     flex: 1,
   },
-  categoriesSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  categoriesScroll: {
-    gap: 8,
-  },
-  categoryChip: {
+  productGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  categoryChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  categoryIcon: {
-    marginRight: 4,
-  },
-  categoryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  categoryTextActive: {
-    color: colors.onPrimary,
-  },
-  mainContent: {
-    flex: 1,
+    flexWrap: 'wrap',
+    paddingHorizontal: GRID_PADDING,
+    paddingBottom: 24,
+    gap: GRID_GUTTER,
   },
 });
-
-// Mock seller data - this should be replaced with actual API calls
-const MOCK_SELLERS = [
-  {
-    _id: 'seller1',
-    name: 'Tech World',
-    avatarUrl: null,
-    coverImage: null,
-    rating: 4.8,
-    reviewsCount: 126,
-    listingCount: 84,
-    distance: 1.5,
-    location: 'Kathmandu',
-    verified: true,
-    productGallery: [],
-    sellerType: 'shop',
-  },
-  {
-    _id: 'seller2',
-    name: 'Mobile Hub',
-    avatarUrl: null,
-    coverImage: null,
-    rating: 4.6,
-    reviewsCount: 89,
-    listingCount: 56,
-    distance: 2.1,
-    location: 'Lalitpur',
-    verified: true,
-    productGallery: [],
-    sellerType: 'shop',
-  },
-  {
-    _id: 'seller3',
-    name: 'Furniture House',
-    avatarUrl: null,
-    coverImage: null,
-    rating: 4.7,
-    reviewsCount: 67,
-    listingCount: 43,
-    distance: 3.2,
-    location: 'Bhaktapur',
-    verified: false,
-    productGallery: [],
-    sellerType: 'shop',
-  },
-  {
-    _id: 'seller4',
-    name: 'Rajesh Kumar',
-    avatarUrl: null,
-    coverImage: null,
-    rating: 4.5,
-    reviewsCount: 34,
-    listingCount: 12,
-    distance: 0.8,
-    location: 'Kathmandu',
-    verified: true,
-    productGallery: [],
-    sellerType: 'individual',
-  },
-  {
-    _id: 'seller5',
-    name: 'Sita Sharma',
-    avatarUrl: null,
-    coverImage: null,
-    rating: 4.9,
-    reviewsCount: 28,
-    listingCount: 8,
-    distance: 1.2,
-    location: 'Lalitpur',
-    verified: false,
-    productGallery: [],
-    sellerType: 'individual',
-  },
-];
 
 export default function ExploreScreen({ navigation, route }) {
   const { colors } = useTheme();
@@ -516,15 +544,17 @@ export default function ExploreScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
   const { user } = useAuth();
-  const { tryBeginNavigation } = useSharedTransition();
   const initialCategory = route?.params?.category;
+  const productCategories = useCategories('product');
+  const shopCategories = useCategories('shop');
 
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchTab, setSearchTab] = useState('all');
   const [activeTab, setActiveTab] = useState('products');
   const [activeCategory, setActiveCategory] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [itemsLoading, setItemsLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
   const [pinnedStores, setPinnedStores] = useState([]);
   const [featuredSellers, setFeaturedSellers] = useState([]);
@@ -538,130 +568,123 @@ export default function ExploreScreen({ navigation, route }) {
     nearby: false,
     topRated: false,
   });
+  const [sortBy, setSortBy] = useState('newest');
 
-  // Animation refs
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-  const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
-  const tabWidthAnim = useRef(new Animated.Value(90)).current;
+  const hasLoadedRef = useRef(false);
+  const paneAnim = useRef(new Animated.Value(1)).current;
+  const sidebarItemAnims = useRef(new Map()).current;
 
-  const fetchCurrentLocation = useCallback(async () => {
+  const getSidebarItemAnim = useCallback((label) => {
+    if (!sidebarItemAnims.has(label)) {
+      sidebarItemAnims.set(label, new Animated.Value(1));
+    }
+    return sidebarItemAnims.get(label);
+  }, [sidebarItemAnims]);
+
+  const triggerPaneAnim = useCallback(() => {
+    paneAnim.stopAnimation();
+    paneAnim.setValue(0);
+    Animated.timing(paneAnim, {
+      toValue: 1,
+      duration: 240,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [paneAnim]);
+
+  const handleCategoryChange = useCallback((label) => {
+    setActiveCategory((curr) => (curr === label ? curr : label));
+  }, []);
+
+  const fetchQuickLocation = useCallback(async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        return null;
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted') return null;
+      const last = await Location.getLastKnownPositionAsync();
+      if (last?.coords) {
+        const coords = { lat: last.coords.latitude, lng: last.coords.longitude };
+        setUserCoords(coords);
+        return coords;
       }
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const coords = {
-        lat: currentLocation.coords.latitude,
-        lng: currentLocation.coords.longitude,
-      };
-      setUserCoords(coords);
-      return coords;
-    } catch (error) {
-      console.log('Location error:', error);
+      return null;
+    } catch (_) {
       return null;
     }
   }, []);
 
-  const fetchSellers = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Load mock data immediately without waiting for location
-      console.log('Using mock seller data for demo - API endpoints not yet implemented');
-      const sellersWithDistance = MOCK_SELLERS.map(seller => ({
-        ...seller,
-        distance: seller.distance,
-      }));
+  const applyExplorePayload = useCallback((featuredRes, popularRes, nearbyRes, productsRes, coords) => {
+    setFeaturedSellers(featuredRes.data?.sellers || []);
+    setPopularSellers(popularRes.data?.sellers || []);
+    setNearbySellers(nearbyRes.data?.sellers || []);
 
-      const featuredSellersData = sellersWithDistance.slice(0, 3);
-      const popularSellersData = sellersWithDistance.sort((a, b) => b.rating - a.rating);
-      const nearbySellersData = sellersWithDistance.sort((a, b) => a.distance - b.distance);
-
-      setFeaturedSellers(featuredSellersData);
-      setPopularSellers(popularSellersData);
-      setNearbySellers(nearbySellersData);
-      
-      // Load pinned stores from AsyncStorage in parallel
-      pinnedStoresUtils.getPinnedStores().then(pinned => {
-        setPinnedStores(pinned);
-      }).catch(err => {
-        console.log('Failed to load pinned stores:', err);
-      });
-
-      // Fetch products immediately without location
-      api.getListings().then(({ data: productsData, error: productsError }) => {
-        if (!productsError && productsData?.listings) {
-          const productsWithDistance = productsData.listings.map(toCardItem).filter(Boolean);
-          setProducts(productsWithDistance);
-        }
-      }).catch(err => {
-        console.log('Failed to load products:', err);
-      });
-
-      // Get location in background and update data
-      fetchCurrentLocation().then(coords => {
-        if (coords) {
-          // Update seller distances with real location
-          const updatedSellers = MOCK_SELLERS.map(seller => ({
-            ...seller,
-            distance: seller.distance + (Math.random() * 2 - 1),
-          }));
-          setFeaturedSellers(updatedSellers.slice(0, 3));
-          setPopularSellers(updatedSellers.sort((a, b) => b.rating - a.rating));
-          setNearbySellers(updatedSellers.sort((a, b) => a.distance - b.distance));
-
-          // Update products with distance
-          api.getListings({ lat: coords.lat, lng: coords.lng }).then(({ data: productsData, error: productsError }) => {
-            if (!productsError && productsData?.listings) {
-              const productsWithDistance = productsData.listings.map(toCardItem).filter(Boolean).map((it) => attachDistanceToCard(it, coords, user?.id));
-              setProducts(productsWithDistance);
-            }
-          }).catch(err => {
-            console.log('Failed to update products with location:', err);
-          });
-        }
-      }).catch(err => {
-        console.log('Location fetch failed:', err);
-      });
-
-      // Trigger entrance animations immediately
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-      ]).start();
-      
-      // Set loading to false immediately since we have mock data
-      setLoading(false);
-    } catch (error) {
-      console.error('Failed to load sellers:', error);
-      // Fall back to mock data on error
-      console.log('Using mock data due to error');
-      const sellersWithDistance = MOCK_SELLERS.map(seller => ({
-        ...seller,
-        distance: 0, // Default distance when location fails
-      }));
-
-      setFeaturedSellers(sellersWithDistance.slice(0, 3));
-      setPopularSellers(sellersWithDistance.sort((a, b) => b.rating - a.rating));
-      setNearbySellers(sellersWithDistance.sort((a, b) => a.distance - b.distance));
-      setLoading(false);
+    if (!productsRes.error && productsRes.data?.listings) {
+      setProducts(
+        productsRes.data.listings
+          .map(toCardItem)
+          .filter(Boolean)
+          .map((it) => attachDistanceToCard(it, coords, user?.id))
+      );
+    } else {
+      setProducts([]);
     }
-  }, [fetchCurrentLocation, fadeAnim, slideAnim, user?.id]);
+  }, [user?.id]);
+
+  const fetchSellers = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setItemsLoading(true);
+    try {
+      const coords = await Promise.race([
+        fetchQuickLocation(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 120)),
+      ]);
+      const locParams = {};
+      if (coords?.lat != null && coords?.lng != null) {
+        locParams.lat = coords.lat;
+        locParams.lng = coords.lng;
+      }
+
+      const [featuredRes, popularRes, nearbyRes, productsRes] = await Promise.all([
+        api.getFeaturedSellers(locParams),
+        api.getPopularSellers(locParams),
+        api.getNearbySellers(locParams),
+        api.getListings(locParams),
+      ]);
+
+      applyExplorePayload(featuredRes, popularRes, nearbyRes, productsRes, coords);
+      hasLoadedRef.current = true;
+    } catch (error) {
+      console.error('Failed to load explore data:', error);
+      setFeaturedSellers([]);
+      setPopularSellers([]);
+      setNearbySellers([]);
+    } finally {
+      setItemsLoading(false);
+    }
+  }, [fetchQuickLocation, applyExplorePayload]);
+
+  useEffect(() => {
+    pinnedStoresUtils.getPinnedStores().then((pinned) => {
+      setPinnedStores(Array.isArray(pinned) ? pinned : []);
+    }).catch(() => {});
+
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          await Location.requestForegroundPermissionsAsync();
+        }
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords) {
+          setUserCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
+        }
+      } catch (_) {
+        // nearby distance is optional
+      }
+    })();
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      fetchSellers();
+      fetchSellers({ silent: hasLoadedRef.current });
     }, [fetchSellers])
   );
 
@@ -672,39 +695,39 @@ export default function ExploreScreen({ navigation, route }) {
     }
 
     setIsSearching(true);
-    setLoading(true);
+    setSearchLoading(true);
 
     try {
-      // Try to fetch from API first
       const searchParams = {
         q: query.trim(),
         type: searchTab,
       };
-      
-      const searchRes = await api.searchSellers(searchParams);
-      
-      if (!searchRes.error && searchRes.data?.sellers) {
-        setSearchResults(searchRes.data.sellers);
+      if (userCoords.lat != null) searchParams.lat = userCoords.lat;
+      if (userCoords.lng != null) searchParams.lng = userCoords.lng;
+
+      if (searchTab === 'products') {
+        const listingRes = await api.searchListings(searchParams);
+        const listings = (listingRes.data?.listings || []).map(toCardItem).filter(Boolean);
+        setSearchResults(listings.map((item) => ({ ...item, resultType: 'product' })));
       } else {
-        // Fall back to mock search
-        const allSellers = [...MOCK_SELLERS];
-        const filtered = allSellers.filter(seller =>
-          seller.name.toLowerCase().includes(query.toLowerCase())
-        );
-        setSearchResults(filtered);
+        const sellerRes = await api.searchSellers(searchParams);
+        setSearchResults(sellerRes.data?.sellers || []);
       }
     } catch (error) {
       console.error('Search failed:', error);
-      // Fall back to mock search on error
-      const allSellers = [...MOCK_SELLERS];
-      const filtered = allSellers.filter(seller =>
-        seller.name.toLowerCase().includes(query.toLowerCase())
-      );
-      setSearchResults(filtered);
+      setSearchResults([]);
     } finally {
-      setLoading(false);
+      setSearchLoading(false);
     }
   }, [query, searchTab]);
+
+  const { refreshing, onRefresh } = usePullRefresh(async () => {
+    if (isSearching && query.trim()) {
+      await handleSearch();
+      return;
+    }
+    await fetchSellers({ silent: true });
+  });
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -719,29 +742,17 @@ export default function ExploreScreen({ navigation, route }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, searchTab]);
 
-  // Animate tab indicator when active tab changes
-  useEffect(() => {
-    const targetX = activeTab === 'products' ? 0 : 82;
-    const targetWidth = activeTab === 'products' ? 78 : 82;
-    
-    Animated.parallel([
-      Animated.spring(tabIndicatorAnim, {
-        toValue: targetX,
-        useNativeDriver: false,
-        tension: 300,
-        friction: 20,
-      }),
-      Animated.spring(tabWidthAnim, {
-        toValue: targetWidth,
-        useNativeDriver: false,
-        tension: 300,
-        friction: 20,
-      }),
-    ]).start();
-  }, [activeTab, tabIndicatorAnim, tabWidthAnim]);
-
   const handleSellerPress = useCallback((seller) => {
-    navigation.navigate(ROUTES.SELLER_PROFILE, { seller });
+    if (seller?.sellerType === 'shop' || seller?.shopId) {
+      navigation.navigate(ROUTES.SHOP_PROFILE, {
+        shopId: seller.shopId || seller._id || seller.id,
+      });
+      return;
+    }
+    navigation.navigate(ROUTES.SELLER_PROFILE, {
+      seller,
+      sellerId: seller?._id || seller?.id || seller?.userId,
+    });
   }, [navigation]);
 
   const handlePinToggle = useCallback(async (sellerId) => {
@@ -769,9 +780,31 @@ export default function ExploreScreen({ navigation, route }) {
   }, [navigation]);
 
   const mainTabs = [
-    { key: 'products', label: 'Products' },
-    { key: 'sellers', label: 'Sellers' },
+    { key: 'products', label: 'Products', icon: 'cube-outline' },
+    { key: 'sellers', label: 'Sellers', icon: 'storefront-outline' },
   ];
+
+  const SORT_OPTIONS = [
+    { key: 'newest', label: 'Newest' },
+    { key: 'nearby', label: 'Nearby' },
+    { key: 'priceLow', label: 'Price: Low' },
+    { key: 'priceHigh', label: 'Price: High' },
+    { key: 'topRated', label: 'Popular' },
+  ];
+
+  const activeFilterCount =
+    (sortBy !== 'newest' ? 1 : 0) +
+    Object.values(selectedFilters).filter(Boolean).length;
+
+  const switchTab = (key) => {
+    setActiveTab(key);
+    setActiveCategory('All');
+  };
+
+  const clearFilters = () => {
+    setSortBy('newest');
+    setSelectedFilters({ verified: false, nearby: false, topRated: false });
+  };
 
   const tabs = [
     { key: 'all', label: 'All' },
@@ -781,7 +814,6 @@ export default function ExploreScreen({ navigation, route }) {
   ];
 
   const categories = useMemo(() => {
-    // Always add "All" option at the bottom
     const allOption = { 
       label: 'All', 
       icon: activeTab === 'products' ? 'grid-outline' : 'storefront-outline', 
@@ -795,95 +827,67 @@ export default function ExploreScreen({ navigation, route }) {
         const name = it.category || it.listing?.category;
         if (name) found[name] = (found[name] || 0) + 1;
       }
-      const fromProducts = Object.keys(found).map((label) => {
-        const preset = PRODUCT_CATEGORIES.find((c) => c.label === label);
-        return {
-          label,
-          icon: preset?.icon || 'pricetag-outline',
-          tint: preset?.tint || '#F59E0B',
-          count: found[label],
-        };
-      });
-      fromProducts.sort((a, b) => b.count - a.count);
-      const merged = [...fromProducts];
-      for (const preset of PRODUCT_CATEGORIES) {
-        if (!merged.find((c) => c.label === preset.label)) {
-          merged.push({ ...preset, count: 0 });
-        }
-      }
-      merged.push(allOption);
-      return merged;
-    } else {
-      // Store categories for sellers & stores
-      const found = {};
-      for (const seller of [...featuredSellers, ...popularSellers, ...nearbySellers]) {
-        const name = seller.category || 'General';
-        if (name) found[name] = (found[name] || 0) + 1;
-      }
-      const fromSellers = Object.keys(found).map((label) => {
-        const preset = BUSINESS_CATEGORIES.find((c) => c.label === label);
-        return {
-          label,
-          icon: preset?.icon || 'storefront-outline',
-          tint: preset?.tint || '#F59E0B',
-          count: found[label],
-        };
-      });
-      fromSellers.sort((a, b) => b.count - a.count);
-      const merged = [...fromSellers];
-      for (const preset of BUSINESS_CATEGORIES) {
-        if (!merged.find((c) => c.label === preset.label)) {
-          merged.push({ ...preset, count: 0 });
-        }
-      }
-      merged.push(allOption);
-      return merged;
+      return mergeSidebarCategories(productCategories, found, allOption);
     }
-  }, [products, featuredSellers, popularSellers, nearbySellers, activeTab]);
+
+    const found = {};
+    for (const seller of [...featuredSellers, ...popularSellers, ...nearbySellers]) {
+      const name = seller.category || 'General';
+      if (name) found[name] = (found[name] || 0) + 1;
+    }
+    return mergeSidebarCategories(shopCategories, found, allOption);
+  }, [products, featuredSellers, popularSellers, nearbySellers, activeTab, productCategories, shopCategories]);
 
   const filteredProducts = useMemo(() => {
-    let filtered = products;
-    
-    // Apply category filter
+    let filtered = [...products];
+
     if (activeCategory && activeCategory !== 'All') {
       filtered = filtered.filter(
         (it) => (it.category || it.listing?.category) === activeCategory
       );
     }
-    
-    // Apply selected filters
-    if (selectedFilters.topRated) {
-      filtered = filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+    if (sortBy === 'nearby' || selectedFilters.nearby) {
+      filtered.sort((a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999));
+    } else if (sortBy === 'topRated' || selectedFilters.topRated) {
+      filtered.sort((a, b) => (b.listing?.views || 0) - (a.listing?.views || 0));
+    } else if (sortBy === 'priceLow') {
+      filtered.sort((a, b) => (Number(a.listing?.price) || 0) - (Number(b.listing?.price) || 0));
+    } else if (sortBy === 'priceHigh') {
+      filtered.sort((a, b) => (Number(b.listing?.price) || 0) - (Number(a.listing?.price) || 0));
     }
-    
+
     return filtered;
-  }, [products, activeCategory, selectedFilters]);
+  }, [products, activeCategory, selectedFilters, sortBy]);
 
   const filteredSellers = useMemo(() => {
     let sellers = [...featuredSellers, ...popularSellers, ...nearbySellers];
-    
-    // Apply category filter
+    const seen = new Set();
+    sellers = sellers.filter((seller) => {
+      const id = String(seller._id || seller.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
     if (activeCategory && activeCategory !== 'All') {
       sellers = sellers.filter(
         (seller) => (seller.category || 'General') === activeCategory
       );
     }
-    
-    // Apply selected filters
+
     if (selectedFilters.verified) {
-      sellers = sellers.filter(seller => seller.verified);
+      sellers = sellers.filter((seller) => seller.verified);
     }
-    
-    if (selectedFilters.nearby) {
-      sellers = sellers.sort((a, b) => a.distance - b.distance);
+
+    if (sortBy === 'nearby' || selectedFilters.nearby) {
+      sellers.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
+    } else if (sortBy === 'topRated' || selectedFilters.topRated) {
+      sellers.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     }
-    
-    if (selectedFilters.topRated) {
-      sellers = sellers.sort((a, b) => b.rating - a.rating);
-    }
-    
+
     return sellers;
-  }, [featuredSellers, popularSellers, nearbySellers, activeCategory, selectedFilters]);
+  }, [featuredSellers, popularSellers, nearbySellers, activeCategory, selectedFilters, sortBy]);
 
   // Set initial category when categories change or from navigation params
   useEffect(() => {
@@ -896,102 +900,13 @@ export default function ExploreScreen({ navigation, route }) {
     }
   }, [categories, activeCategory, initialCategory]);
 
-  // Debug logging
   useEffect(() => {
-    console.log('ExploreScreen Debug:', {
-      activeCategory,
-      activeTab,
-      productsLength: products.length,
-      filteredProductsLength: filteredProducts.length,
-      featuredSellersLength: featuredSellers.length,
-      popularSellersLength: popularSellers.length,
-      nearbySellersLength: nearbySellers.length,
-      filteredSellersLength: filteredSellers.length,
-      categoriesLength: categories.length,
-      initialCategory
-    });
-  }, [activeCategory, activeTab, products.length, filteredProducts.length, featuredSellers.length, popularSellers.length, nearbySellers.length, filteredSellers.length, categories.length, initialCategory]);
+    if (!activeCategory) return;
+    triggerPaneAnim();
+  }, [activeCategory, activeTab, triggerPaneAnim]);
 
-  if (loading && !isSearching) {
-    return (
-      <View style={styles.container}>
-        <ThemeStatusBar variant="header" />
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <View style={styles.headerTop}>
-            <View>
-              <Text style={styles.exploreTitle}>Explore</Text>
-              <Text style={styles.exploreSubtitle}>Find trusted sellers & stores near you</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.searchWrap}>
-          <SearchBar
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search sellers, stores or products..."
-          />
-        </View>
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollViewContent}>
-          {/* Loading skeleton states */}
-          <View style={styles.featuredSection}>
-            <View style={styles.sectionHeader}>
-              <Skeleton width={160} height={18} borderRadius={4} />
-              <Skeleton width={50} height={13} borderRadius={4} />
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.featuredScroll}
-              scrollEventThrottle={16}
-            >
-              {[1, 2, 3].map(i => (
-                <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
-              ))}
-            </ScrollView>
-          </View>
-
-          <View style={styles.popularSection}>
-            <View style={styles.sectionHeader}>
-              <Skeleton width={150} height={18} borderRadius={4} />
-              <Skeleton width={50} height={13} borderRadius={4} />
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.popularScroll}
-              scrollEventThrottle={16}
-            >
-              {[1, 2, 3].map(i => (
-                <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
-              ))}
-            </ScrollView>
-          </View>
-
-          <View style={styles.nearbySection}>
-            <View style={styles.sectionHeader}>
-              <Skeleton width={160} height={18} borderRadius={4} />
-              <Skeleton width={50} height={13} borderRadius={4} />
-            </View>
-            <View style={styles.nearbyList}>
-              {[1, 2, 3, 4, 5].map(i => (
-                <View key={i} style={styles.nearbyItem}>
-                  <Skeleton width={44} height={44} borderRadius={22} marginRight={12} />
-                  <View style={{ flex: 1 }}>
-                    <Skeleton width={120} height={15} borderRadius={4} marginBottom={4} />
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                      <Skeleton width={40} height={12} borderRadius={4} />
-                      <Skeleton width={35} height={12} borderRadius={4} />
-                    </View>
-                  </View>
-                  <Skeleton width={20} height={20} borderRadius={10} />
-                </View>
-              ))}
-            </View>
-          </View>
-        </ScrollView>
-      </View>
-    );
-  }
+  const mainWidth = isSearching ? windowWidth : windowWidth - SIDEBAR_WIDTH;
+  const productCardWidth = (mainWidth - GRID_PADDING * 2 - GRID_GUTTER) / 2;
 
   return (
     <>
@@ -1001,8 +916,15 @@ export default function ExploreScreen({ navigation, route }) {
           <View style={styles.headerTop}>
             <View>
               <Text style={styles.exploreTitle}>Explore</Text>
-              <Text style={styles.exploreSubtitle}>Find trusted sellers & stores near you</Text>
+              <Text style={styles.exploreSubtitle}>{BRAND_TAGLINE}</Text>
             </View>
+            <Pressable
+              style={styles.mapBtn}
+              onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}
+              hitSlop={8}
+            >
+              <Ionicons name="map-outline" size={20} color={colors.onPrimary} />
+            </Pressable>
           </View>
         </View>
 
@@ -1014,82 +936,52 @@ export default function ExploreScreen({ navigation, route }) {
           />
         </View>
 
-      {/* Horizontal Categories Scroll */}
-      <View style={styles.categoriesSection}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesScroll}
-        >
-          {categories.map((cat) => {
-            const isActive = cat.label === activeCategory;
-            return (
-              <Pressable
-                key={cat.label}
-                style={[
-                  styles.categoryChip,
-                  isActive && styles.categoryChipActive,
-                ]}
-                onPress={() => setActiveCategory(cat.label)}
-              >
-                <Ionicons
-                  name={cat.icon}
-                  size={16}
-                  color={isActive ? colors.primary : colors.textMuted}
-                  style={styles.categoryIcon}
-                />
-                <Text
-                  style={[
-                    styles.categoryText,
-                    isActive && styles.categoryTextActive,
-                  ]}
-                >
-                  {cat.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* Main Content */}
-      <ScrollView style={styles.mainContent} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollViewContent}>
-          {/* Products/Sellers Tabs */}
-          <View style={styles.mainTabs}>
-            <View style={styles.tabsContainer}>
-              <Animated.View 
-                style={[
-                  styles.tabIndicator,
-                  {
-                    transform: [
-                      {
-                        translateX: tabIndicatorAnim,
-                      },
-                    ],
-                    width: tabWidthAnim,
-                  },
-                ]}
-              />
-              {mainTabs.map(tab => (
-                <Pressable
-                  key={tab.key}
-                  style={[styles.mainTab, activeTab === tab.key && styles.mainTabActive]}
-                  onPress={() => setActiveTab(tab.key)}
-                >
-                  <Text style={[styles.mainTabText, activeTab === tab.key && styles.mainTabTextActive]}>
-                    {tab.label}
-                  </Text>
-                </Pressable>
-              ))}
+      <View style={styles.body}>
+          <View style={styles.toolbar}>
+            <View style={styles.tabsTrack}>
+              {mainTabs.map((tab) => {
+                const isActive = activeTab === tab.key;
+                return (
+                  <Pressable
+                    key={tab.key}
+                    style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+                    onPress={() => switchTab(tab.key)}
+                  >
+                    <Ionicons
+                      name={tab.icon}
+                      size={16}
+                      color={isActive ? colors.onPrimary : colors.textMuted}
+                    />
+                    <Text style={[styles.tabBtnText, isActive && styles.tabBtnTextActive]}>
+                      {tab.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
-            <Pressable 
-              style={styles.filterButton}
+            <Pressable
+              style={[styles.filterBtn, activeFilterCount > 0 && styles.filterBtnActive]}
               onPress={() => setShowFilterModal(true)}
             >
-              <Ionicons name="options-outline" size={20} color={colors.text} />
+              <Ionicons
+                name="options-outline"
+                size={20}
+                color={activeFilterCount > 0 ? colors.onPrimary : colors.text}
+              />
+              {activeFilterCount > 0 ? (
+                <View style={styles.filterBadge}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
+
           {isSearching ? (
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[styles.scrollViewContent, { paddingBottom: 28 + insets.bottom }]}
+              refreshControl={refreshControl(colors, refreshing, onRefresh)}
+            >
             <View style={styles.searchContent}>
               <View style={styles.searchTabs}>
                 {tabs.map(tab => (
@@ -1105,7 +997,25 @@ export default function ExploreScreen({ navigation, route }) {
                 ))}
               </View>
 
-              {searchResults.length === 0 ? (
+              {searchLoading ? (
+                searchTab === 'products' ? (
+                  <View style={styles.productGrid}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <ProductCardSkeleton key={i} width={productCardWidth} compact />
+                    ))}
+                  </View>
+                ) : (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.featuredScroll}
+                  >
+                    {[0, 1, 2].map((i) => (
+                      <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
+                    ))}
+                  </ScrollView>
+                )
+              ) : searchResults.length === 0 ? (
                 <EmptyState
                   compact
                   icon="search-outline"
@@ -1114,45 +1024,159 @@ export default function ExploreScreen({ navigation, route }) {
                 />
               ) : (
                 <View style={styles.searchResults}>
-                  {searchResults.map(seller => (
-                    <SellerProfileCard
-                      key={seller._id}
-                      seller={seller}
-                      sellerType={seller.sellerType || 'shop'}
-                      onPress={() => handleSellerPress(seller)}
-                      onPinToggle={() => handlePinToggle(seller._id)}
-                      isPinned={pinnedStores.some(s => s._id === seller._id)}
-                      onProductPress={handleProductPress}
-                    />
-                  ))}
+                  {searchResults.map((result) => {
+                    if (searchTab === 'products' || result.resultType === 'product') {
+                      return (
+                        <Pressable
+                          key={result.id || result._id}
+                          onPress={() => handleProductPress(result)}
+                          style={{ marginBottom: 8 }}
+                        >
+                          <Text style={{ color: colors.text, fontWeight: '700' }}>{result.title}</Text>
+                          <Text style={{ color: colors.textMuted }}>{result.price} · {result.location}</Text>
+                        </Pressable>
+                      );
+                    }
+                    return (
+                      <SellerProfileCard
+                        key={result._id || result.id}
+                        seller={result}
+                        sellerType={result.sellerType || (result.shopId ? 'shop' : 'individual')}
+                        onPress={() => handleSellerPress(result)}
+                        onPinToggle={() => handlePinToggle(result._id || result.id)}
+                        isPinned={pinnedStores.some((s) => s._id === result._id || s._id === result.id)}
+                        onProductPress={handleProductPress}
+                      />
+                    );
+                  })}
                 </View>
               )}
             </View>
+            </ScrollView>
           ) : (
-            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+            <View style={styles.split}>
+              <View style={styles.sidebar}>
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={[styles.sidebarContent, { paddingBottom: 28 + insets.bottom }]}
+                >
+                  {categories.map((cat) => {
+                    const isActive = cat.label === activeCategory;
+                    const itemAnim = getSidebarItemAnim(cat.label);
+                    return (
+                      <Animated.View key={cat.label} style={{ transform: [{ scale: itemAnim }] }}>
+                      <Pressable
+                        style={[styles.sideItem, isActive && styles.sideItemActive]}
+                        onPress={() => {
+                          Animated.sequence([
+                            Animated.timing(itemAnim, {
+                              toValue: 0.92,
+                              duration: 70,
+                              useNativeDriver: true,
+                            }),
+                            Animated.spring(itemAnim, {
+                              toValue: 1,
+                              tension: 280,
+                              friction: 12,
+                              useNativeDriver: true,
+                            }),
+                          ]).start();
+                          handleCategoryChange(cat.label);
+                        }}
+                      >
+                        {isActive ? <View style={styles.sideIndicator} /> : null}
+                        <View
+                          style={[
+                            styles.sideIcon,
+                            { backgroundColor: cat.tint || cat.color || colors.surface },
+                          ]}
+                        >
+                          {cat.imageUrl ? (
+                            <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
+                          ) : (
+                            <Ionicons
+                              name={cat.icon}
+                              size={18}
+                              color={colors.onPrimary || colors.white || '#FFFFFF'}
+                            />
+                          )}
+                        </View>
+                        <Text
+                          numberOfLines={2}
+                          style={[styles.sideLabel, isActive && styles.sideLabelActive]}
+                        >
+                          {cat.label}
+                        </Text>
+                        <Text style={styles.sideCount}>{cat.count || 0}</Text>
+                      </Pressable>
+                      </Animated.View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <Animated.View
+                style={[
+                  styles.mainContent,
+                  {
+                    opacity: paneAnim,
+                    transform: [
+                      {
+                        translateY: paneAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [12, 0],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+              <ScrollView
+                style={{ flex: 1 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[styles.scrollViewContent, { paddingBottom: 28 + insets.bottom }]}
+                refreshControl={refreshControl(colors, refreshing, onRefresh)}
+              >
               {activeTab === 'products' ? (
                 <>
                   {/* Products Tab Content */}
                   <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="cube" size={20} color={colors.primary} style={styles.sectionIcon} />
-                        <Text style={styles.sectionTitle}>Explore Products</Text>
-                      </View>
-                      <Pressable onPress={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}>
-                        <Text style={styles.viewAll}>View all</Text>
-                      </Pressable>
+                    <View style={styles.resultsBar}>
+                      <Text style={styles.resultsTitle}>
+                        {activeCategory && activeCategory !== 'All' ? activeCategory : 'All products'}
+                      </Text>
+                      <Text style={styles.resultsMeta}>
+                        {itemsLoading ? 'Loading…' : `${filteredProducts.length} items`}
+                      </Text>
                     </View>
-                    {filteredProducts.length > 0 ? (
-                      <ProductCardCarousel
-                        items={filteredProducts.map((item) => ({
-                          ...item,
-                          onToggleSave: async () => {
-                            await api.toggleWishlist(item.id);
-                          },
-                        }))}
-                        onPressItem={(item) => navigation.navigate(ROUTES.ITEM_DETAIL, { listingId: item.id })}
-                      />
+                    {itemsLoading ? (
+                      <View style={styles.productGrid}>
+                        {[0, 1, 2, 3].map((i) => (
+                          <ProductCardSkeleton key={i} width={productCardWidth} compact />
+                        ))}
+                      </View>
+                    ) : filteredProducts.length > 0 ? (
+                      <View style={styles.productGrid}>
+                        {filteredProducts.map((item) => (
+                          <ProductCard
+                            key={item.id}
+                            {...item}
+                            compact
+                            width={productCardWidth}
+                            sharedId={item.id}
+                            onPress={() =>
+                              openItemDetail(navigation, {
+                                listingId: item.id,
+                                item: item.listing || item,
+                                sharedId: item.id,
+                              })
+                            }
+                            onToggleSave={async () => {
+                              await api.toggleWishlist(item.id);
+                            }}
+                          />
+                        ))}
+                      </View>
                     ) : (
                       <EmptyState
                         compact
@@ -1185,7 +1209,7 @@ export default function ExploreScreen({ navigation, route }) {
                         <SellerProfileCard
                           key={seller._id}
                           seller={seller}
-                          sellerType={seller.sellerType || 'shop'}
+                          sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
                           compact
                           onPress={() => handleSellerPress(seller)}
                           onPinToggle={() => handlePinToggle(seller._id)}
@@ -1207,7 +1231,17 @@ export default function ExploreScreen({ navigation, route }) {
                       <Text style={styles.viewAll}>View all</Text>
                     </Pressable>
                   </View>
-                  {featuredSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+                  {itemsLoading ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.featuredScroll}
+                    >
+                      {[0, 1, 2].map((i) => (
+                        <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
+                      ))}
+                    </ScrollView>
+                  ) : featuredSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
@@ -1218,7 +1252,7 @@ export default function ExploreScreen({ navigation, route }) {
                         <SellerProfileCard
                           key={seller._id}
                           seller={seller}
-                          sellerType={seller.sellerType || 'shop'}
+                          sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
                           onPress={() => handleSellerPress(seller)}
                           onPinToggle={() => handlePinToggle(seller._id)}
                           isPinned={pinnedStores.some(s => s._id === seller._id)}
@@ -1247,7 +1281,17 @@ export default function ExploreScreen({ navigation, route }) {
                       <Text style={styles.viewAll}>View all</Text>
                     </Pressable>
                   </View>
-                  {popularSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+                  {itemsLoading ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.popularScroll}
+                    >
+                      {[0, 1, 2].map((i) => (
+                        <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
+                      ))}
+                    </ScrollView>
+                  ) : popularSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
@@ -1258,7 +1302,7 @@ export default function ExploreScreen({ navigation, route }) {
                         <SellerProfileCard
                           key={seller._id}
                           seller={seller}
-                          sellerType={seller.sellerType || 'shop'}
+                          sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
                           onPress={() => handleSellerPress(seller)}
                           onPinToggle={() => handlePinToggle(seller._id)}
                           isPinned={pinnedStores.some(s => s._id === seller._id)}
@@ -1287,7 +1331,17 @@ export default function ExploreScreen({ navigation, route }) {
                   <Text style={styles.viewAll}>View all</Text>
                 </Pressable>
               </View>
-              {nearbySellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+              {itemsLoading ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.nearbyList}
+                >
+                  {[0, 1, 2].map((i) => (
+                    <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
+                  ))}
+                </ScrollView>
+              ) : nearbySellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -1298,7 +1352,7 @@ export default function ExploreScreen({ navigation, route }) {
                     <SellerProfileCard
                       key={seller._id}
                       seller={seller}
-                      sellerType={seller.sellerType || 'shop'}
+                      sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
                       onPress={() => handleSellerPress(seller)}
                       onPinToggle={() => handlePinToggle(seller._id)}
                       isPinned={pinnedStores.some(s => s._id === seller._id)}
@@ -1317,9 +1371,12 @@ export default function ExploreScreen({ navigation, route }) {
             </View>
           </>
         )}
-      </Animated.View>
-    )}
-  </ScrollView>
+              </ScrollView>
+              </Animated.View>
+            </View>
+          )}
+      </View>
+      </View>
 
   {/* Filter Modal */}
   <Modal
@@ -1329,14 +1386,14 @@ export default function ExploreScreen({ navigation, route }) {
     onRequestClose={() => setShowFilterModal(false)}
   >
     <View style={styles.filterModal}>
-    <View style={styles.filterModal}>
       <Pressable
         style={{ flex: 1 }}
         onPress={() => setShowFilterModal(false)}
       />
-      <View style={styles.filterModalContent}>
+      <View style={[styles.filterModalContent, { paddingBottom: Math.max(insets.bottom, 20) + 12 }]}>
+        <View style={styles.filterHandle} />
         <View style={styles.filterModalHeader}>
-          <Text style={styles.filterModalTitle}>Filters</Text>
+          <Text style={styles.filterModalTitle}>Sort & filters</Text>
           <Pressable
             style={styles.filterCloseButton}
             onPress={() => setShowFilterModal(false)}
@@ -1346,24 +1403,49 @@ export default function ExploreScreen({ navigation, route }) {
         </View>
 
         <View style={styles.filterSection}>
-          <Text style={styles.filterSectionTitle}>Filter Options</Text>
+          <Text style={styles.filterSectionTitle}>Sort by</Text>
+          <View style={styles.sortChips}>
+            {(activeTab === 'products'
+              ? SORT_OPTIONS
+              : SORT_OPTIONS.filter((o) => o.key !== 'priceLow' && o.key !== 'priceHigh')
+            ).map((opt) => {
+              const active = sortBy === opt.key;
+              return (
+                <Pressable
+                  key={opt.key}
+                  style={[styles.sortChip, active && styles.sortChipActive]}
+                  onPress={() => setSortBy(opt.key)}
+                >
+                  <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.filterSection}>
+          <Text style={styles.filterSectionTitle}>Show only</Text>
+
+          {activeTab === 'sellers' ? (
+            <Pressable
+              style={styles.filterOption}
+              onPress={() => setSelectedFilters((prev) => ({ ...prev, verified: !prev.verified }))}
+            >
+              <View style={[
+                styles.filterCheckbox,
+                selectedFilters.verified && styles.filterCheckboxChecked
+              ]}>
+                {selectedFilters.verified && <View style={styles.filterCheckboxInner} />}
+              </View>
+              <Text style={styles.filterOptionText}>Verified sellers</Text>
+            </Pressable>
+          ) : null}
 
           <Pressable
             style={styles.filterOption}
-            onPress={() => setSelectedFilters(prev => ({ ...prev, verified: !prev.verified }))}
-          >
-            <View style={[
-              styles.filterCheckbox,
-              selectedFilters.verified && styles.filterCheckboxChecked
-            ]}>
-              {selectedFilters.verified && <View style={styles.filterCheckboxInner} />}
-            </View>
-            <Text style={styles.filterOptionText}>Verified Sellers Only</Text>
-          </Pressable>
-
-          <Pressable
-            style={styles.filterOption}
-            onPress={() => setSelectedFilters(prev => ({ ...prev, nearby: !prev.nearby }))}
+            onPress={() => setSelectedFilters((prev) => ({ ...prev, nearby: !prev.nearby }))}
           >
             <View style={[
               styles.filterCheckbox,
@@ -1371,12 +1453,12 @@ export default function ExploreScreen({ navigation, route }) {
             ]}>
               {selectedFilters.nearby && <View style={styles.filterCheckboxInner} />}
             </View>
-            <Text style={styles.filterOptionText}>Nearby First</Text>
+            <Text style={styles.filterOptionText}>Nearby first</Text>
           </Pressable>
 
           <Pressable
             style={styles.filterOption}
-            onPress={() => setSelectedFilters(prev => ({ ...prev, topRated: !prev.topRated }))}
+            onPress={() => setSelectedFilters((prev) => ({ ...prev, topRated: !prev.topRated }))}
           >
             <View style={[
               styles.filterCheckbox,
@@ -1384,19 +1466,21 @@ export default function ExploreScreen({ navigation, route }) {
             ]}>
               {selectedFilters.topRated && <View style={styles.filterCheckboxInner} />}
             </View>
-            <Text style={styles.filterOptionText}>Top Rated</Text>
+            <Text style={styles.filterOptionText}>Most popular</Text>
           </Pressable>
         </View>
 
-        <Pressable
-          style={styles.applyButton}
-          onPress={() => {
-            console.log('Applied filters:', selectedFilters);
-            setShowFilterModal(false);
-          }}
-        >
-          <Text style={styles.applyButtonText}>Apply Filters</Text>
-        </Pressable>
+        <View style={styles.filterActions}>
+          <Pressable style={styles.clearButton} onPress={clearFilters}>
+            <Text style={styles.clearButtonText}>Clear</Text>
+          </Pressable>
+          <Pressable
+            style={styles.applyButtonFlex}
+            onPress={() => setShowFilterModal(false)}
+          >
+            <Text style={styles.applyButtonText}>Show results</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   </Modal>
