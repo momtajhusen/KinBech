@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import { NativeModules, Platform } from 'react-native';
+import { PRODUCTION_API_URL } from './productionApi';
 
 const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const API_PORT = Number(process.env.EXPO_PUBLIC_API_PORT) || 5001;
@@ -88,12 +89,23 @@ function resolveDevMachineHostPort() {
   return { host: '127.0.0.1', port: API_PORT };
 }
 
-export function getApiBaseUrl() {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl) {
-    return sanitizeUrlPiece(envUrl).replace(/\/$/, '');
+function resolveProductionApiUrl() {
+  const fromEnv = sanitizeUrlPiece(process.env.EXPO_PUBLIC_API_URL).replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+
+  const fromConfig = sanitizeUrlPiece(PRODUCTION_API_URL).replace(/\/$/, '');
+  if (fromConfig && !fromConfig.includes('REPLACE_WITH_LIVE_API')) {
+    return fromConfig;
   }
 
+  console.warn(
+    '[KinBech] Production API URL missing. Set EXPO_PUBLIC_API_URL or Mobile/src/config/productionApi.js',
+  );
+  return '';
+}
+
+export function getApiBaseUrl() {
+  // Local Expo / Metro: always prefer LAN/localhost — never force VPS.
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     const { host, port } = resolveDevMachineHostPort();
     const url = `http://${sanitizeUrlPiece(host)}:${port}`;
@@ -101,20 +113,21 @@ export function getApiBaseUrl() {
     return url;
   }
 
-  return 'http://localhost:5001';
+  return resolveProductionApiUrl();
 }
 
 export function getApiBaseUrlCandidates() {
   const primary = getApiBaseUrl();
-  const set = new Set([primary]);
+  const set = new Set();
+  if (primary) set.add(primary);
 
-  // If we have a forced dev host, only use that single URL
-  if (process.env.EXPO_PUBLIC_DEV_API_HOST) {
-    console.log('Using forced dev host, skipping other candidates');
+  // Production APK: only hit the live API.
+  if (typeof __DEV__ === 'undefined' || !__DEV__) {
     return Array.from(set);
   }
 
-  if (process.env.EXPO_PUBLIC_API_URL) {
+  if (process.env.EXPO_PUBLIC_DEV_API_HOST) {
+    console.log('Using forced dev host, skipping other candidates');
     return Array.from(set);
   }
 

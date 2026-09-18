@@ -1,27 +1,11 @@
-const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const User = require('./models/User');
+const { connectDb } = require('./config/db');
 require('dotenv').config();
 
 const seedAdmin = async () => {
   try {
-    // Use same connection logic as the main app
-    const isDevelopment = process.env.NODE_ENV !== 'production';
-    const localUri = process.env.MONGODB_LOCAL_URI;
-    const atlasUri = process.env.MONGODB_URI;
-    
-    const uri = (isDevelopment && localUri) ? localUri : atlasUri;
-    
-    if (!uri) {
-      throw new Error('MONGODB_URI is missing');
-    }
-
-    mongoose.set('strictQuery', true);
-    await mongoose.connect(uri, {
-      dbName: process.env.MONGODB_DB_NAME || 'KinBech',
-    });
-
-    console.log('Connected to MongoDB');
+    await connectDb();
 
     // Check if admin already exists
     const existingAdmin = await User.findOne({ email: 'admin@kinbech.com' });

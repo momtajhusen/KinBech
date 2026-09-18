@@ -1,13 +1,36 @@
 const mongoose = require('mongoose');
 
+function buildAtlasUri() {
+  const baseUri = process.env.MONGODB_URI;
+  if (!baseUri) return null;
+
+  const user = process.env.MONGODB_USER;
+  const password = process.env.MONGODB_PASSWORD;
+  if (!user || !password) return baseUri;
+
+  // Prefer separate credentials so passwords with @ # etc. stay correct
+  try {
+    const url = new URL(baseUri);
+    url.username = encodeURIComponent(user);
+    url.password = encodeURIComponent(password);
+    return url.toString();
+  } catch {
+    const encodedUser = encodeURIComponent(user);
+    const encodedPass = encodeURIComponent(password);
+    return baseUri.replace(
+      /^mongodb(\+srv)?:\/\//,
+      `mongodb$1://${encodedUser}:${encodedPass}@`,
+    );
+  }
+}
+
 async function connectDb() {
-  // Use local MongoDB for development if MONGODB_LOCAL_URI is set, otherwise use Atlas
   const isDevelopment = process.env.NODE_ENV !== 'production';
   const localUri = process.env.MONGODB_LOCAL_URI;
-  const atlasUri = process.env.MONGODB_URI;
-  
-  const uri = (isDevelopment && localUri) ? localUri : atlasUri;
-  
+  const atlasUri = buildAtlasUri();
+
+  const uri = isDevelopment && localUri ? localUri : atlasUri;
+
   if (!uri) {
     throw new Error('MONGODB_URI is missing');
   }
@@ -18,7 +41,7 @@ async function connectDb() {
   });
 
   const { host, name } = mongoose.connection;
-  const connectionType = (isDevelopment && localUri) ? 'Local MongoDB' : 'MongoDB Atlas';
+  const connectionType = isDevelopment && localUri ? 'Local MongoDB' : 'MongoDB Atlas';
   console.log(`${connectionType} connected: ${host} / ${name}`);
 }
 

@@ -1,10 +1,9 @@
 import axios from 'axios';
+import { API_BASE } from '../../config';
 import { adminPath } from '../routes';
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
-
 const api = axios.create({
-  baseURL: API_BASE_URL || undefined,
+  baseURL: API_BASE || undefined,
   headers: {
     'Content-Type': 'application/json',
   },
