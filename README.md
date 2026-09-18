@@ -169,3 +169,7 @@ This project is private and confidential.
 Email: admin@kinbech.com
 Password: admin123
 Phone: 9800000000
+
+<!-- relese build -->
+<!-- // cd android && ./gradlew assembleRelease -- .apk -->
+<!-- // cd android && ./gradlew bundleRelease  -- .abb -->

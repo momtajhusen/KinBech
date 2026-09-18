@@ -14,6 +14,11 @@ function otpExpiry() {
 }
 
 function makeOtp() {
+  // DEFAULT_OTP=1111 for easy APK/QA testing; set DEFAULT_OTP=random for real OTPs
+  const fixed = String(process.env.DEFAULT_OTP || '1111').trim().toLowerCase();
+  if (fixed && fixed !== 'random') {
+    return fixed.replace(/\D/g, '').padStart(4, '0').slice(-4);
+  }
   return String(crypto.randomInt(0, 10000)).padStart(4, '0');
 }
 
