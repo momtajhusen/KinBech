@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+/**
+ * Build Atlas URI with credentials.
+ * Do NOT use WHATWG `new URL()` for mongodb+srv — it can drop username/password,
+ * leaving an unauthenticated connection (empty authenticatedUsers) that fails finds.
+ */
 function buildAtlasUri() {
   const baseUri = process.env.MONGODB_URI;
   if (!baseUri) return null;
@@ -8,20 +13,21 @@ function buildAtlasUri() {
   const password = process.env.MONGODB_PASSWORD;
   if (!user || !password) return baseUri;
 
-  // Prefer separate credentials so passwords with @ # etc. stay correct
-  try {
-    const url = new URL(baseUri);
-    url.username = encodeURIComponent(user);
-    url.password = encodeURIComponent(password);
-    return url.toString();
-  } catch {
-    const encodedUser = encodeURIComponent(user);
-    const encodedPass = encodeURIComponent(password);
+  const encodedUser = encodeURIComponent(user);
+  const encodedPass = encodeURIComponent(password);
+
+  // Replace existing userinfo, or inject after scheme://
+  if (/^mongodb(\+srv)?:\/\/[^/@]+@/.test(baseUri)) {
     return baseUri.replace(
-      /^mongodb(\+srv)?:\/\//,
+      /^mongodb(\+srv)?:\/\/[^/@]+@/,
       `mongodb$1://${encodedUser}:${encodedPass}@`,
     );
   }
+
+  return baseUri.replace(
+    /^mongodb(\+srv)?:\/\//,
+    `mongodb$1://${encodedUser}:${encodedPass}@`,
+  );
 }
 
 async function connectDb() {
@@ -45,4 +51,4 @@ async function connectDb() {
   console.log(`${connectionType} connected: ${host} / ${name}`);
 }
 
-module.exports = { connectDb };
+module.exports = { connectDb, buildAtlasUri };
