@@ -1,59 +1,92 @@
+import * as FileSystem from 'expo-file-system/legacy';
 import { api } from '../services/api';
 
 function guessNameAndType(uri, fallbackName = 'upload.jpg') {
   const clean = String(uri || '').split('?')[0];
   const base = clean.split('/').pop() || fallbackName;
-  const lower = base.toLowerCase();
+  const lower = decodeURIComponent(base).toLowerCase();
 
   if (/\.(mp4|mov|m4v|webm)$/.test(lower)) {
     return {
-      name: lower.endsWith('.mov') ? base : base.replace(/\.\w+$/, '') + '.mp4',
+      name: lower.endsWith('.mov') ? base : `${base.replace(/\.\w+$/, '') || 'video'}.mp4`,
       type: lower.endsWith('.webm') ? 'video/webm' : 'video/mp4',
     };
   }
 
-  if (lower.endsWith('.png')) return { name: base, type: 'image/png' };
-  if (lower.endsWith('.webp')) return { name: base, type: 'image/webp' };
-  if (lower.endsWith('.gif')) return { name: base, type: 'image/gif' };
-  return {
-    name: /\.(jpe?g)$/.test(lower) ? base : `${base.replace(/\.\w+$/, '') || 'photo'}.jpg`,
-    type: 'image/jpeg',
-  };
+  if (lower.endsWith('.png')) return { name: 'photo.png', type: 'image/png' };
+  if (lower.endsWith('.webp')) return { name: 'photo.webp', type: 'image/webp' };
+  if (lower.endsWith('.gif')) return { name: 'photo.gif', type: 'image/gif' };
+  return { name: 'photo.jpg', type: 'image/jpeg' };
 }
 
-/** Already stored on API (or remote CDN / data URL) — do not re-upload. */
+/** Already stored on API (or remote CDN) — do not re-upload. */
 export function isRemoteMediaUrl(uri) {
   if (!uri || typeof uri !== 'string') return false;
   const u = uri.trim();
   if (!u) return false;
-  if (u.startsWith('data:')) return true;
   if (u.startsWith('/uploads/')) return true;
-  if (/^https?:\/\//i.test(u)) return true;
+  if (/^https?:\/\//i.test(u) && !u.includes('/ImagePicker/') && !u.includes('/Caches/')) {
+    return true;
+  }
   return false;
 }
 
 /**
- * Upload a local image/video URI to the API. Returns a durable `/uploads/...` path.
+ * Upload local media as JSON base64 (Expo-safe; avoids FormDataPart errors).
+ * Returns durable `/uploads/...` path.
  */
 export async function uploadMediaUri(uri, folder = 'misc') {
   if (!uri) return { url: '', error: 'Missing file' };
+
+  // Already a data URL — send as-is payload
+  if (String(uri).startsWith('data:')) {
+    const match = String(uri).match(/^data:([^;]+);base64,(.+)$/i);
+    const mimeType = match?.[1] || 'image/jpeg';
+    const data = match?.[2] || '';
+    if (!data) return { url: '', error: 'Invalid image data' };
+    const { data: res, error } = await api.uploadMediaBase64({
+      folder,
+      mimeType,
+      data,
+      filename: guessNameAndType(uri).name,
+    });
+    if (error || !res?.url) return { url: '', error: error || 'Upload failed' };
+    return { url: res.url, error: null };
+  }
+
   if (isRemoteMediaUrl(uri)) {
     return { url: uri, error: null };
   }
 
-  const { name, type } = guessNameAndType(uri);
-  const form = new FormData();
-  form.append('file', {
-    uri,
-    name,
-    type,
-  });
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (!info?.exists) {
+      return { url: '', error: 'Local photo file not found. Please pick the image again.' };
+    }
 
-  const { data, error } = await api.uploadMedia(form, folder);
-  if (error || !data?.url) {
-    return { url: '', error: error || 'Upload failed' };
+    const { name, type } = guessNameAndType(uri);
+    const data = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    if (!data) {
+      return { url: '', error: 'Could not read photo file' };
+    }
+
+    const { data: res, error } = await api.uploadMediaBase64({
+      folder,
+      mimeType: type,
+      data,
+      filename: name,
+    });
+
+    if (error || !res?.url) {
+      return { url: '', error: error || 'Upload failed' };
+    }
+    return { url: res.url, error: null };
+  } catch (err) {
+    return { url: '', error: err?.message || 'Upload failed' };
   }
-  return { url: data.url, error: null };
 }
 
 export async function uploadMediaUris(uris, folder = 'listings') {

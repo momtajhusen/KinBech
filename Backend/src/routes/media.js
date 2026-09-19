@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
@@ -7,6 +8,16 @@ const { ensureUploadDir, publicUploadPath } = require('../config/uploads');
 const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'misc']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.m4v', '.webm']);
+const MIME_EXT = {
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+};
 
 function makeUploader(folder) {
   const uploadDir = ensureUploadDir(folder);
@@ -63,6 +74,51 @@ router.post('/upload', requireAuth, (req, res) => {
       size: req.file.size,
     });
   });
+});
+
+/** JSON base64 upload — reliable with Expo (avoids FormDataPart errors). */
+router.post('/upload-base64', requireAuth, (req, res) => {
+  try {
+    const folderRaw = String(req.body?.folder || req.query.folder || 'misc').toLowerCase();
+    const folder = ALLOWED_FOLDERS.has(folderRaw) ? folderRaw : 'misc';
+    const mimeType = String(req.body?.mimeType || 'image/jpeg').toLowerCase();
+    let data = String(req.body?.data || '');
+
+    if (!data) {
+      return res.status(400).json({ message: 'Missing image data' });
+    }
+
+    const dataUrlMatch = data.match(/^data:([^;]+);base64,(.+)$/i);
+    if (dataUrlMatch) {
+      data = dataUrlMatch[2];
+    }
+
+    const buffer = Buffer.from(data, 'base64');
+    if (!buffer.length) {
+      return res.status(400).json({ message: 'Invalid image data' });
+    }
+    if (buffer.length > 20 * 1024 * 1024) {
+      return res.status(400).json({ message: 'File too large (max 20MB)' });
+    }
+
+    const ext =
+      MIME_EXT[mimeType] ||
+      (mimeType.startsWith('video/') ? '.mp4' : '.jpg');
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    const dir = ensureUploadDir(folder);
+    fs.writeFileSync(path.join(dir, filename), buffer);
+
+    const url = publicUploadPath(folder, filename);
+    return res.status(201).json({
+      url,
+      filename,
+      folder,
+      mimeType,
+      size: buffer.length,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || 'Upload failed' });
+  }
 });
 
 module.exports = router;

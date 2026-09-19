@@ -11,6 +11,10 @@ export function getAuthToken() {
   return authToken;
 }
 
+export function getWorkingApiBaseUrl() {
+  return workingBaseUrl;
+}
+
 export function resetCachedBaseUrl() {
   workingBaseUrl = null;
 }
@@ -296,6 +300,12 @@ export const api = {
       method: 'POST',
       body: formData,
       timeoutMs: 60000,
+    }),
+  uploadMediaBase64: (payload) =>
+    request('/media/upload-base64', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 90000,
     }),
   getListings: (params = {}) => request(`/listings${toQuery(params)}`),
   searchListings: (params = {}) => request(`/listings/search${toQuery(params)}`),
