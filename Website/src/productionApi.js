@@ -1,5 +1,5 @@
 /**
- * Live KinBech API (VPS + nginx).
- * Local `vite` ignores this and proxies to localhost:5001.
+ * Production API host (fallback when VITE_API_URL is unset at build time).
+ * Must match the live VPS domain (no hyphen).
  */
-export const PRODUCTION_API_URL = 'https://kinbech-api.codersalpha.com';
+export const PRODUCTION_API_URL = 'https://kinbechapi.codersalpha.com';
