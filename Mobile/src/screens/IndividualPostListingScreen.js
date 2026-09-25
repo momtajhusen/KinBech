@@ -22,7 +22,7 @@ import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import {
   EXTRA_PHOTO_SLOTS,
@@ -365,11 +365,18 @@ export default function IndividualPostListingScreen({ navigation }) {
     if (uploaded.error) {
       setSubmitting(false);
       setAlertConfig(
-        showErrorAlert({
-          title: 'Photo Upload Failed',
-          message: uploaded.error,
-          onConfirm: () => setAlertConfig(null),
-        })
+        uploaded.isSafetyBlock || uploaded.errorCode
+          ? showImageSafetyAlert({
+              code: uploaded.errorCode,
+              message: uploaded.error,
+              issues: uploaded.issues,
+              onConfirm: () => setAlertConfig(null),
+            })
+          : showErrorAlert({
+              title: 'Photo Upload Failed',
+              message: uploaded.error,
+              onConfirm: () => setAlertConfig(null),
+            })
       );
       return;
     }
@@ -388,10 +395,13 @@ export default function IndividualPostListingScreen({ navigation }) {
 
     setSubmitting(false);
     if (error) {
+      const isProhibited = /prohibited|weapon|gun|restricted/i.test(String(error));
       setAlertConfig(
         showErrorAlert({
-          title: 'Could not post listing',
-          message: error,
+          title: isProhibited ? 'Listing not allowed' : 'Could not post listing',
+          message: isProhibited
+            ? `${error}\n\nWeapons, adult content, and other prohibited items cannot be listed on KinBech.`
+            : error,
           onConfirm: () => setAlertConfig(null),
         })
       );
@@ -427,7 +437,7 @@ export default function IndividualPostListingScreen({ navigation }) {
         onBack={handleBack}
         colors={colors}
         styles={styles}
-        title="Post Your Item"
+        title="Post in 30 seconds"
       />
 
       <KeyboardAvoidingView

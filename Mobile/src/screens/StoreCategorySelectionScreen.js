@@ -140,10 +140,10 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
     setLoading(true);
     
     try {
-      // Update user profile with store category preference
-      const { data, error } = await api.updateProfile({ 
+      // Preference-only update — do not mark profile complete yet
+      const { data, error } = await api.updateMe({
         sellerTypePreference: 'shop',
-        storeCategory: selectedCategory 
+        storeCategory: selectedCategory,
       });
       
       if (!error) {

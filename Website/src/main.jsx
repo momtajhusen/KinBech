@@ -11,6 +11,9 @@ import './explore.css';
 import './pages.css';
 import './map.css';
 import './animations.css';
+import { installWindowErrorHandlers } from './utils/errorReporting';
+
+installWindowErrorHandlers({ source: 'website' });
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

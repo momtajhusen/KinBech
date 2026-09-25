@@ -13,6 +13,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../services/api';
+import { resolveMediaUrl } from '../utils/listing';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 
 const TAGS = [
@@ -140,7 +141,7 @@ export default function RateReviewScreen({ navigation, route }) {
         <View style={styles.avatarWrap}>
           <View style={styles.avatar}>
             {shop?.logo ? (
-              <Image source={{ uri: shop.logo }} style={{ width: '100%', height: '100%' }} />
+              <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={{ width: '100%', height: '100%' }} />
             ) : (
               <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
                 <Ionicons name="storefront" size={44} color={colors.text} />
@@ -155,7 +156,7 @@ export default function RateReviewScreen({ navigation, route }) {
           <View style={styles.listingImage}>
             {listing?.imageUrl || listing?.photos?.[0] ? (
               <Image 
-                source={{ uri: listing?.imageUrl || listing?.photos?.[0] }} 
+                source={{ uri: resolveMediaUrl(listing?.imageUrl || listing?.photos?.[0] || '') }} 
                 style={{ width: '100%', height: '100%' }} 
                 resizeMode="cover" 
               />

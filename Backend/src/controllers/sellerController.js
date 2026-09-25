@@ -39,6 +39,8 @@ function toShopSeller(shop, listings = [], userLat, userLng) {
     distance: distance == null ? null : Math.round(distance * 10) / 10,
     location: shop.location || shop.address || '',
     verified: Boolean(shop.isVerified),
+    verificationKind: shop.isVerified ? 'business' : null,
+    verificationLabel: shop.isVerified ? 'Business Verified' : null,
     productGallery: galleryFromListings(listings),
     sellerType: 'shop',
     category: shop.category || 'Other',
@@ -66,7 +68,9 @@ function toIndividualSeller(user, listings = [], userLat, userLng) {
     listingCount: listings.length,
     distance: distance == null ? null : Math.round(distance * 10) / 10,
     location: user.preferences?.showLocation === false ? '' : user.location || '',
-    verified: false,
+    verified: Boolean(user.phone),
+    verificationKind: user.phone ? 'phone' : null,
+    verificationLabel: user.phone ? 'Phone Verified' : null,
     productGallery: galleryFromListings(listings),
     sellerType: 'individual',
     category: primaryCategory,
@@ -264,15 +268,27 @@ async function getSeller(req, res, next) {
 
     const shop = await Shop.findOne({ _id: sellerId, status: 'active' }).lean();
     if (shop) {
-      const listings = await Listing.find({ shopId: shop._id, status: 'active' })
-        .select('photos category location coordinates createdAt')
+      const listings = await Listing.find({
+        shopId: shop._id,
+        status: { $in: ['active', 'sold'] },
+      })
+        .select('photos category location coordinates createdAt status price title')
         .sort({ createdAt: -1 })
         .lean();
-      return res.json({ seller: toShopSeller(shop, listings, userLat, userLng) });
+      const activeCount = listings.filter((l) => l.status === 'active').length;
+      const soldCount = listings.filter((l) => l.status === 'sold').length;
+      return res.json({
+        seller: {
+          ...toShopSeller(shop, listings, userLat, userLng),
+          activeCount,
+          soldCount,
+          memberSince: shop.createdAt || null,
+        },
+      });
     }
 
     const user = await User.findById(sellerId)
-      .select('name avatarUrl location coordinates phone status')
+      .select('name avatarUrl location coordinates phone status bio preferences createdAt soldCount')
       .lean();
     if (!user || user.status === 'suspended') {
       return res.status(404).json({ message: 'Seller not found' });
@@ -283,11 +299,22 @@ async function getSeller(req, res, next) {
       sellerType: 'individual',
       status: { $in: ['active', 'sold'] },
     })
-      .select('photos category location coordinates createdAt status')
+      .select('photos category location coordinates createdAt status price title')
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({ seller: toIndividualSeller(user, listings, userLat, userLng) });
+    const activeCount = listings.filter((l) => l.status === 'active').length;
+    const soldCount = listings.filter((l) => l.status === 'sold').length;
+
+    return res.json({
+      seller: {
+        ...toIndividualSeller(user, listings, userLat, userLng),
+        activeCount,
+        soldCount,
+        memberSince: user.createdAt || null,
+        soldCountTotal: user.soldCount || soldCount,
+      },
+    });
   } catch (error) {
     next(error);
   }

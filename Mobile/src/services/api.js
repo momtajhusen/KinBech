@@ -1,4 +1,5 @@
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
+import { reportMobileError } from '../utils/errorReporting';
 
 let authToken = null;
 let workingBaseUrl = null;
@@ -29,6 +30,13 @@ function toQuery(params = {}) {
   });
   const qs = search.toString();
   return qs ? `?${qs}` : '';
+}
+
+/** Always send page/limit so listing list APIs stay paginated. */
+function withListingPagination(params = {}) {
+  const page = Math.max(1, parseInt(params.page, 10) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(params.limit, 10) || 20));
+  return { ...params, page, limit };
 }
 
 function sleep(ms) {
@@ -130,6 +138,21 @@ async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
 
   if (!response.ok) {
     const errorMsg = data?.message || 'Request failed';
+    if (response.status >= 500) {
+      reportMobileError(
+        {
+          message: errorMsg,
+          name: 'ApiError',
+          severity: 'error',
+          statusCode: response.status,
+          path,
+          method: options?.method || 'GET',
+          url: url,
+          extra: { data },
+        },
+        { baseUrl, token: authToken }
+      ).catch(() => {});
+    }
     return {
       ok: false,
       isNetwork: false,
@@ -291,6 +314,14 @@ export const api = {
   completeSignup: (payload) =>
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
+  getReferral: () => request('/auth/referral'),
+  applyReferral: (code) =>
+    request('/auth/referral/apply', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  featureListing: (id) =>
+    request(`/listings/${id}/feature`, { method: 'POST' }),
   updateMe: (payload) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
   updateProfile: (payload) =>
@@ -307,8 +338,12 @@ export const api = {
       body: JSON.stringify(payload),
       timeoutMs: 90000,
     }),
-  getListings: (params = {}) => request(`/listings${toQuery(params)}`),
-  searchListings: (params = {}) => request(`/listings/search${toQuery(params)}`),
+  getListings: (params = {}) =>
+    request(`/listings${toQuery(withListingPagination(params))}`),
+  searchListings: (params = {}) =>
+    request(`/listings/search${toQuery(withListingPagination(params))}`),
+  getCategoryCounts: (params = {}) =>
+    request(`/listings/category-counts${toQuery(params)}`),
   getMyListings: () => request('/listings/mine'),
   getMyPurchases: () => request('/listings/purchases'),
   getListing: (id, loc) => {

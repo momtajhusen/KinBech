@@ -72,15 +72,9 @@ export default function AllCategoriesScreen({ navigation }) {
   const intro = useRef(new Animated.Value(0)).current;
 
   const loadCounts = useCallback(async () => {
-    const { data, error } = await api.getListings();
-    if (error) return;
-    const categoryCounts = {};
-    (data?.listings || []).forEach((listing) => {
-      if (listing.category) {
-        categoryCounts[listing.category] = (categoryCounts[listing.category] || 0) + 1;
-      }
-    });
-    setCounts(categoryCounts);
+    const { data, error } = await api.getCategoryCounts({ status: 'active' });
+    if (error || !data?.counts) return;
+    setCounts(data.counts);
   }, []);
 
   const { refreshing, onRefresh } = usePullRefresh(loadCounts);

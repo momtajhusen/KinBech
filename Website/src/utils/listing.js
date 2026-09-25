@@ -75,7 +75,21 @@ export function toCardItem(listing) {
     distanceLabel: formatDistanceLabel(listing.distanceKm),
     sellerName: listing.sellerType === 'shop' ? shop.name || 'Shop' : seller.name || 'Seller',
     sellerType: listing.sellerType || 'individual',
-    verified: shop.isVerified || false,
+    verified: Boolean(
+      listing.verified ||
+        shop.isVerified ||
+        (listing.sellerType !== 'shop' && (seller.id || seller._id || seller.phone))
+    ),
+    verificationKind:
+      listing.verificationKind ||
+      (shop.isVerified ? 'business' : listing.sellerType !== 'shop' ? 'phone' : null),
+    verificationLabel:
+      listing.verificationLabel ||
+      (shop.isVerified
+        ? 'Business Verified'
+        : listing.sellerType !== 'shop'
+          ? 'Phone Verified'
+          : null),
     views: listing.views || 0,
     description: listing.description || '',
     createdAt: listing.createdAt,
@@ -98,6 +112,14 @@ export function toSellerCard(seller) {
     distanceLabel: formatDistanceLabel(seller.distance),
     location: seller.location || '',
     verified: Boolean(seller.verified),
+    verificationKind: seller.verificationKind || (seller.verified ? (seller.sellerType === 'shop' ? 'business' : 'phone') : null),
+    verificationLabel:
+      seller.verificationLabel ||
+      (seller.verified
+        ? seller.sellerType === 'shop'
+          ? 'Business Verified'
+          : 'Phone Verified'
+        : null),
     sellerType: seller.sellerType || 'individual',
     category: seller.category || '',
     description: seller.description || '',

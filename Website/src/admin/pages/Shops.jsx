@@ -25,6 +25,10 @@ const Shops = () => {
         listingsCount: shop.listingsCount || 0,
         rating: shop.ratingAverage,
         reviewCount: shop.reviewCount,
+        panNumber: shop.panNumber || '',
+        vatNumber: shop.vatNumber || '',
+        businessDocuments: Array.isArray(shop.businessDocuments) ? shop.businessDocuments : [],
+        verificationStatus: shop.verificationStatus || 'none',
         status: shop.isVerified ? 'verified' : (shop.status === 'suspended' ? 'rejected' : 'pending'),
       }));
       setShops(shopsData);
@@ -129,6 +133,7 @@ const Shops = () => {
                 <th>Shop Name</th>
                 <th>Category</th>
                 <th>Owner</th>
+                <th>PAN / VAT</th>
                 <th>Location</th>
                 <th>Rating</th>
                 <th>Listings</th>
@@ -157,6 +162,18 @@ const Shops = () => {
                     </span>
                   </td>
                   <td>{shop.owner?.name || 'N/A'}</td>
+                  <td>
+                    <div className="tax-cell">
+                      <div>{shop.panNumber ? `PAN: ${shop.panNumber}` : 'PAN: —'}</div>
+                      <div>{shop.vatNumber ? `VAT: ${shop.vatNumber}` : 'VAT: —'}</div>
+                      {shop.businessDocuments?.length ? (
+                        <div className="doc-count">{shop.businessDocuments.length} doc(s)</div>
+                      ) : null}
+                      {shop.verificationStatus && shop.verificationStatus !== 'none' ? (
+                        <div className="doc-count">KYC: {shop.verificationStatus}</div>
+                      ) : null}
+                    </div>
+                  </td>
                   <td>{shop.location}</td>
                   <td>
                     <div className="rating-cell">

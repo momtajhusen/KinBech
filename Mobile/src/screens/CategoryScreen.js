@@ -130,8 +130,8 @@ export default function CategoryScreen({ navigation, route }) {
 
     const locParams =
       coords.lat != null && coords.lng != null
-        ? { lat: coords.lat, lng: coords.lng }
-        : {};
+        ? { lat: coords.lat, lng: coords.lng, page: 1, limit: 40 }
+        : { page: 1, limit: 40 };
 
     const { data: listingsData, error: listingsError } = await api.getListings(locParams);
     if (listingsError) {

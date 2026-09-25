@@ -56,6 +56,39 @@ const shopSchema = new mongoose.Schema(
       default: false,
       index: true 
     },
+    /** Nepal business tax IDs — optional; used for admin verification badge */
+    panNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    vatNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    businessDocuments: [
+      {
+        url: { type: String, required: true },
+        label: { type: String, trim: true, default: 'Business document' },
+        uploadedAt: { type: Date, default: Date.now },
+      },
+    ],
+    verificationStatus: {
+      type: String,
+      enum: ['none', 'pending', 'approved', 'rejected'],
+      default: 'none',
+      index: true,
+    },
+    verificationNotes: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    verificationSubmittedAt: {
+      type: Date,
+      default: null,
+    },
     ratingAverage: { 
       type: Number, 
       default: 0,

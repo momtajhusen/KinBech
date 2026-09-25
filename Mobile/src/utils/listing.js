@@ -49,6 +49,18 @@ export function formatPrice(price) {
   return `₹${amount.toLocaleString('en-IN')}`;
 }
 
+/** Fisher–Yates shuffle — returns a new array, does not mutate input. */
+export function shuffleArray(items) {
+  const arr = Array.isArray(items) ? [...items] : [];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 export function timeAgo(dateValue) {
   if (!dateValue) return '';
   const then = new Date(dateValue).getTime();
@@ -178,6 +190,11 @@ export function toCardItem(listing) {
     sellerType: listing.sellerType || 'individual',
     shopId: listing.shopId || null,
     sellerName: listing.sellerType === 'shop' ? (shop.name || 'Shop') : (seller.name || 'Seller'),
+    verified: Boolean(listing.verified),
+    verificationKind: listing.verificationKind || null,
+    verificationLabel: listing.verificationLabel || null,
+    isFeatured: Boolean(listing.isFeatured),
+    featuredUntil: listing.featuredUntil || null,
     listing,
   };
 }

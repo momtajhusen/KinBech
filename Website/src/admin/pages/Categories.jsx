@@ -34,6 +34,7 @@ const emptyForm = {
   description: '',
   sortOrder: 0,
   isActive: true,
+  requiresPreApproval: false,
 };
 
 const Categories = () => {
@@ -77,6 +78,7 @@ const Categories = () => {
       description: cat.description || '',
       sortOrder: cat.sortOrder || 0,
       isActive: cat.isActive !== false,
+      requiresPreApproval: Boolean(cat.requiresPreApproval),
     });
     setShowForm(true);
   };
@@ -187,6 +189,20 @@ const Categories = () => {
               />
             </label>
           </div>
+          {type === 'product' ? (
+            <div className="form-row">
+              <label className="full" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(form.requiresPreApproval)}
+                  onChange={(e) =>
+                    setForm({ ...form, requiresPreApproval: e.target.checked })
+                  }
+                />
+                Requires admin pre-approval before listings go public
+              </label>
+            </div>
+          ) : null}
           <div className="form-actions">
             <button type="submit" className="action-btn view" disabled={saving}>
               {saving ? 'Saving…' : 'Save'}
@@ -208,6 +224,7 @@ const Categories = () => {
                 <th>Category</th>
                 <th>Icon</th>
                 <th>Description</th>
+                <th>Pre-approval</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -236,6 +253,19 @@ const Categories = () => {
                     <code>{cat.icon}</code>
                   </td>
                   <td>{cat.description || '—'}</td>
+                  <td>
+                    {type === 'product' ? (
+                      <span
+                        className={`status-badge ${
+                          cat.requiresPreApproval ? 'pending' : 'verified'
+                        }`}
+                      >
+                        {cat.requiresPreApproval ? 'Required' : 'Auto'}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <div className="action-buttons">
                       <button className="action-btn view" onClick={() => openEdit(cat)}>

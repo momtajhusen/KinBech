@@ -15,6 +15,8 @@ const shopAnalyticsDailySchema = new mongoose.Schema(
     profileViews: { type: Number, default: 0, min: 0 },
     listingViews: { type: Number, default: 0, min: 0 },
     inquiries: { type: Number, default: 0, min: 0 },
+    salesCount: { type: Number, default: 0, min: 0 },
+    salesRevenue: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true, collection: 'shop_analytics_daily' },
 );

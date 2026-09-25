@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
-import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showSuccessAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
@@ -286,11 +286,18 @@ export default function EditProfileScreen({ navigation }) {
         if (uploaded.error) {
           setLoading(false);
           setAlertConfig(
-            showErrorAlert({
-              title: 'Photo Upload Failed',
-              message: uploaded.error,
-              onConfirm: () => setAlertConfig(null),
-            })
+            uploaded.isSafetyBlock || uploaded.errorCode
+              ? showImageSafetyAlert({
+                  code: uploaded.errorCode,
+                  message: uploaded.error,
+                  issues: uploaded.issues,
+                  onConfirm: () => setAlertConfig(null),
+                })
+              : showErrorAlert({
+                  title: 'Photo Upload Failed',
+                  message: uploaded.error,
+                  onConfirm: () => setAlertConfig(null),
+                })
           );
           return;
         }

@@ -10,7 +10,7 @@ import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 export default function SplashScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const { ready, isLoggedIn, onboarded } = useAuth();
+  const { ready, isLoggedIn, onboarded, user } = useAuth();
   const logoScale = useRef(new Animated.Value(0.72)).current;
   const fade = useRef(new Animated.Value(0)).current;
   const spark = useRef(new Animated.Value(0.35)).current;
@@ -58,6 +58,10 @@ export default function SplashScreen({ navigation }) {
 
     const timer = setTimeout(() => {
       if (isLoggedIn) {
+        if (!user?.profileComplete) {
+          navigation.replace(ROUTES.PROFILE_SETUP);
+          return;
+        }
         navigation.replace(ROUTES.MAIN_TABS);
         return;
       }
@@ -65,7 +69,7 @@ export default function SplashScreen({ navigation }) {
     }, 1400);
 
     return () => clearTimeout(timer);
-  }, [ready, isLoggedIn, onboarded, navigation]);
+  }, [ready, isLoggedIn, onboarded, user, navigation]);
 
   return (
     <LinearGradient

@@ -35,8 +35,19 @@ function publicUser(user, options = {}) {
     location: includePrivate || prefs.showLocation !== false ? user.location || '' : '',
     coordinates: includePrivate || prefs.showLocation !== false ? user.coordinates || null : null,
     blockedCount: Array.isArray(user.blockedUserIds) ? user.blockedUserIds.length : 0,
+    profileComplete: Boolean(user.profileComplete),
     joinedAt: user.createdAt || null,
     createdAt: user.createdAt || null,
+    ...(includePrivate
+      ? {
+          chatRestrictedUntil: user.chatRestrictedUntil || null,
+          restrictionReason: user.restrictionReason || '',
+          status: user.status || 'active',
+          referralCode: user.referralCode || '',
+          featuredCredits: Math.max(0, Number(user.featuredCredits) || 0),
+          referredBy: user.referredBy ? String(user.referredBy) : null,
+        }
+      : {}),
   };
 }
 

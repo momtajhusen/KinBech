@@ -17,7 +17,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import EmptyState from '../components/EmptyState';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import VariantEditor from '../components/VariantEditor';
@@ -454,11 +454,18 @@ export default function EditListingScreen({ navigation, route }) {
     if (uploaded.error) {
       setSubmitting(false);
       setAlertConfig(
-        showErrorAlert({
-          title: 'Photo Upload Failed',
-          message: uploaded.error,
-          onConfirm: () => setAlertConfig(null),
-        })
+        uploaded.isSafetyBlock || uploaded.errorCode
+          ? showImageSafetyAlert({
+              code: uploaded.errorCode,
+              message: uploaded.error,
+              issues: uploaded.issues,
+              onConfirm: () => setAlertConfig(null),
+            })
+          : showErrorAlert({
+              title: 'Photo Upload Failed',
+              message: uploaded.error,
+              onConfirm: () => setAlertConfig(null),
+            })
       );
       return;
     }

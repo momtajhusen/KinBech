@@ -21,7 +21,7 @@ import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import VariantEditor from '../components/VariantEditor';
 import { EXTRA_PHOTO_SLOTS, MAX_LISTING_PHOTOS, pickListingPhoto } from '../utils/listingPhotos';
 import { normalizeVariantsForApi } from '../utils/listingVariants';
@@ -308,11 +308,18 @@ export default function ShopPostListingScreen({ navigation }) {
     if (uploaded.error) {
       setSubmitting(false);
       setAlertConfig(
-        showErrorAlert({
-          title: 'Photo Upload Failed',
-          message: uploaded.error,
-          onConfirm: () => setAlertConfig(null),
-        })
+        uploaded.isSafetyBlock || uploaded.errorCode
+          ? showImageSafetyAlert({
+              code: uploaded.errorCode,
+              message: uploaded.error,
+              issues: uploaded.issues,
+              onConfirm: () => setAlertConfig(null),
+            })
+          : showErrorAlert({
+              title: 'Photo Upload Failed',
+              message: uploaded.error,
+              onConfirm: () => setAlertConfig(null),
+            })
       );
       return;
     }
@@ -345,10 +352,13 @@ export default function ShopPostListingScreen({ navigation }) {
 
     setSubmitting(false);
     if (error) {
+      const isProhibited = /prohibited|weapon|gun|restricted/i.test(String(error));
       setAlertConfig(
         showErrorAlert({
-          title: 'Could not post product',
-          message: error,
+          title: isProhibited ? 'Product not allowed' : 'Could not post product',
+          message: isProhibited
+            ? `${error}\n\nWeapons, adult content, and other prohibited items cannot be listed on KinBech.`
+            : error,
           onConfirm: () => setAlertConfig(null),
         })
       );

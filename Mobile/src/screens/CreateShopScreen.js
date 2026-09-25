@@ -86,6 +86,8 @@ export default function CreateShopScreen({ navigation, route }) {
   const [location, setLocation] = useState('');
   const [openingHours, setOpeningHours] = useState('9:00 AM - 8:00 PM');
   const [coords, setCoords] = useState({ lat: null, lng: null });
+  const [panNumber, setPanNumber] = useState('');
+  const [vatNumber, setVatNumber] = useState('');
   const [existingShop, setExistingShop] = useState(null);
 
   useEffect(() => {
@@ -102,6 +104,8 @@ export default function CreateShopScreen({ navigation, route }) {
       setAddress(shop.address || '');
       setLocation(shop.location || '');
       setOpeningHours(shop.openingHours || '9:00 AM - 8:00 PM');
+      setPanNumber(shop.panNumber || '');
+      setVatNumber(shop.vatNumber || '');
       if (shop.coordinates?.lat != null) {
         setCoords({ lat: shop.coordinates.lat, lng: shop.coordinates.lng });
       }
@@ -206,6 +210,8 @@ export default function CreateShopScreen({ navigation, route }) {
       address: address.trim(),
       location: location.trim(),
       openingHours,
+      panNumber: panNumber.trim(),
+      vatNumber: vatNumber.trim(),
       coordinates: coords,
     };
 
@@ -229,10 +235,14 @@ export default function CreateShopScreen({ navigation, route }) {
       title: shopId ? 'Shop Updated!' : 'Shop Created!',
       message: shopId
         ? 'Your shop details have been saved.'
-        : 'Your shop has been created successfully. You can now add products.',
+        : 'Your shop has been created. Add PAN/VAT documents anytime for a verified badge.',
       onConfirm: () => {
         setAlertConfig(null);
-        navigation.navigate(ROUTES.SHOP_POST_LISTING);
+        if (shopId) {
+          navigation.navigate(ROUTES.SHOP_VERIFICATION);
+        } else {
+          navigation.navigate(ROUTES.SHOP_POST_LISTING);
+        }
       },
     }));
   };
@@ -386,10 +396,46 @@ export default function CreateShopScreen({ navigation, route }) {
             onFocus={() => scrollToFocus(700)}
           />
 
+          <Text style={styles.sectionTitle}>Business tax IDs (optional)</Text>
+          <Text style={styles.taxHint}>
+            Add PAN/VAT for registered businesses. Verified badge is granted after admin review.
+          </Text>
+
+          <FloatingField
+            label="PAN Number"
+            value={panNumber}
+            onChangeText={setPanNumber}
+            placeholder="Optional"
+            colors={colors}
+            styles={styles}
+            onFocus={() => scrollToFocus(780)}
+          />
+
+          <FloatingField
+            label="VAT Number"
+            value={vatNumber}
+            onChangeText={setVatNumber}
+            placeholder="Optional"
+            colors={colors}
+            styles={styles}
+            onFocus={() => scrollToFocus(860)}
+          />
+
+          {existingShop ? (
+            <Pressable
+              style={styles.verifyLink}
+              onPress={() => navigation.navigate(ROUTES.SHOP_VERIFICATION)}
+            >
+              <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+              <Text style={styles.verifyLinkText}>Upload documents & request verification</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </Pressable>
+          ) : null}
+
           <View style={styles.infoCard}>
             <Ionicons name="information-circle" size={20} color={colors.primary} />
             <Text style={styles.infoText}>
-              You can update these details later from your shop profile.
+              You can update these details and submit KYC documents later from Business verification.
             </Text>
           </View>
         </ScrollView>
@@ -464,6 +510,31 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.text,
     marginBottom: 16,
+  },
+  taxHint: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18,
+    marginTop: -8,
+    marginBottom: 12,
+  },
+  verifyLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.iconBackground,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 8,
+  },
+  verifyLinkText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
   },
   fieldLabel: {
     fontSize: 14,

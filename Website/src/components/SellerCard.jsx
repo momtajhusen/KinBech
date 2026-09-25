@@ -18,7 +18,9 @@ export default function SellerCard({ seller, onClick }) {
           <h3>{seller.name}</h3>
           {seller.verified ? (
             <span className="seller-verified">
-              <IconShield width={12} height={12} /> Verified
+              <IconShield width={12} height={12} />{' '}
+              {seller.verificationLabel ||
+                (seller.sellerType === 'shop' ? 'Business Verified' : 'Phone Verified')}
             </span>
           ) : null}
         </div>

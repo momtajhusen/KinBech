@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import ListingShareCard from '../components/ListingShareCard';
 import { ROUTES } from '../navigation/helpers';
+import { api } from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { normalizeListingForShare, buildShareMessage } from '../utils/listingShare';
 import {
@@ -27,9 +29,20 @@ export default function ListingSuccessScreen({ navigation, route }) {
   const styles = useThemedStyles(createStyles);
   const cardRef = useRef(null);
   const [sharing, setSharing] = useState(null);
+  const { user, refreshUser } = useAuth();
+  const [featuredCredits, setFeaturedCredits] = useState(user?.featuredCredits || 0);
+  const [featuring, setFeaturing] = useState(false);
+  const [isFeatured, setIsFeatured] = useState(false);
 
   const shareListing = normalizeListingForShare(route.params?.listing);
   const shareMode = route.params?.mode === 'share';
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await api.getReferral();
+      if (data) setFeaturedCredits(data.featuredCredits || 0);
+    })();
+  }, []);
 
   if (!colors) return null;
 
@@ -43,6 +56,21 @@ export default function ListingSuccessScreen({ navigation, route }) {
     } finally {
       setSharing(null);
     }
+  };
+
+  const handleFeature = async () => {
+    if (!shareListing?.id || featuring || isFeatured) return;
+    setFeaturing(true);
+    const { data, error } = await api.featureListing(shareListing.id);
+    setFeaturing(false);
+    if (error) {
+      Alert.alert('Could not feature', error);
+      return;
+    }
+    setIsFeatured(true);
+    setFeaturedCredits(data?.featuredCredits ?? Math.max(0, featuredCredits - 1));
+    await refreshUser();
+    Alert.alert('Featured for 24 hours', 'Your listing will rank higher in search today.');
   };
 
   const handleViewListing = () => {
@@ -71,6 +99,40 @@ export default function ListingSuccessScreen({ navigation, route }) {
             ? 'Download or share this card on WhatsApp Status, Facebook Groups, or Instagram.'
             : 'Share your auto-generated card on WhatsApp Status, Facebook Groups, or Instagram.'}
         </Text>
+
+        {!shareMode && featuredCredits > 0 && !isFeatured ? (
+          <Pressable style={styles.featureCard} onPress={handleFeature} disabled={featuring}>
+            <Ionicons name="sparkles" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.featureTitle}>
+                {featuring ? 'Featuring…' : 'Use 1 free featured day'}
+              </Text>
+              <Text style={styles.featureHint}>
+                You have {featuredCredits} credit(s) from inviting friends.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </Pressable>
+        ) : null}
+
+        {isFeatured ? (
+          <View style={styles.featureCardDone}>
+            <Ionicons name="checkmark-circle" size={18} color={colors.success || colors.primary} />
+            <Text style={styles.featureDoneText}>Featured for 24 hours</Text>
+          </View>
+        ) : null}
+
+        {!shareMode ? (
+          <Pressable
+            style={styles.inviteLink}
+            onPress={() => navigation.navigate(ROUTES.INVITE_FRIENDS)}
+          >
+            <Ionicons name="gift-outline" size={16} color={colors.primary} />
+            <Text style={styles.inviteLinkText}>
+              Invite a friend → earn another free featured day
+            </Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.cardPreviewWrap}>
           <Text style={styles.sectionLabel}>Share card preview</Text>
@@ -214,6 +276,38 @@ const createStyles = (colors) => ({
     marginBottom: 20,
     maxWidth: 320,
   },
+  featureCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    width: '100%',
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    marginBottom: 10,
+  },
+  featureTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  featureHint: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  featureCardDone: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: colors.iconBackground,
+    marginBottom: 10,
+  },
+  featureDoneText: { fontSize: 13, fontWeight: '700', color: colors.text },
+  inviteLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 14,
+  },
+  inviteLinkText: { fontSize: 13, fontWeight: '700', color: colors.primary },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '800',

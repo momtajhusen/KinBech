@@ -17,18 +17,20 @@ const Listings = () => {
     try {
       const response = await api.get('/listings/admin/all');
       const listingsData = response.data.listings.map(listing => ({
-        id: listing._id,
+        id: listing.id || listing._id,
         title: listing.title,
         postDate: listing.createdAt,
         seller: { 
           name: listing.seller?.name || 'Unknown', 
           type: listing.sellerType 
         },
-        shop: listing.shopId ? { name: listing.shopId.name } : null,
+        shop: listing.shopId ? { name: listing.shopId.name || listing.shopId } : null,
         category: listing.category,
         price: listing.price,
         status: listing.status,
         reportsCount: listing.reportsCount || 0,
+        moderationReason: listing.moderationReason || '',
+        matchedKeywords: listing.matchedKeywords || [],
       }));
       setListings(listingsData);
     } catch (error) {
@@ -148,6 +150,16 @@ const Listings = () => {
                     <div className="listing-title-cell">
                       <div className="listing-title">{listing.title}</div>
                       <div className="listing-id">#{listing.id}</div>
+                      {listing.moderationReason ? (
+                        <div className="user-email" style={{ marginTop: 4 }}>
+                          Hold: {listing.moderationReason}
+                        </div>
+                      ) : null}
+                      {listing.matchedKeywords?.length ? (
+                        <div className="user-email">
+                          Keywords: {listing.matchedKeywords.join(', ')}
+                        </div>
+                      ) : null}
                     </div>
                   </td>
                   <td>{new Date(listing.postDate).toLocaleDateString()}</td>

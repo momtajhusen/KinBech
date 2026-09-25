@@ -53,6 +53,10 @@ export default function SearchResultsScreen({ navigation, route }) {
   const [sortKey, setSortKey] = useState(route?.params?.sort || 'distance');
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalResults, setTotalResults] = useState(0);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
   const [hasLocationPerm, setHasLocationPerm] = useState(false);
 
@@ -129,23 +133,45 @@ export default function SearchResultsScreen({ navigation, route }) {
     return params;
   }, [query, filters, sortKey, userCoords, categoryActive, conditionActive]);
 
-  const loadResults = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
-    const { data, error } = await api.searchListings(queryParams);
+  const loadResults = useCallback(async ({ silent = false, pageToLoad = 1, append = false } = {}) => {
+    if (append) setLoadingMore(true);
+    else if (!silent) setLoading(true);
+
+    const { data, error } = await api.searchListings({
+      ...queryParams,
+      page: pageToLoad,
+      limit: 20,
+    });
+
     if (error) {
       console.error('Failed to load search results:', error);
-      setListings([]);
+      if (!append) setListings([]);
+      setHasMore(false);
+      setTotalResults(0);
     } else {
-      setListings(data?.listings || []);
+      const next = data?.listings || [];
+      setListings((prev) => (append ? [...prev, ...next] : next));
+      setPage(data?.page || pageToLoad);
+      setHasMore(Boolean(data?.hasMore));
+      setTotalResults(Number(data?.total) || next.length);
     }
-    if (!silent) setLoading(false);
+
+    if (append) setLoadingMore(false);
+    else if (!silent) setLoading(false);
   }, [queryParams]);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => loadResults({ silent: true }));
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    loadResults({ silent: true, pageToLoad: 1, append: false })
+  );
 
   useEffect(() => {
-    loadResults();
+    loadResults({ pageToLoad: 1, append: false });
   }, [loadResults]);
+
+  const loadMore = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    loadResults({ silent: true, pageToLoad: page + 1, append: true });
+  }, [loading, loadingMore, hasMore, page, loadResults]);
 
   const cards = useMemo(
     () =>
@@ -252,7 +278,9 @@ export default function SearchResultsScreen({ navigation, route }) {
 
       <View style={styles.resultsRow}>
         <Text style={styles.resultsCount}>
-          {loading ? 'Searching…' : `${cards.length} result${cards.length === 1 ? '' : 's'} found`}
+          {loading
+            ? 'Searching…'
+            : `${totalResults} result${totalResults === 1 ? '' : 's'} found`}
         </Text>
         <Pressable style={styles.sortBtn} onPress={cycleSort}>
           <Ionicons name="swap-vertical" size={15} color={colors.text} />
@@ -313,6 +341,17 @@ export default function SearchResultsScreen({ navigation, route }) {
               />
             ))}
           </View>
+          {hasMore ? (
+            <Pressable
+              style={styles.loadMoreBtn}
+              onPress={loadMore}
+              disabled={loadingMore}
+            >
+              <Text style={styles.loadMoreText}>
+                {loadingMore ? 'Loading…' : 'Load more'}
+              </Text>
+            </Pressable>
+          ) : null}
         )}
       </ScrollView>
 
@@ -472,5 +511,21 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: GRID_GUTTER,
+  },
+  loadMoreBtn: {
+    marginTop: 16,
+    marginBottom: 8,
+    alignSelf: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  loadMoreText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
   },
 });

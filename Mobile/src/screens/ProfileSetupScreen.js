@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
@@ -286,6 +286,8 @@ export default function ProfileSetupScreen({ navigation }) {
   const [shopCategory, setShopCategory] = useState('');
   const [shopAddress, setShopAddress] = useState('');
   const [openingHours, setOpeningHours] = useState('9:00 AM - 8:00 PM');
+  const [panNumber, setPanNumber] = useState('');
+  const [vatNumber, setVatNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
@@ -406,11 +408,20 @@ export default function ProfileSetupScreen({ navigation }) {
         const uploaded = await uploadMediaUri(nextAvatarUrl, 'avatars');
         if (uploaded.error) {
           setLoading(false);
-          setAlertConfig(showErrorAlert({
-            title: 'Photo Upload Failed',
-            message: uploaded.error,
-            onConfirm: () => setAlertConfig(null),
-          }));
+          setAlertConfig(
+            uploaded.isSafetyBlock || uploaded.errorCode
+              ? showImageSafetyAlert({
+                  code: uploaded.errorCode,
+                  message: uploaded.error,
+                  issues: uploaded.issues,
+                  onConfirm: () => setAlertConfig(null),
+                })
+              : showErrorAlert({
+                  title: 'Photo Upload Failed',
+                  message: uploaded.error,
+                  onConfirm: () => setAlertConfig(null),
+                })
+          );
           return;
         }
         nextAvatarUrl = uploaded.url;
@@ -444,6 +455,8 @@ export default function ProfileSetupScreen({ navigation }) {
           address: (shopAddress || location).trim(),
           location: location.trim(),
           openingHours: openingHours.trim() || '9:00 AM - 8:00 PM',
+          panNumber: panNumber.trim() || undefined,
+          vatNumber: vatNumber.trim() || undefined,
           coordinates: coordinates
             ? { lat: coordinates.latitude, lng: coordinates.longitude }
             : undefined,
@@ -675,7 +688,7 @@ export default function ProfileSetupScreen({ navigation }) {
                 </View>
               </View>
 
-              <View style={[styles.fieldCard, { marginBottom: 0 }]}>
+              <View style={[styles.fieldCard, { marginBottom: 12 }]}>
                 <View style={styles.fieldRow}>
                   <View style={styles.fieldIcon}>
                     <Ionicons name="time-outline" size={18} color={colors.primary} />
@@ -687,6 +700,48 @@ export default function ProfileSetupScreen({ navigation }) {
                       onChangeText={setOpeningHours}
                       placeholder="9:00 AM - 8:00 PM"
                       placeholderTextColor={colors.textTertiary}
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <Text style={styles.shopPanelHint}>
+                Tax IDs are optional. Add them now or later for a verified shop badge.
+              </Text>
+
+              <View style={styles.fieldCard}>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldIcon}>
+                    <Ionicons name="card-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={styles.fieldCopy}>
+                    <Text style={styles.fieldLabel}>PAN number (optional)</Text>
+                    <TextInput
+                      value={panNumber}
+                      onChangeText={setPanNumber}
+                      placeholder="e.g. 123456789"
+                      placeholderTextColor={colors.textTertiary}
+                      autoCapitalize="characters"
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <View style={[styles.fieldCard, { marginBottom: 0 }]}>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldIcon}>
+                    <Ionicons name="receipt-outline" size={18} color={colors.primary} />
+                  </View>
+                  <View style={styles.fieldCopy}>
+                    <Text style={styles.fieldLabel}>VAT number (optional)</Text>
+                    <TextInput
+                      value={vatNumber}
+                      onChangeText={setVatNumber}
+                      placeholder="VAT registration number"
+                      placeholderTextColor={colors.textTertiary}
+                      autoCapitalize="characters"
                       style={styles.input}
                     />
                   </View>

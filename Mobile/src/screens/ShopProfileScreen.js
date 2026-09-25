@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
-import { formatPrice } from '../utils/listing';
+import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -510,7 +510,7 @@ export default function ShopProfileScreen({ route, navigation }) {
                   onPress={() => navigation.navigate(ROUTES.ITEM_DETAIL, { listingId: listing._id })}
                 >
                   <Image
-                    source={{ uri: listing.photos?.[0] }}
+                    source={{ uri: resolveMediaUrl(listing.photos?.[0] || '') }}
                     style={styles.productImage}
                     resizeMode="cover"
                   />
@@ -543,7 +543,7 @@ export default function ShopProfileScreen({ route, navigation }) {
                     <View style={styles.reviewAvatar}>
                       {review.reviewer?.avatarUrl ? (
                         <Image
-                          source={{ uri: review.reviewer.avatarUrl }}
+                          source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }}
                           style={styles.reviewAvatarImage}
                         />
                       ) : (

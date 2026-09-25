@@ -4,6 +4,7 @@ const multer = require('multer');
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
 const { ensureUploadDir, publicUploadPath } = require('../config/uploads');
+const { gateImageUpload } = require('../utils/imageSafetyCheck');
 
 const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'misc']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
@@ -57,12 +58,27 @@ router.post('/upload', requireAuth, (req, res) => {
   const folder = ALLOWED_FOLDERS.has(folderRaw) ? folderRaw : 'misc';
   const upload = makeUploader(folder);
 
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ message: err.message || 'Upload failed' });
     }
     if (!req.file) {
       return res.status(400).json({ message: 'Please choose a file to upload' });
+    }
+
+    const absolutePath = path.join(ensureUploadDir(folder), req.file.filename);
+    try {
+      const gate = await gateImageUpload({
+        filePath: absolutePath,
+        mimeType: req.file.mimetype,
+        filename: req.file.filename,
+        folder,
+      });
+      if (!gate.ok) {
+        return res.status(gate.status || 422).json(gate.body);
+      }
+    } catch (scanErr) {
+      console.error('[media] nsfw gate error:', scanErr.message || scanErr);
     }
 
     const url = publicUploadPath(folder, req.file.filename);
@@ -77,7 +93,7 @@ router.post('/upload', requireAuth, (req, res) => {
 });
 
 /** JSON base64 upload — reliable with Expo (avoids FormDataPart errors). */
-router.post('/upload-base64', requireAuth, (req, res) => {
+router.post('/upload-base64', requireAuth, async (req, res) => {
   try {
     const folderRaw = String(req.body?.folder || req.query.folder || 'misc').toLowerCase();
     const folder = ALLOWED_FOLDERS.has(folderRaw) ? folderRaw : 'misc';
@@ -105,6 +121,20 @@ router.post('/upload-base64', requireAuth, (req, res) => {
       MIME_EXT[mimeType] ||
       (mimeType.startsWith('video/') ? '.mp4' : '.jpg');
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+
+    // Scan images BEFORE writing to disk so NSFW never lands in /uploads
+    if (mimeType.startsWith('image/') || IMAGE_EXTS.has(ext)) {
+      const gate = await gateImageUpload({
+        buffer,
+        mimeType,
+        filename,
+        folder,
+      });
+      if (!gate.ok) {
+        return res.status(gate.status || 422).json(gate.body);
+      }
+    }
+
     const dir = ensureUploadDir(folder);
     fs.writeFileSync(path.join(dir, filename), buffer);
 

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { touchLastActive } = require('../utils/platformBI');
 
 async function requireAuth(req, res, next) {
   try {
@@ -22,6 +23,7 @@ async function requireAuth(req, res, next) {
       user.role = payload.role;
     }
 
+    touchLastActive(user);
     req.user = user;
     next();
   } catch (_error) {

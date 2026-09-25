@@ -1,5 +1,6 @@
 const Report = require('../models/Report');
 const User = require('../models/User');
+const { maybeAutoRestrictFromReports } = require('../utils/userRestriction');
 
 async function createReport(req, res, next) {
   try {
@@ -37,13 +38,21 @@ async function createReport(req, res, next) {
       });
     }
 
-    res.status(201).json({ 
+    // 3+ distinct reporters in 14 days → temporary chat restriction
+    const autoRestrict = await maybeAutoRestrictFromReports(reportedUserId);
+
+    res.status(201).json({
       message: 'Report submitted successfully',
       report: {
         id: report._id,
         reason: report.reason,
         status: report.status,
-      }
+      },
+      autoRestrict: {
+        applied: Boolean(autoRestrict.restricted),
+        reporterCount: autoRestrict.reporterCount,
+        until: autoRestrict.until || null,
+      },
     });
   } catch (error) {
     next(error);

@@ -323,8 +323,10 @@ export default function ItemDetailScreen({ navigation, route }) {
                 <View style={styles.sellerInfo}>
                   <Text style={styles.sellerName}>{item.seller}</Text>
                   <View style={styles.sellerMetaRow}>
-                    <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText}>Verified Seller</Text>
+                    <Ionicons name="call" size={14} color={colors.success} />
+                    <Text style={styles.sellerMetaText}>
+                      {listing.verificationLabel || 'Phone Verified'}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.viewProfileRow}>
@@ -354,10 +356,12 @@ export default function ItemDetailScreen({ navigation, route }) {
                     <Text style={styles.sellerRating}>{listing.shopId?.ratingAverage?.toFixed(1) || '0.0'}</Text>
                     <Text style={styles.sellerReviewCount}>({listing.shopId?.reviewCount || 0})</Text>
                   </View>
-                  {listing.shopId?.isVerified && (
+                  {(listing.shopId?.isVerified || listing.verificationKind === 'business') && (
                     <View style={styles.sellerMetaRow}>
-                      <Ionicons name="checkmark-circle" size={12} color={colors.success} />
-                      <Text style={styles.sellerMetaText}>Verified Shop</Text>
+                      <Ionicons name="shield-checkmark" size={12} color={colors.primary} />
+                      <Text style={styles.sellerMetaText}>
+                        {listing.verificationLabel || 'Business Verified'}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -384,8 +388,10 @@ export default function ItemDetailScreen({ navigation, route }) {
                 <View style={styles.sellerInfo}>
                   <Text style={styles.sellerName}>{item.seller}</Text>
                   <View style={styles.sellerMetaRow}>
-                    <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText}>Verified Seller</Text>
+                    <Ionicons name="call" size={14} color={colors.success} />
+                    <Text style={styles.sellerMetaText}>
+                      {listing.verificationLabel || 'Phone Verified'}
+                    </Text>
                   </View>
                 </View>
                 <View style={styles.viewProfileRow}>

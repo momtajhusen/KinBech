@@ -10,6 +10,8 @@ import AllCategoriesScreen from '../screens/AllCategoriesScreen';
 import ChatListScreen from '../screens/ChatListScreen';
 import ChatScreen from '../screens/ChatScreen';
 import CreateShopScreen from '../screens/CreateShopScreen';
+import ShopVerificationScreen from '../screens/ShopVerificationScreen';
+import InviteFriendsScreen from '../screens/InviteFriendsScreen';
 import CurrencySelectScreen from '../screens/CurrencySelectScreen';
 import EditListingScreen from '../screens/EditListingScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
@@ -160,6 +162,8 @@ export default function AppNavigator() {
         <Stack.Screen name="IndividualPostListing" component={IndividualPostListingScreen} />
         <Stack.Screen name="ShopPostListing" component={ShopPostListingScreen} />
         <Stack.Screen name="CreateShop" component={CreateShopScreen} />
+        <Stack.Screen name="ShopVerification" component={ShopVerificationScreen} />
+        <Stack.Screen name="InviteFriends" component={InviteFriendsScreen} />
         <Stack.Screen name="EditListing" component={EditListingScreen} />
         <Stack.Screen name="MyListings" component={MyListingsScreen} />
         <Stack.Screen name="ListingSuccess" component={ListingSuccessScreen} />

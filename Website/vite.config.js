@@ -20,6 +20,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5180,
+    strictPort: true,
     proxy: {
       '/auth': apiProxy(),
       '/listings': apiProxy(),
@@ -29,6 +30,7 @@ export default defineConfig({
       '/notifications': apiProxy(),
       '/reports': apiProxy(),
       '/reviews': apiProxy(),
+      '/moderation': apiProxy(),
       '/chats': apiProxy(),
       '/wishlist': apiProxy(),
       '/map': apiProxy(),
@@ -47,6 +49,7 @@ export default defineConfig({
       '/notifications': apiProxy(),
       '/reports': apiProxy(),
       '/reviews': apiProxy(),
+      '/moderation': apiProxy(),
       '/chats': apiProxy(),
       '/wishlist': apiProxy(),
       '/map': apiProxy(),

@@ -67,3 +67,62 @@ curl -sS https://kinbech-api.codersalpha.com/health
 - DNS A record must be `148.230.67.252` — Hostinger Website/AAAA remove karo warna 403.
 - Atlas error `find on KinBech.users` → MongoDB Atlas user ko `readWrite` do.
 - Website live: `https://kinbech.codersalpha.com` (Hostinger). Storefront also `https://kinbech.app`.
+
+## Monitoring (Sentry + Admin Error Log)
+
+1. Create a free Sentry project (Node) at https://sentry.io → copy DSN.
+2. On VPS `Backend/.env` add:
+
+```bash
+SENTRY_DSN=https://xxxx@o000.ingest.sentry.io/0000
+SENTRY_RELEASE=kinbech-api@1.0.0
+NODE_ENV=production
+```
+
+3. Install deps & restart:
+
+```bash
+cd /home/ubuntu/Momtaj_Projects/kinbech_backen/Backend
+npm install --omit=dev
+pm2 restart kinbech-backend --update-env
+```
+
+4. Admin Console → **Trust & Safety → Error Log**  
+   Shows stack, route, user, severity, occurrence count, developer hint.  
+   Server 5xx + Mobile/Website crashes land here even without Sentry.  
+   With `SENTRY_DSN`, the same events also alert the Sentry team inbox/Slack.
+
+## Auto-scaling (traffic)
+
+### Near-term (current single VPS)
+
+Use PM2 **cluster mode** so Node uses all CPU cores behind nginx:
+
+```bash
+cd /home/ubuntu/Momtaj_Projects/kinbech_backen/Backend
+pm2 delete kinbech-backend
+pm2 start ecosystem.config.cjs --env production
+# pin instance count if needed:
+PM2_INSTANCES=2 pm2 start ecosystem.config.cjs --env production
+pm2 save
+```
+
+Scale under load:
+
+```bash
+pm2 scale kinbech-backend 4
+pm2 logs kinbech-backend --lines 80 --nostream
+```
+
+Watch CPU/RAM (`htop`). If RAM > ~80% or latency spikes → bump VPS plan (vertical) or add instances carefully (uploads are local disk — keep sticky if needed).
+
+### Next step (true cloud auto-scale)
+
+Before multi-VPS / App Platform / ECS:
+
+1. Move `/uploads` to S3/R2 + CDN (shared storage).
+2. Keep MongoDB on Atlas (already managed).
+3. Put 2+ API nodes behind a load balancer (DigitalOcean LB / Cloudflare / nginx upstream).
+4. Enable platform autoscaling on CPU > 70% (DO App Platform, Render, Railway, or AWS ECS).
+
+Until uploads leave the VPS, prefer **PM2 cluster + larger droplet** over multi-machine scale.

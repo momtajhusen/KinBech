@@ -38,6 +38,7 @@ function toPublic(doc, req) {
     description: doc.description || '',
     sortOrder: doc.sortOrder || 0,
     isActive: doc.isActive !== false,
+    requiresPreApproval: Boolean(doc.requiresPreApproval),
   };
 }
 
@@ -132,6 +133,7 @@ async function createCategory(req, res, next) {
       description: String(req.body.description || '').trim(),
       sortOrder: Number(req.body.sortOrder) || 0,
       isActive: req.body.isActive !== false,
+      requiresPreApproval: Boolean(req.body.requiresPreApproval),
     });
 
     return res.status(201).json({ category: toPublic(doc, req) });
@@ -157,6 +159,9 @@ async function updateCategory(req, res, next) {
     if (req.body.description != null) doc.description = String(req.body.description).trim();
     if (req.body.sortOrder != null) doc.sortOrder = Number(req.body.sortOrder) || 0;
     if (req.body.isActive != null) doc.isActive = Boolean(req.body.isActive);
+    if (req.body.requiresPreApproval != null) {
+      doc.requiresPreApproval = Boolean(req.body.requiresPreApproval);
+    }
 
     await doc.save();
     return res.json({ category: toPublic(doc, req) });

@@ -1,7 +1,13 @@
 const Shop = require('../models/Shop');
 const Listing = require('../models/Listing');
 const Chat = require('../models/Chat');
-const { parsePeriodDays, getShopAnalyticsSummary } = require('../utils/shopAnalytics');
+const {
+  parsePeriod,
+  getShopAnalyticsSummary,
+  getShopSalesSeries,
+  buildPerformanceReport,
+  getShopCustomerAndCategoryInsights,
+} = require('../utils/shopAnalytics');
 
 async function getOwnedShop(userId) {
   return Shop.findOne({ owner: userId, status: 'active' });
@@ -14,15 +20,18 @@ async function getMyShopAnalytics(req, res, next) {
       return res.status(404).json({ message: 'Shop not found' });
     }
 
-    const periodDays = parsePeriodDays(req.query.period);
+    const period = parsePeriod(req.query.period);
     const shopId = shop._id;
+    const chartDays = period.chartDays;
+    const metricDays = period.metricDays;
 
-    const [summaryData, listings, inquiryAgg] = await Promise.all([
-      getShopAnalyticsSummary(shopId, periodDays),
+    const [summaryData, salesSeries, listings, inquiryAgg] = await Promise.all([
+      getShopAnalyticsSummary(shopId, chartDays),
+      getShopSalesSeries(shopId, chartDays),
       Listing.find({ shopId, sellerType: 'shop' })
-        .select('title photos price currency status views category createdAt updatedAt')
+        .select('title photos price currency status views category location createdAt updatedAt soldAt')
         .sort({ views: -1, updatedAt: -1 })
-        .limit(50)
+        .limit(100)
         .lean(),
       Chat.aggregate([
         {
@@ -47,45 +56,88 @@ async function getMyShopAnalytics(req, res, next) {
     const listingIds = listings.map((l) => l._id);
     const totalInquiriesAllTime = inquiryAgg.reduce((sum, row) => sum + row.count, 0);
 
-    let periodInquiries = summaryData.totals.inquiries;
+    const metricSince = new Date();
+    metricSince.setUTCHours(0, 0, 0, 0);
+    metricSince.setUTCDate(metricSince.getUTCDate() - (metricDays - 1));
+
+    let periodInquiries = summaryData.chart
+      .filter((row) => row.date >= metricSince.toISOString().slice(0, 10))
+      .reduce((sum, row) => sum + row.inquiries, 0);
+
     if (periodInquiries === 0 && listingIds.length) {
-      const since = new Date();
-      since.setUTCDate(since.getUTCDate() - periodDays);
       periodInquiries = await Chat.countDocuments({
         listing: { $in: listingIds },
-        createdAt: { $gte: since },
+        createdAt: { $gte: metricSince },
       });
     }
+
+    const periodSales = salesSeries.chart
+      .filter((row) => row.date >= metricSince.toISOString().slice(0, 10))
+      .reduce(
+        (acc, row) => ({
+          salesCount: acc.salesCount + row.salesCount,
+          salesRevenue: acc.salesRevenue + row.salesRevenue,
+        }),
+        { salesCount: 0, salesRevenue: 0 },
+      );
+
+    const periodViews = summaryData.chart
+      .filter((row) => row.date >= metricSince.toISOString().slice(0, 10))
+      .reduce(
+        (acc, row) => ({
+          profileViews: acc.profileViews + row.profileViews,
+          listingViews: acc.listingViews + row.listingViews,
+        }),
+        { profileViews: 0, listingViews: 0 },
+      );
 
     const activeListings = listings.filter((l) => l.status === 'active').length;
     const soldListings = listings.filter((l) => l.status === 'sold').length;
     const totalListingViews = listings.reduce((sum, l) => sum + (Number(l.views) || 0), 0);
 
-    const topProducts = listings
-      .map((listing) => ({
-        id: listing._id,
-        title: listing.title,
-        photos: listing.photos || [],
-        price: listing.price,
-        currency: listing.currency,
-        status: listing.status,
-        views: Number(listing.views) || 0,
-        inquiries: inquiryByListing[String(listing._id)] || 0,
-        category: listing.category,
-        updatedAt: listing.updatedAt,
-      }))
-      .sort((a, b) => {
-        if (a.status === 'sold' && b.status !== 'sold') return -1;
-        if (b.status === 'sold' && a.status !== 'sold') return 1;
-        if (b.inquiries !== a.inquiries) return b.inquiries - a.inquiries;
-        return b.views - a.views;
-      })
-      .slice(0, 8);
-
-    const conversionRate =
-      summaryData.totals.listingViews > 0
-        ? Math.round((periodInquiries / summaryData.totals.listingViews) * 1000) / 10
+    const salesToViewRate =
+      periodViews.listingViews > 0
+        ? Math.round((periodSales.salesCount / periodViews.listingViews) * 1000) / 10
         : 0;
+
+    const inquiryRate =
+      periodViews.listingViews > 0
+        ? Math.round((periodInquiries / periodViews.listingViews) * 1000) / 10
+        : 0;
+
+    const avgOrderValue =
+      periodSales.salesCount > 0
+        ? Math.round(periodSales.salesRevenue / periodSales.salesCount)
+        : 0;
+
+    const { bestItems, worstItems, conversionReport } = buildPerformanceReport(
+      listings,
+      inquiryByListing,
+    );
+
+    const { customerInsights, categoryPerformance } = await getShopCustomerAndCategoryInsights(
+      shopId,
+      shop.owner || req.user._id,
+      metricSince,
+      listings,
+      inquiryByListing,
+    );
+
+    const topProducts = bestItems.slice(0, 8);
+
+    // Merge activity + sales into one chart for the UI
+    const salesByDate = new Map(salesSeries.chart.map((r) => [r.date, r]));
+    const chart = summaryData.chart.map((row) => {
+      const sale = salesByDate.get(row.date) || { salesCount: 0, salesRevenue: 0 };
+      return {
+        date: row.date,
+        profileViews: row.profileViews,
+        listingViews: row.listingViews,
+        inquiries: row.inquiries,
+        salesCount: sale.salesCount,
+        salesRevenue: sale.salesRevenue,
+      };
+    });
 
     res.json({
       shop: {
@@ -98,19 +150,37 @@ async function getMyShopAnalytics(req, res, next) {
         reviewCount: shop.reviewCount,
         profileViews: shop.profileViews ?? 0,
       },
-      periodDays,
+      period: period.key,
+      periodDays: metricDays,
       summary: {
-        profileViews: summaryData.totals.profileViews,
-        listingViews: summaryData.totals.listingViews || totalListingViews,
+        profileViews: periodViews.profileViews,
+        listingViews: periodViews.listingViews || totalListingViews,
         totalInquiries: periodInquiries,
         totalInquiriesAllTime,
         activeListings,
         soldListings,
         totalListingViews,
-        conversionRate,
+        conversionRate: inquiryRate,
+        salesCount: periodSales.salesCount,
+        salesRevenue: periodSales.salesRevenue,
+        avgOrderValue,
+        salesConversionRate: salesToViewRate,
       },
-      chart: summaryData.chart,
+      salesSummary: {
+        period: period.key,
+        units: periodSales.salesCount,
+        revenue: periodSales.salesRevenue,
+        avgOrderValue,
+        currency: 'NPR',
+      },
+      chart,
+      salesChart: salesSeries.chart,
       topProducts,
+      bestItems,
+      worstItems,
+      conversionReport,
+      customerInsights,
+      categoryPerformance,
     });
   } catch (error) {
     next(error);

@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -13,7 +14,7 @@ import { useSharedTransition } from '../context/SharedTransitionContext';
 import EmptyState from '../components/EmptyState';
 import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import { categoryIcon, formatPrice } from '../utils/listing';
+import { categoryIcon, formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -53,6 +54,7 @@ export default function WishlistScreen({ navigation }) {
           location: listing.location,
           distance: listing.category,
           icon: categoryIcon(listing.category),
+          photo: resolveMediaUrl(listing.photos?.[0] || ''),
           bg: 'iconBackground',
           priceDropped: false,
           listing,
@@ -121,7 +123,16 @@ export default function WishlistScreen({ navigation }) {
                 }
               >
                 <View style={[styles.thumb, { backgroundColor: item.bg }]}>
-                  <Ionicons name={item.icon} size={40} color={colors.primary} sharedTransitionTag={`item.${item.id}.photo`} />
+                  {item.photo ? (
+                    <Image
+                      source={{ uri: item.photo }}
+                      style={styles.thumbImage}
+                      resizeMode="cover"
+                      sharedTransitionTag={`item.${item.id}.photo`}
+                    />
+                  ) : (
+                    <Ionicons name={item.icon} size={40} color={colors.primary} sharedTransitionTag={`item.${item.id}.photo`} />
+                  )}
 
                   <Pressable
                     style={styles.heartBtn}
@@ -218,6 +229,11 @@ const createStyles = (colors) => ({
     height: 130,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
   },
   heartBtn: {
     position: 'absolute',

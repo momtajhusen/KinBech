@@ -3,6 +3,7 @@ const multer = require('multer');
 const express = require('express');
 const { requireAdmin } = require('../middleware/auth');
 const { ensureUploadDir } = require('../config/uploads');
+const { gateImageUpload } = require('../utils/imageSafetyCheck');
 const {
   listCategories,
   listCategoriesAdmin,
@@ -43,9 +44,26 @@ router.post(
   '/admin/upload',
   requireAdmin,
   (req, res, next) => {
-    upload.single('image')(req, res, (err) => {
+    upload.single('image')(req, res, async (err) => {
       if (err) {
         return res.status(400).json({ message: err.message || 'Image upload failed' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: 'Please choose an image to upload' });
+      }
+      try {
+        const filePath = path.join(uploadDir, req.file.filename);
+        const gate = await gateImageUpload({
+          filePath,
+          mimeType: req.file.mimetype,
+          filename: req.file.filename,
+          folder: 'categories',
+        });
+        if (!gate.ok) {
+          return res.status(gate.status || 422).json(gate.body);
+        }
+      } catch (scanErr) {
+        console.error('[categories] nsfw gate error:', scanErr.message || scanErr);
       }
       next();
     });

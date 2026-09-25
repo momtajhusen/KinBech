@@ -2,6 +2,7 @@ import { useState, memo, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, ScrollView, Text, View, Animated, Dimensions } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
+import { resolveMediaUrl } from '../utils/listing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(200, SCREEN_WIDTH / 2.0); // Better width for content
@@ -445,14 +446,17 @@ const SellerProfileCard = memo(function SellerProfileCard({
   const displayListings = listingCount || seller?.listingCount || 0;
   const displayDistance = distance || seller?.distance;
   const displayLocation = location || seller?.location || 'Unknown location';
-  const displayAvatar = avatar || seller?.avatarUrl;
-  const displayCover = coverImage || seller?.coverImage;
+  const displayAvatar = resolveMediaUrl(avatar || seller?.avatarUrl || '');
+  const displayCover = resolveMediaUrl(coverImage || seller?.coverImage || '');
 
   const distanceLabel = displayDistance 
     ? (displayDistance < 1 ? `${Math.round(displayDistance * 1000)} m` : `${displayDistance.toFixed(1)} km`)
     : null;
 
-  const galleryItems = productGallery?.slice(0, 4) || [];
+  const galleryItems = (productGallery || [])
+    .map((item) => resolveMediaUrl(item))
+    .filter(Boolean)
+    .slice(0, 4);
   const remainingCount = Math.max(0, (productGallery?.length || 0) - 4);
 
   if (compact) {
@@ -541,7 +545,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
                 <View style={styles.individualVerified}>
                   <View style={styles.individualVerifiedBadge}>
                     <Ionicons name="checkmark-circle" size={8} color={colors.primary} />
-                    <Text style={styles.individualVerifiedText}>Verified</Text>
+                    <Text style={styles.individualVerifiedText}>Phone Verified</Text>
                   </View>
                 </View>
               )}
@@ -618,7 +622,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
                 <View style={styles.verifiedRow}>
                   <View style={styles.verifiedBadge}>
                     <Ionicons name="checkmark-circle" size={10} color={colors.primary} />
-                    <Text style={styles.verifiedText}>Verified Seller</Text>
+                    <Text style={styles.verifiedText}>Business Verified</Text>
                   </View>
                 </View>
               )}

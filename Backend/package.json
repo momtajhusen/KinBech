@@ -9,6 +9,9 @@
     "seed:admin": "node src/seedAdmin.js"
   },
   "dependencies": {
+    "@sentry/node": "^9.47.1",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -16,8 +19,11 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.18.0",
     "multer": "^2.3.0",
+    "nsfwjs": "^4.3.0",
     "pdfkit": "^0.20.2",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "sharp": "^0.35.4",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

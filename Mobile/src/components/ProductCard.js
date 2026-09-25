@@ -73,6 +73,24 @@ const createStyles = (colors) => ({
     shadowRadius: 4,
     elevation: 2,
   },
+  featuredBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(37, 99, 235, 0.92)',
+    zIndex: 2,
+  },
+  featuredBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#fff',
+  },
   distanceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -126,6 +144,29 @@ const createStyles = (colors) => ({
     fontWeight: '600',
     color: colors.textSecondary,
   },
+  verifyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+    maxWidth: '100%',
+  },
+  verifyChipPhone: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  verifyChipBusiness: {
+    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+  },
+  verifyChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.success || colors.primary,
+  },
+  verifyChipTextBusiness: {
+    color: colors.primary,
+  },
 });
 
 const ProductCard = memo(function ProductCard({
@@ -146,6 +187,10 @@ const ProductCard = memo(function ProductCard({
   sellerType,
   shopId,
   sellerName,
+  verified,
+  verificationKind,
+  verificationLabel,
+  isFeatured,
 }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -242,6 +287,13 @@ const ProductCard = memo(function ProductCard({
             />
           )}
 
+          {isFeatured ? (
+            <View style={styles.featuredBadge}>
+              <Ionicons name="sparkles" size={10} color="#fff" />
+              <Text style={styles.featuredBadgeText}>Featured</Text>
+            </View>
+          ) : null}
+
           <Animated.View style={{ transform: [{ scale: heartScaleAnim }] }}>
             <Pressable
               onPress={handleToggleSave}
@@ -273,6 +325,32 @@ const ProductCard = memo(function ProductCard({
                   />
                 </View>
                 <Text style={styles.metaText} numberOfLines={1}>{sellerName}</Text>
+              </View>
+            ) : null}
+            {(verificationLabel || verified) ? (
+              <View style={styles.metaRow}>
+                <View
+                  style={[
+                    styles.verifyChip,
+                    verificationKind === 'business' ? styles.verifyChipBusiness : styles.verifyChipPhone,
+                  ]}
+                >
+                  <Ionicons
+                    name={verificationKind === 'business' ? 'shield-checkmark' : 'call'}
+                    size={9}
+                    color={verificationKind === 'business' ? colors.primary : colors.success || colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.verifyChipText,
+                      verificationKind === 'business' ? styles.verifyChipTextBusiness : null,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {verificationLabel ||
+                      (verificationKind === 'business' ? 'Business Verified' : 'Phone Verified')}
+                  </Text>
+                </View>
               </View>
             ) : null}
             {distanceLabel ? (

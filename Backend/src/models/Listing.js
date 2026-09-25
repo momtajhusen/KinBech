@@ -39,7 +39,19 @@ const listingSchema = new mongoose.Schema(
       default: 'active',
       index: true,
     },
+    moderationReason: { type: String, default: '' },
+    matchedKeywords: [{ type: String }],
+    heldAt: { type: Date, default: null },
     views: { type: Number, default: 0, index: true },
+    /** Set when status first becomes sold — used for sales reports */
+    soldAt: { type: Date, default: null, index: true },
+    /** Time-boxed promo from referral credits (or future paid boosts) */
+    featuredUntil: { type: Date, default: null, index: true },
+    featuredSource: {
+      type: String,
+      enum: ['', 'referral', 'promo', 'manual'],
+      default: '',
+    },
     // Shop-specific fields
     stock: { type: Number, default: 1, min: 0 },
     brand: { type: String, default: '' },
@@ -77,5 +89,7 @@ listingSchema.index({ title: 'text', description: 'text', location: 'text' });
 listingSchema.index({ 'coordinates.lat': 1, 'coordinates.lng': 1 });
 listingSchema.index({ sellerType: 1, status: 1 });
 listingSchema.index({ shopId: 1, status: 1 });
+listingSchema.index({ seller: 1, price: 1, createdAt: -1 });
+listingSchema.index({ seller: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Listing', listingSchema);

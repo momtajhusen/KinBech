@@ -760,6 +760,11 @@ body.explore-filter-sheet-lock {
   background: var(--emerald-soft);
 }
 
+.seller-verified-phone {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.14);
+}
+
 .seller-card-mini-stats {
   display: flex;
   flex-wrap: wrap;
@@ -2327,6 +2332,16 @@ body.explore-filter-sheet-lock {
 }
 
 .product-card-badge-verified {
+  background: var(--primary-soft);
+  color: var(--primary-bright);
+}
+
+.product-card-badge-phone {
+  background: rgba(16, 185, 129, 0.14);
+  color: #059669;
+}
+
+.product-card-badge-business {
   background: var(--primary-soft);
   color: var(--primary-bright);
 }

@@ -11,10 +11,15 @@ const reviewRoutes = require('./routes/reviews');
 const shopRoutes = require('./routes/shops');
 const sellerRoutes = require('./routes/sellers');
 const categoryRoutes = require('./routes/categories');
+const moderationRoutes = require('./routes/moderation');
 const mapRoutes = require('./routes/map');
 const mediaRoutes = require('./routes/media');
+const errorRoutes = require('./routes/errors');
 const { notFound, errorHandler } = require('./middleware/error');
 const { getUploadsRoot } = require('./config/uploads');
+const { initSentry } = require('./utils/monitoring');
+
+initSentry();
 
 const app = express();
 
@@ -49,8 +54,10 @@ app.use('/reviews', reviewRoutes);
 app.use('/shops', shopRoutes);
 app.use('/sellers', sellerRoutes);
 app.use('/categories', categoryRoutes);
+app.use('/moderation', moderationRoutes);
 app.use('/map', mapRoutes);
 app.use('/media', mediaRoutes);
+app.use('/errors', errorRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

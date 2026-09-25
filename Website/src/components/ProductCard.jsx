@@ -41,8 +41,17 @@ export default function ProductCard({ item, onClick }) {
           {item.sellerType === 'shop' ? (
             <span className="product-card-badge">Shop</span>
           ) : null}
-          {item.verified ? (
-            <span className="product-card-badge product-card-badge-verified">Verified</span>
+          {item.verificationLabel || item.verified ? (
+            <span
+              className={`product-card-badge product-card-badge-verified ${
+                item.verificationKind === 'business'
+                  ? 'product-card-badge-business'
+                  : 'product-card-badge-phone'
+              }`}
+            >
+              {item.verificationLabel ||
+                (item.verificationKind === 'business' ? 'Business Verified' : 'Phone Verified')}
+            </span>
           ) : null}
         </div>
         {item.location ? (

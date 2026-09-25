@@ -15,7 +15,7 @@ import { openItemDetail, navigateToTab, ROUTES, TABS } from '../navigation/helpe
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
-import { formatPrice } from '../utils/listing';
+import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -63,7 +63,7 @@ export default function MyListingsScreen({ navigation, route }) {
         (data?.listings || []).map((listing) => ({
           ...listing,
           id: listing.id || listing._id,
-          imageUrl: listing.photos?.[0] || '',
+          imageUrl: resolveMediaUrl(listing.photos?.[0] || ''),
           views: listing.views ?? 0,
           chats: listing.chats ?? 0,
         }))
@@ -336,7 +336,7 @@ export default function MyListingsScreen({ navigation, route }) {
                           title: item.title,
                           price: item.price,
                           location: item.location,
-                          imageUrl: item.imageUrl || item.photos?.[0],
+                          imageUrl: item.imageUrl || resolveMediaUrl(item.photos?.[0] || ''),
                           condition: item.condition,
                           category: item.category,
                         },

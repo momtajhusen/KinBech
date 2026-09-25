@@ -3,16 +3,26 @@ const Shop = require('../models/Shop');
 const Report = require('../models/Report');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
-const { listingPayload, parsePrice, haversineDistanceKm, listingPoint } = require('../utils/listing');
+const { listingPayload, parsePrice, haversineDistanceKm, listingPoint, listingTrustBoost } = require('../utils/listing');
 const { parseVariantsFromBody } = require('../utils/listingVariants');
-const { recordShopMetric } = require('../utils/shopAnalytics');
+const { recordShopMetric, recordShopSale } = require('../utils/shopAnalytics');
+const listingQueryCache = require('../utils/listingQueryCache');
+const { evaluateListingModeration } = require('../utils/listingModeration');
+const { assertListingNotSpam } = require('../utils/listingSpamGuard');
+const { featureListingWithCredit } = require('../utils/referral');
 
 const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates';
 const SHOP_POPULATE = 'name logo ratingAverage reviewCount isVerified coordinates location';
+const LISTING_PAGE_DEFAULT = 20;
+const LISTING_PAGE_MAX = 50;
 
+/** Pagination is mandatory: always coerce page/limit (default 20, max 50). */
 function parsePagination(req) {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(48, Math.max(1, parseInt(req.query.limit, 10) || 20));
+  const limit = Math.min(
+    LISTING_PAGE_MAX,
+    Math.max(1, parseInt(req.query.limit, 10) || LISTING_PAGE_DEFAULT)
+  );
   return { page, limit, skip: (page - 1) * limit };
 }
 
@@ -29,6 +39,31 @@ function paginateItems(items, page, limit) {
     totalPages,
     hasMore: safePage < totalPages,
   };
+}
+
+function buildListResponse(listings, page, limit, total, appliedSort) {
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  const safePage = Math.min(page, totalPages);
+  return {
+    listings,
+    total,
+    page: safePage,
+    limit,
+    totalPages,
+    hasMore: safePage < totalPages,
+    appliedSort,
+  };
+}
+
+function attachDistances(docs, userLat, userLng) {
+  return docs.map((doc) => {
+    const point = listingPoint(doc);
+    if (userLat != null && userLng != null && point) {
+      const km = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
+      return { doc, distance: km };
+    }
+    return { doc, distance: null };
+  });
 }
 
 function buildBaseFilter(req) {
@@ -51,6 +86,7 @@ function buildBaseFilter(req) {
   if (condition && condition !== 'All') filter.condition = condition;
   if (sellerType && sellerType !== 'all') filter.sellerType = sellerType;
   if (seller) filter.seller = seller;
+  if (req.query.shopId) filter.shopId = req.query.shopId;
   if (minPrice || maxPrice) {
     filter.price = {};
     if (minPrice) filter.price.$gte = Number(minPrice);
@@ -79,6 +115,17 @@ async function getListings(req, res, next) {
     const userLng = lng != null && lng !== '' ? Number(lng) : null;
     const radiusKm = radius && Number(radius) > 0 ? Number(radius) : null;
     const sortMode = String(sort || 'newest').toLowerCase();
+    const { page, limit, skip } = parsePagination(req);
+
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings', {
+      ...req.query,
+      page,
+      limit,
+    });
+    const cached = listingQueryCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
 
     const mongoSort = {};
     if (sortMode === 'price-low') {
@@ -89,21 +136,46 @@ async function getListings(req, res, next) {
       mongoSort.createdAt = -1;
     }
 
+    // Fast path: DB-level skip/limit when we don't need in-memory distance/radius sorting
+    const needsMemoryPath = Boolean(radiusKm) || sortMode === 'distance';
+    if (!needsMemoryPath) {
+      const [total, docs] = await Promise.all([
+        Listing.countDocuments(filter),
+        Listing.find(filter)
+          .populate('seller', SELLER_POPULATE)
+          .populate('shopId', SHOP_POPULATE)
+          .sort(mongoSort)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+      ]);
+
+      const listings = attachDistances(docs, userLat, userLng).map(({ doc, distance }) =>
+        listingPayload(doc, distance)
+      );
+      // Soft boost: verified sellers float up within the page for browse/newest
+      if (sortMode !== 'price-low' && sortMode !== 'price-high') {
+        listings.sort((a, b) => {
+          const score = (item) =>
+            item.verificationKind === 'business' ? 2 : item.verificationKind === 'phone' ? 1 : 0;
+          const diff = score(b) - score(a);
+          if (diff !== 0) return diff;
+          return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+        });
+      }
+      const payload = buildListResponse(listings, page, limit, total, sortMode);
+      listingQueryCache.set(cacheKey, payload);
+      return res.json(payload);
+    }
+
     const docs = await Listing.find(filter)
       .populate('seller', SELLER_POPULATE)
       .populate('shopId', SHOP_POPULATE)
       .sort(mongoSort)
-      .limit(300)
+      .limit(200)
       .lean();
 
-    const withDistance = docs.map((doc) => {
-      const point = listingPoint(doc);
-      if (userLat != null && userLng != null && point) {
-        const km = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
-        return { doc, distance: km };
-      }
-      return { doc, distance: null };
-    });
+    const withDistance = attachDistances(docs, userLat, userLng);
 
     const filteredByRadius = withDistance.filter(({ distance }) => {
       if (!radiusKm) return true;
@@ -116,24 +188,35 @@ async function getListings(req, res, next) {
       final = filteredByRadius.slice().sort((a, b) => {
         const da = a.distance == null ? Infinity : a.distance;
         const db = b.distance == null ? Infinity : b.distance;
-        return da - db;
+        const diff = da - db;
+        if (Math.abs(diff) > 5) return diff;
+        return listingTrustBoost(b.doc) - listingTrustBoost(a.doc);
       });
     } else if (sortMode === 'price-low') {
-      final = filteredByRadius.slice().sort((a, b) => a.doc.price - b.doc.price);
-    } else if (sortMode === 'price-high') {
-      final = filteredByRadius.slice().sort((a, b) => b.doc.price - a.doc.price);
-    } else {
       final = filteredByRadius.slice().sort((a, b) => {
+        const diff = a.doc.price - b.doc.price;
+        if (diff !== 0) return diff;
+        return listingTrustBoost(b.doc) - listingTrustBoost(a.doc);
+      });
+    } else if (sortMode === 'price-high') {
+      final = filteredByRadius.slice().sort((a, b) => {
+        const diff = b.doc.price - a.doc.price;
+        if (diff !== 0) return diff;
+        return listingTrustBoost(b.doc) - listingTrustBoost(a.doc);
+      });
+    } else {
+      // newest — verified sellers slightly above peers of similar age
+      final = filteredByRadius.slice().sort((a, b) => {
+        const trustDiff = listingTrustBoost(b.doc) - listingTrustBoost(a.doc);
+        if (trustDiff !== 0) return trustDiff;
         const ta = new Date(a.doc.createdAt || 0).getTime();
         const tb = new Date(b.doc.createdAt || 0).getTime();
         return tb - ta;
       });
     }
 
-    const { page, limit } = parsePagination(req);
     const paged = paginateItems(final, page, limit);
-
-    res.json({
+    const payload = {
       listings: paged.items.map(({ doc, distance }) => listingPayload(doc, distance)),
       total: paged.total,
       page: paged.page,
@@ -141,7 +224,9 @@ async function getListings(req, res, next) {
       totalPages: paged.totalPages,
       hasMore: paged.hasMore,
       appliedSort: sortMode,
-    });
+    };
+    listingQueryCache.set(cacheKey, payload);
+    return res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -158,11 +243,50 @@ async function searchListings(req, res, next) {
     const userLng = lng != null && lng !== '' ? Number(lng) : null;
     const radiusKm = radius && Number(radius) > 0 ? Number(radius) : null;
     const sortMode = String(sort || 'distance').toLowerCase();
+    const { page, limit, skip } = parsePagination(req);
+
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings-search', {
+      ...req.query,
+      page,
+      limit,
+    });
+    const cached = listingQueryCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    // Prefer in-memory ranking so verified sellers can be boosted in search
+    const canUseDbPagination = false;
+
+    if (canUseDbPagination) {
+      const mongoSort = {};
+      if (sortMode === 'price-low') mongoSort.price = 1;
+      else if (sortMode === 'price-high') mongoSort.price = -1;
+      else mongoSort.createdAt = -1;
+
+      const [total, docs] = await Promise.all([
+        Listing.countDocuments(filter),
+        Listing.find(filter)
+          .populate('seller', SELLER_POPULATE)
+          .populate('shopId', SHOP_POPULATE)
+          .sort(mongoSort)
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+      ]);
+
+      const listings = attachDistances(docs, userLat, userLng).map(({ doc, distance }) =>
+        listingPayload(doc, distance)
+      );
+      const payload = buildListResponse(listings, page, limit, total, sortMode);
+      listingQueryCache.set(cacheKey, payload);
+      return res.json(payload);
+    }
 
     const docs = await Listing.find(filter)
       .populate('seller', SELLER_POPULATE)
       .populate('shopId', SHOP_POPULATE)
-      .limit(500)
+      .limit(250)
       .lean();
 
     const ranked = docs.map((doc) => {
@@ -172,7 +296,7 @@ async function searchListings(req, res, next) {
         distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
       }
 
-      let relevanceScore = 0;
+      let relevanceScore = listingTrustBoost(doc);
       const q = (req.query.q || '').toString().trim().toLowerCase();
       if (q) {
         const title = (doc.title || '').toLowerCase();
@@ -186,7 +310,7 @@ async function searchListings(req, res, next) {
         if (loc.includes(q)) relevanceScore += 8;
         if (desc.includes(q)) relevanceScore += 4;
       }
-      return { doc, distance, relevance: relevanceScore };
+      return { doc, distance, relevance: relevanceScore, trust: listingTrustBoost(doc) };
     });
 
     const filtered = ranked.filter(({ distance }) => {
@@ -202,22 +326,36 @@ async function searchListings(req, res, next) {
         const db = b.distance == null ? Infinity : b.distance;
         const diff = da - db;
         if (Math.abs(diff) > 5) return diff;
+        const trustDiff = b.trust - a.trust;
+        if (trustDiff !== 0) return trustDiff;
         return b.relevance - a.relevance;
       });
     } else if (sortMode === 'relevance') {
       sorted.sort((a, b) => {
         const diff = b.relevance - a.relevance;
         if (diff !== 0) return diff;
+        const trustDiff = b.trust - a.trust;
+        if (trustDiff !== 0) return trustDiff;
         const da = a.distance == null ? Infinity : a.distance;
         const db = b.distance == null ? Infinity : b.distance;
         return da - db;
       });
     } else if (sortMode === 'price-low') {
-      sorted.sort((a, b) => a.doc.price - b.doc.price);
+      sorted.sort((a, b) => {
+        const diff = a.doc.price - b.doc.price;
+        if (diff !== 0) return diff;
+        return b.trust - a.trust;
+      });
     } else if (sortMode === 'price-high') {
-      sorted.sort((a, b) => b.doc.price - a.doc.price);
+      sorted.sort((a, b) => {
+        const diff = b.doc.price - a.doc.price;
+        if (diff !== 0) return diff;
+        return b.trust - a.trust;
+      });
     } else if (sortMode === 'newest') {
       sorted.sort((a, b) => {
+        const trustDiff = b.trust - a.trust;
+        if (trustDiff !== 0) return trustDiff;
         const ta = new Date(a.doc.createdAt || 0).getTime();
         const tb = new Date(b.doc.createdAt || 0).getTime();
         return tb - ta;
@@ -228,14 +366,14 @@ async function searchListings(req, res, next) {
         const db = b.distance == null ? Infinity : b.distance;
         const diff = da - db;
         if (Math.abs(diff) > 5) return diff;
+        const trustDiff = b.trust - a.trust;
+        if (trustDiff !== 0) return trustDiff;
         return b.relevance - a.relevance;
       });
     }
 
-    const { page, limit } = parsePagination(req);
     const paged = paginateItems(sorted, page, limit);
-
-    res.json({
+    const payload = {
       listings: paged.items.map(({ doc, distance }) => listingPayload(doc, distance)),
       total: paged.total,
       page: paged.page,
@@ -243,7 +381,9 @@ async function searchListings(req, res, next) {
       totalPages: paged.totalPages,
       hasMore: paged.hasMore,
       appliedSort: sortMode,
-    });
+    };
+    listingQueryCache.set(cacheKey, payload);
+    return res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -452,6 +592,20 @@ async function createListing(req, res, next) {
       }
     }
 
+    const spamCheck = await assertListingNotSpam(req.user, {
+      title,
+      price: parsedPrice,
+      sellerType,
+      shop: shopRecord,
+    });
+    if (!spamCheck.ok) {
+      return res.status(spamCheck.httpStatus || 400).json({
+        message: spamCheck.message,
+        code: spamCheck.code,
+        ...(spamCheck.meta || {}),
+      });
+    }
+
     const listingData = {
       seller: req.user._id,
       sellerType,
@@ -481,6 +635,20 @@ async function createListing(req, res, next) {
         : Math.max(0, Number(stock) || 1);
     }
 
+    const moderation = await evaluateListingModeration(listingData);
+    if (!moderation.ok) {
+      return res.status(moderation.httpStatus || 400).json({
+        message: moderation.reason,
+        matchedKeywords: moderation.matchedKeywords,
+        code: 'PROHIBITED_CONTENT',
+      });
+    }
+
+    listingData.status = moderation.status;
+    listingData.moderationReason = moderation.reason || '';
+    listingData.matchedKeywords = moderation.matchedKeywords || [];
+    listingData.heldAt = moderation.status === 'pending' ? new Date() : null;
+
     const listing = await Listing.create(listingData);
 
     await listing.populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences');
@@ -488,7 +656,16 @@ async function createListing(req, res, next) {
       await listing.populate('shopId', 'name logo ratingAverage reviewCount');
     }
 
-    res.status(201).json({ listing: listingPayload(listing) });
+    listingQueryCache.invalidateAll();
+    res.status(201).json({
+      listing: listingPayload(listing),
+      moderation: {
+        status: moderation.status,
+        reason: moderation.reason || '',
+        matchedKeywords: moderation.matchedKeywords || [],
+        requiresPreApproval: moderation.requiresPreApproval,
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -523,7 +700,6 @@ async function updateListing(req, res, next) {
       'photos',
       'location',
       'meetupOption',
-      'status',
       // Shop-specific fields
       'brand',
       'sku',
@@ -536,6 +712,11 @@ async function updateListing(req, res, next) {
         listing[field] = req.body[field];
       }
     });
+
+    // Sellers may only mark sold — not self-publish past moderation
+    if (req.body.markSold || req.body.status === 'sold') {
+      listing.status = 'sold';
+    }
 
     if (listing.sellerType === 'shop') {
       const nextPrice =
@@ -581,12 +762,52 @@ async function updateListing(req, res, next) {
       listing.status = 'sold';
     }
 
+    if (listing.status !== 'sold') {
+      const moderation = await evaluateListingModeration(
+        {
+          title: listing.title,
+          description: listing.description,
+          brand: listing.brand,
+          sku: listing.sku,
+          location: listing.location,
+          category: listing.category,
+        },
+        { currentStatus: listing.status }
+      );
+      if (!moderation.ok) {
+        return res.status(moderation.httpStatus || 400).json({
+          message: moderation.reason,
+          matchedKeywords: moderation.matchedKeywords,
+          code: 'PROHIBITED_CONTENT',
+        });
+      }
+      listing.status = moderation.status;
+      listing.moderationReason = moderation.reason || '';
+      listing.matchedKeywords = moderation.matchedKeywords || [];
+      listing.heldAt = moderation.status === 'pending' ? listing.heldAt || new Date() : null;
+    }
+
+    if (!wasSold && listing.status === 'sold' && !listing.soldAt) {
+      listing.soldAt = new Date();
+    }
+
     await listing.save();
     if (!wasSold && listing.status === 'sold') {
       await User.findByIdAndUpdate(listing.seller, { $inc: { soldCount: 1 } });
+      if (listing.sellerType === 'shop' && listing.shopId) {
+        recordShopSale(listing.shopId, listing.price).catch(() => {});
+      }
     }
     await listing.populate('seller', 'name phone avatarUrl rating soldCount boughtCount location bio preferences');
-    res.json({ listing: listingPayload(listing) });
+    listingQueryCache.invalidateAll();
+    res.json({
+      listing: listingPayload(listing),
+      moderation: {
+        status: listing.status,
+        reason: listing.moderationReason || '',
+        matchedKeywords: listing.matchedKeywords || [],
+      },
+    });
   } catch (error) {
     next(error);
   }
@@ -602,6 +823,7 @@ async function deleteListing(req, res, next) {
       return res.status(403).json({ message: 'You can only delete your own listing' });
     }
     await listing.deleteOne();
+    listingQueryCache.invalidateAll();
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -611,6 +833,12 @@ async function deleteListing(req, res, next) {
 async function getCategoryCounts(req, res, next) {
   try {
     const filter = buildBaseFilter(req);
+    const cacheKey = listingQueryCache.buildListingCacheKey('category-counts', req.query);
+    const cached = listingQueryCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const rows = await Listing.aggregate([
       { $match: filter },
       { $group: { _id: '$category', count: { $sum: 1 } } },
@@ -625,7 +853,9 @@ async function getCategoryCounts(req, res, next) {
       total += row.count;
     }
 
-    res.json({ counts, total });
+    const payload = { counts, total };
+    listingQueryCache.set(cacheKey, payload);
+    res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -679,12 +909,64 @@ async function updateListingStatusAdmin(req, res, next) {
       return res.status(404).json({ message: 'Listing not found' });
     }
 
-    listing.status = status || listing.status;
+    const nextStatus = status || listing.status;
+    if (!['active', 'pending', 'sold'].includes(nextStatus)) {
+      return res.status(400).json({
+        message: 'Status must be active, pending, or sold',
+      });
+    }
+
+    listing.status = nextStatus;
+    if (nextStatus === 'active') {
+      listing.moderationReason = '';
+      listing.matchedKeywords = [];
+      listing.heldAt = null;
+    } else if (nextStatus === 'pending' && !listing.heldAt) {
+      listing.heldAt = new Date();
+      if (req.body.reason) {
+        listing.moderationReason = String(req.body.reason).trim();
+      }
+    }
+
     await listing.save();
+    listingQueryCache.invalidateAll();
 
     res.json({ 
       message: 'Listing status updated successfully',
       listing: listingPayload(listing)
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function featureListing(req, res, next) {
+  try {
+    const listing = await Listing.findById(req.params.id);
+    if (!listing) {
+      return res.status(404).json({ message: 'Listing not found' });
+    }
+
+    const result = await featureListingWithCredit(req.user, listing);
+    if (!result.ok) {
+      return res.status(result.httpStatus || 400).json({
+        message: result.message,
+        code: result.code,
+        featuredUntil: result.featuredUntil || null,
+      });
+    }
+
+    listingQueryCache.invalidateAll();
+    await listing.populate('seller', SELLER_POPULATE);
+    if (listing.shopId) {
+      await listing.populate('shopId', SHOP_POPULATE);
+    }
+
+    res.json({
+      message: result.message,
+      featuredUntil: result.featuredUntil,
+      featuredCredits: result.featuredCredits,
+      listing: listingPayload(listing),
     });
   } catch (error) {
     next(error);
@@ -702,6 +984,7 @@ module.exports = {
   createListing,
   updateListing,
   deleteListing,
+  featureListing,
   getAllListingsAdmin,
   updateListingStatusAdmin,
 };

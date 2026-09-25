@@ -247,3 +247,109 @@ export function showWarningAlert({ title, message, onConfirm, onCancel }) {
     } : null,
   };
 }
+
+/** Clear modal copy for NSFW / weapons / stock / fraud image blocks */
+export function getImageSafetyCopy(code, fallbackMessage = '', issues = []) {
+  const extras = Array.isArray(issues)
+    ? issues
+        .slice(1)
+        .map((i) => i?.message)
+        .filter(Boolean)
+    : [];
+
+  const map = {
+    NSFW_BLOCKED: {
+      type: 'error',
+      title: 'Inappropriate photo blocked',
+      message:
+        'This image looks sexual or NSFW and cannot be uploaded.\n\nPlease choose a clear product or profile photo with no adult content.',
+      button: 'Choose another photo',
+    },
+    ADULT_IMAGE_TEXT: {
+      type: 'error',
+      title: 'Adult content not allowed',
+      message:
+        'Adult or sexual content is not allowed on KinBech.\n\nUpload a normal product or profile photo instead.',
+      button: 'Choose another photo',
+    },
+    WEAPON_IMAGE: {
+      type: 'error',
+      title: 'Weapons cannot be listed',
+      message:
+        'Guns, firearms, and weapons are not allowed on KinBech.\n\nThis photo was blocked. Do not list weapons or ammunition.',
+      button: 'Got it',
+    },
+    STOCK_OR_WATERMARK: {
+      type: 'warning',
+      title: 'Stock / watermark photo blocked',
+      message:
+        'This looks like a stock or watermarked image (Shutterstock, Getty, etc.).\n\nScammers often use these. Please upload a real photo of your own item.',
+      button: 'Upload real photo',
+    },
+    SUSPECT_WATERMARK: {
+      type: 'warning',
+      title: 'Photo looks fake or watermarked',
+      message:
+        'This photo may be watermarked or misleading.\n\nPlease take a clear original photo of the actual item in your hand / shop.',
+      button: 'Upload real photo',
+    },
+    FRAUD_IMAGE_TEXT: {
+      type: 'error',
+      title: 'Misleading photo blocked',
+      message:
+        'This image has text that looks fraudulent or misleading.\n\nUpload an honest photo of the real product.',
+      button: 'Choose another photo',
+    },
+    IMAGE_BLOCKED: {
+      type: 'error',
+      title: 'Photo blocked',
+      message:
+        fallbackMessage ||
+        'This image was blocked by our safety checks.\n\nUse a clear, original photo of your item.',
+      button: 'Choose another photo',
+    },
+    IMAGE_SAFETY_UNAVAILABLE: {
+      type: 'warning',
+      title: 'Could not verify photo',
+      message: 'Photo safety check is temporarily unavailable. Please try again in a moment.',
+      button: 'Try again',
+    },
+  };
+
+  const base = map[code] || {
+    type: 'error',
+    title: 'Photo upload failed',
+    message:
+      fallbackMessage ||
+      'We could not upload this photo. Please try a different clear image.',
+    button: 'OK',
+  };
+
+  let message = base.message;
+  if (fallbackMessage && code && map[code] && !message.includes(fallbackMessage.slice(0, 40))) {
+    // Prefer server message when it is specific, keep tip structure
+    message = `${fallbackMessage}\n\n${base.message.split('\n\n').slice(1).join('\n\n') || 'Please choose another photo.'}`.trim();
+  } else if (!code && fallbackMessage) {
+    message = fallbackMessage;
+  }
+  if (extras.length) {
+    message = `${message}\n\nAlso: ${extras.join(' ')}`;
+  }
+
+  return { ...base, message };
+}
+
+export function showImageSafetyAlert({ code, message, issues, onConfirm }) {
+  const copy = getImageSafetyCopy(code, message, issues);
+  return {
+    type: copy.type,
+    title: copy.title,
+    message: copy.message,
+    primaryButton: {
+      text: copy.button || 'OK',
+      onPress: () => {
+        if (onConfirm) onConfirm();
+      },
+    },
+  };
+}

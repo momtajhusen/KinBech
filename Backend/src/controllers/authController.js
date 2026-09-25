@@ -7,6 +7,9 @@ const Report = require('../models/Report');
 const Shop = require('../models/Shop');
 const { normalizePhone } = require('../utils/phone');
 const { signUserToken, publicUser } = require('../utils/token');
+const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
+const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
+const PlatformAlert = require('../models/PlatformAlert');
 
 function otpExpiry() {
   const minutes = Number(process.env.OTP_EXPIRES_MINUTES || 5);
@@ -136,7 +139,8 @@ async function verifyOtp(req, res, next) {
     await record.save();
 
     let user = await User.findOne({ phone });
-    
+    let isNewUser = false;
+
     // Auto-create user if this was a signup OTP (without name initially)
     if (!user && record.purpose === 'signup') {
       user = await User.create({
@@ -144,6 +148,8 @@ async function verifyOtp(req, res, next) {
         name: '',
         profileComplete: false,
       });
+      isNewUser = true;
+      await ensureReferralCode(user);
     }
 
     if (!user) {
@@ -153,11 +159,21 @@ async function verifyOtp(req, res, next) {
       });
     }
 
+    await ensureReferralCode(user);
+
+    // Optional referral on first OTP verify
+    if (isNewUser && req.body.referralCode) {
+      await applyReferralCode(user, req.body.referralCode);
+    }
+
+    user.lastActiveAt = new Date();
+    await user.save();
+
     const token = signUserToken(user);
     return res.json({
       token,
       user: publicUser(user, { includePrivate: true }),
-      isNewUser: false,
+      isNewUser,
     });
   } catch (error) {
     next(error);
@@ -165,7 +181,39 @@ async function verifyOtp(req, res, next) {
 }
 
 async function me(req, res) {
+  await ensureReferralCode(req.user);
   res.json({ user: publicUser(req.user, { includePrivate: true }) });
+}
+
+async function getReferral(req, res, next) {
+  try {
+    const code = await ensureReferralCode(req.user);
+    const invitedCount = await User.countDocuments({ referredBy: req.user._id });
+    res.json({
+      referralCode: code,
+      featuredCredits: Math.max(0, Number(req.user.featuredCredits) || 0),
+      invitedCount,
+      reward: 'Invite a friend — you get 1 day of featured listing free when they join.',
+      shareMessage: `Join KinBech with my code ${code} and start buying & selling nearby. I get a free featured listing boost when you sign up!`,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function applyMyReferral(req, res, next) {
+  try {
+    const result = await applyReferralCode(req.user, req.body.code || req.body.referralCode);
+    if (!result.ok) {
+      return res.status(400).json({ message: result.message });
+    }
+    res.json({
+      message: result.message,
+      user: publicUser(req.user, { includePrivate: true }),
+    });
+  } catch (error) {
+    next(error);
+  }
 }
 
 async function completeSignup(req, res, next) {
@@ -190,6 +238,10 @@ async function completeSignup(req, res, next) {
       phone,
       name,
     });
+    await ensureReferralCode(user);
+    if (req.body.referralCode) {
+      await applyReferralCode(user, req.body.referralCode);
+    }
 
     const token = signUserToken(user);
     return res.json({
@@ -226,6 +278,11 @@ async function updateMe(req, res, next) {
     }
     if (req.body.sellerTypePreference !== undefined) {
       req.user.sellerTypePreference = String(req.body.sellerTypePreference);
+    }
+
+    await ensureReferralCode(req.user);
+    if (req.body.referralCode) {
+      await applyReferralCode(req.user, req.body.referralCode);
     }
 
     await req.user.save();
@@ -411,35 +468,41 @@ async function deleteAdmin(req, res, next) {
 
 async function getDashboardStats(req, res, next) {
   try {
-    const totalUsers = await User.countDocuments({ role: 'user' });
-    const activeListings = await Listing.countDocuments({ status: 'active' });
     const pendingReports = await Report.countDocuments({ status: 'pending' });
     const pendingShops = await Shop.countDocuments({ isVerified: false, status: 'active' });
+
+    const live = await computeLiveMetrics();
+    let anomalies = [];
+    try {
+      anomalies = await detectAndAlertAnomalies(live);
+    } catch (anomalyErr) {
+      console.error('[BI] anomaly check failed', anomalyErr?.message || anomalyErr);
+    }
 
     // Get weekly listing data
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
+
     const weeklyListings = await Listing.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: weekAgo },
-          status: 'active'
-        } 
+          status: { $in: ['active', 'sold', 'pending'] },
+        },
       },
       {
         $group: {
           _id: { $dayOfWeek: '$createdAt' },
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
-      { $sort: { _id: 1 } }
+      { $sort: { _id: 1 } },
     ]);
 
     // Convert to day names
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const weeklyData = dayNames.map((day, index) => {
-      const dayData = weeklyListings.find(d => d._id === (index + 1));
+      const dayData = weeklyListings.find((d) => d._id === index + 1);
       return { day, listings: dayData ? dayData.count : 0 };
     });
 
@@ -459,6 +522,12 @@ async function getDashboardStats(req, res, next) {
       .lean();
 
     const recentActivity = [
+      ...anomalies.slice(0, 3).map((a) => ({
+        id: `anomaly-${a.id}`,
+        type: 'system',
+        message: a.title,
+        time: a.createdAt,
+      })),
       ...pendingReportDocs.map((r) => ({
         id: String(r._id),
         type: 'report',
@@ -479,19 +548,30 @@ async function getDashboardStats(req, res, next) {
       })),
     ]
       .sort((a, b) => new Date(b.time) - new Date(a.time))
-      .slice(0, 8)
+      .slice(0, 10)
       .map((item) => ({
         ...item,
         time: item.time ? new Date(item.time).toLocaleString() : '',
       }));
 
     const attentionItems = [
+      ...anomalies.slice(0, 5).map((a) => ({
+        id: a.id,
+        priority: String(a.type).includes('crash') ? 'High' : 'Medium',
+        title: a.title,
+        description: a.message,
+        time: a.createdAt ? new Date(a.createdAt).toLocaleString() : '',
+        kind: 'anomaly',
+        link: '/admin/dashboard',
+      })),
       ...pendingReportDocs.slice(0, 3).map((r) => ({
         id: String(r._id),
         priority: 'High',
         title: 'Pending report',
         description: r.reason || 'A user report needs review',
         time: r.createdAt ? new Date(r.createdAt).toLocaleString() : '',
+        kind: 'report',
+        link: '/admin/reports',
       })),
       ...pendingShopDocs.slice(0, 3).map((s) => ({
         id: String(s._id),
@@ -499,20 +579,47 @@ async function getDashboardStats(req, res, next) {
         title: 'Shop verification',
         description: `${s.name} is waiting for verification`,
         time: s.createdAt ? new Date(s.createdAt).toLocaleString() : '',
+        kind: 'shop',
+        link: '/admin/shops',
       })),
     ];
 
     res.json({
       stats: {
-        totalUsers,
-        activeListings,
+        totalUsers: live.totalUsers,
+        activeListings: live.activeListings,
         pendingReports,
         pendingShops,
+        dau: live.dau,
+        signupsToday: live.signupsToday,
+        transactionsToday: live.transactionsToday,
+        newListingsToday: live.newListingsToday,
+        signupsChangePct: live.signupsChangePct,
+        transactionsChangePct: live.transactionsChangePct,
       },
+      live,
+      topCategories: live.topCategories,
+      anomalies,
       weeklyData,
       recentActivity,
       attentionItems,
+      refreshedAt: live.generatedAt,
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updatePlatformAlert(req, res, next) {
+  try {
+    const alert = await PlatformAlert.findById(req.params.id);
+    if (!alert) return res.status(404).json({ message: 'Alert not found' });
+    const { status } = req.body;
+    if (status && ['open', 'acknowledged', 'resolved'].includes(status)) {
+      alert.status = status;
+      await alert.save();
+    }
+    res.json({ alert });
   } catch (error) {
     next(error);
   }
@@ -588,4 +695,23 @@ async function updateUserStatus(req, res, next) {
   }
 }
 
-module.exports = { signup, login, verifyOtp, me, updateMe, completeSignup, updatePreferences, getBlockedUsers, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, getAllUsers, updateUserStatus };
+module.exports = {
+  signup,
+  login,
+  verifyOtp,
+  me,
+  updateMe,
+  completeSignup,
+  updatePreferences,
+  getBlockedUsers,
+  getReferral,
+  applyMyReferral,
+  adminLogin,
+  getAllAdmins,
+  createAdmin,
+  deleteAdmin,
+  getDashboardStats,
+  updatePlatformAlert,
+  getAllUsers,
+  updateUserStatus,
+};

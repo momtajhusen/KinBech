@@ -17,7 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAuth } from '../context/AuthContext';
@@ -569,6 +569,7 @@ export default function ExploreScreen({ navigation, route }) {
     topRated: false,
   });
   const [sortBy, setSortBy] = useState('newest');
+  const [orderTick, setOrderTick] = useState(0);
 
   const hasLoadedRef = useRef(false);
   const paneAnim = useRef(new Animated.Value(1)).current;
@@ -593,7 +594,11 @@ export default function ExploreScreen({ navigation, route }) {
   }, [paneAnim]);
 
   const handleCategoryChange = useCallback((label) => {
-    setActiveCategory((curr) => (curr === label ? curr : label));
+    setActiveCategory((curr) => {
+      if (curr === label) return curr;
+      setOrderTick((tick) => tick + 1);
+      return label;
+    });
   }, []);
 
   const fetchQuickLocation = useCallback(async () => {
@@ -619,11 +624,14 @@ export default function ExploreScreen({ navigation, route }) {
 
     if (!productsRes.error && productsRes.data?.listings) {
       setProducts(
-        productsRes.data.listings
-          .map(toCardItem)
-          .filter(Boolean)
-          .map((it) => attachDistanceToCard(it, coords, user?.id))
+        shuffleArray(
+          productsRes.data.listings
+            .map(toCardItem)
+            .filter(Boolean)
+            .map((it) => attachDistanceToCard(it, coords, user?.id))
+        )
       );
+      setOrderTick((tick) => tick + 1);
     } else {
       setProducts([]);
     }
@@ -646,7 +654,7 @@ export default function ExploreScreen({ navigation, route }) {
         api.getFeaturedSellers(locParams),
         api.getPopularSellers(locParams),
         api.getNearbySellers(locParams),
-        api.getListings(locParams),
+        api.getListings({ ...locParams, page: 1, limit: 24 }),
       ]);
 
       applyExplorePayload(featuredRes, popularRes, nearbyRes, productsRes, coords);
@@ -684,9 +692,46 @@ export default function ExploreScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
+      setOrderTick((tick) => tick + 1);
       fetchSellers({ silent: hasLoadedRef.current });
     }, [fetchSellers])
   );
+
+  // Load the selected category from API so sidebar filter shows correct items, then shuffle
+  useEffect(() => {
+    if (!activeCategory || activeCategory === 'All' || activeTab !== 'products') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const params = { category: activeCategory, page: 1, limit: 40 };
+      if (userCoords?.lat != null && userCoords?.lng != null) {
+        params.lat = userCoords.lat;
+        params.lng = userCoords.lng;
+      }
+      const { data, error } = await api.getListings(params);
+      if (cancelled || error || !data?.listings) return;
+
+      const incoming = data.listings
+        .map(toCardItem)
+        .filter(Boolean)
+        .map((it) => attachDistanceToCard(it, userCoords, user?.id));
+
+      setProducts((prev) => {
+        const byId = new Map(prev.map((item) => [String(item.id), item]));
+        for (const item of incoming) {
+          byId.set(String(item.id), item);
+        }
+        return [...byId.values()];
+      });
+      setOrderTick((tick) => tick + 1);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCategory, activeTab, userCoords.lat, userCoords.lng, user?.id]);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
@@ -706,7 +751,11 @@ export default function ExploreScreen({ navigation, route }) {
       if (userCoords.lng != null) searchParams.lng = userCoords.lng;
 
       if (searchTab === 'products') {
-        const listingRes = await api.searchListings(searchParams);
+        const listingRes = await api.searchListings({
+          ...searchParams,
+          page: 1,
+          limit: 24,
+        });
         const listings = (listingRes.data?.listings || []).map(toCardItem).filter(Boolean);
         setSearchResults(listings.map((item) => ({ ...item, resultType: 'product' })));
       } else {
@@ -842,9 +891,11 @@ export default function ExploreScreen({ navigation, route }) {
     let filtered = [...products];
 
     if (activeCategory && activeCategory !== 'All') {
-      filtered = filtered.filter(
-        (it) => (it.category || it.listing?.category) === activeCategory
-      );
+      const target = String(activeCategory).trim().toLowerCase();
+      filtered = filtered.filter((it) => {
+        const cat = String(it.category || it.listing?.category || '').trim().toLowerCase();
+        return cat === target;
+      });
     }
 
     if (sortBy === 'nearby' || selectedFilters.nearby) {
@@ -855,10 +906,15 @@ export default function ExploreScreen({ navigation, route }) {
       filtered.sort((a, b) => (Number(a.listing?.price) || 0) - (Number(b.listing?.price) || 0));
     } else if (sortBy === 'priceHigh') {
       filtered.sort((a, b) => (Number(b.listing?.price) || 0) - (Number(a.listing?.price) || 0));
+    } else {
+      // Default / newest: random order within the selected category
+      filtered = shuffleArray(filtered);
     }
 
     return filtered;
-  }, [products, activeCategory, selectedFilters, sortBy]);
+    // orderTick reshuffles on focus / category change while keeping category filter accurate
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, activeCategory, selectedFilters, sortBy, orderTick]);
 
   const filteredSellers = useMemo(() => {
     let sellers = [...featuredSellers, ...popularSellers, ...nearbySellers];

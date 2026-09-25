@@ -136,7 +136,7 @@ export default function SellerTypeSelectionScreen({ navigation, route }) {
   const { fromSettings = false } = route.params || {};
 
   const handleIndividualPress = useCallback(async () => {
-    const { data, error } = await api.updateProfile({ sellerTypePreference: 'individual' });
+    const { data, error } = await api.updateMe({ sellerTypePreference: 'individual' });
     if (!error && data?.token) {
       await saveSession(data.token, data.user);
     }
@@ -148,7 +148,7 @@ export default function SellerTypeSelectionScreen({ navigation, route }) {
   }, [navigation, fromSettings, saveSession]);
 
   const handleShopPress = useCallback(async () => {
-    const { data, error } = await api.updateProfile({ sellerTypePreference: 'shop' });
+    const { data, error } = await api.updateMe({ sellerTypePreference: 'shop' });
     if (!error && data?.token) {
       await saveSession(data.token, data.user);
     }
@@ -210,7 +210,7 @@ export default function SellerTypeSelectionScreen({ navigation, route }) {
           <View style={styles.typeDetails}>
             <View style={styles.typeDetail}>
               <Ionicons name="checkmark-circle" size={20} color={colors.primary} style={styles.typeDetailIcon} />
-              <Text style={styles.typeDetailText}>Quick and simple posting</Text>
+              <Text style={styles.typeDetailText}>List your item in 30 seconds</Text>
             </View>
             <View style={styles.typeDetail}>
               <Ionicons name="checkmark-circle" size={20} color={colors.primary} style={styles.typeDetailIcon} />

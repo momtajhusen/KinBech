@@ -17,6 +17,8 @@ const ACCOUNT_ROWS = [
   { label: 'Wallet', subtitle: 'Sales, purchases, and deal history', icon: 'wallet-outline', screen: ROUTES.WALLET },
   { label: 'My Listings', subtitle: 'View and manage your posted items', icon: 'list-outline', screen: ROUTES.MY_LISTINGS },
   { label: 'Seller Preference', subtitle: 'Choose how you want to sell', icon: 'storefront-outline', screen: ROUTES.SELLER_TYPE_SELECTION, params: { fromSettings: true } },
+  { label: 'Invite Friends', subtitle: 'Earn 1 day featured listing per friend', icon: 'gift-outline', screen: ROUTES.INVITE_FRIENDS },
+  { label: 'Business Verification', subtitle: 'PAN/VAT & documents for verified badge', icon: 'shield-checkmark-outline', screen: ROUTES.SHOP_VERIFICATION },
 ];
 
 const SUPPORT_ROWS = [

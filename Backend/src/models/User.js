@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema(
     password: { type: String, trim: true },
     role: { type: String, enum: ['user', 'admin', 'super_admin', 'moderator', 'support'], default: 'user' },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+    /** Temporary chat lock after multiple reports (auto or admin). */
+    chatRestrictedUntil: { type: Date, default: null, index: true },
+    restrictionReason: { type: String, default: '', trim: true },
     avatarUrl: { type: String, default: '' },
     location: { type: String, trim: true, default: '' },
     coordinates: {
@@ -15,6 +18,8 @@ const userSchema = new mongoose.Schema(
       longitude: { type: Number },
     },
     profileComplete: { type: Boolean, default: false },
+    /** Throttled on authenticated API use — used for DAU */
+    lastActiveAt: { type: Date, default: null, index: true },
     soldCount: { type: Number, default: 0 },
     boughtCount: { type: Number, default: 0 },
     bio: { type: String, trim: true, default: '', maxlength: 200 },
@@ -57,6 +62,12 @@ const userSchema = new mongoose.Schema(
       showPhone: { type: Boolean, default: false },
       showLocation: { type: Boolean, default: true },
     },
+    /** Shareable invite code — friend signup grants featuredCredits */
+    referralCode: { type: String, trim: true, uppercase: true, unique: true, sparse: true, index: true },
+    referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
+    referralRewardGranted: { type: Boolean, default: false },
+    /** Each credit = 1 day featured listing */
+    featuredCredits: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true, collection: 'users' }
 );

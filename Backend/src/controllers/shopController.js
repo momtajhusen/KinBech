@@ -4,6 +4,12 @@ const Review = require('../models/Review');
 const { mapShopCategory } = require('../utils/shopCategory');
 const { recordShopMetric } = require('../utils/shopAnalytics');
 const { buildStorefrontPayload } = require('../utils/storefront');
+const {
+  normalizeTaxId,
+  parseBusinessDocuments,
+  markVerificationPending,
+  shopPublicFields,
+} = require('../utils/shopVerification');
 
 async function createShop(req, res, next) {
   try {
@@ -23,7 +29,11 @@ async function createShop(req, res, next) {
       return res.status(400).json({ message: 'You already have an active shop' });
     }
 
-    const shop = await Shop.create({
+    const panNumber = normalizeTaxId(req.body.panNumber);
+    const vatNumber = normalizeTaxId(req.body.vatNumber);
+    const businessDocuments = parseBusinessDocuments(req.body.businessDocuments) || [];
+
+    const shop = new Shop({
       owner: req.user._id,
       name: name.trim(),
       category: mapShopCategory(category),
@@ -37,31 +47,23 @@ async function createShop(req, res, next) {
         lat: req.body.coordinates?.lat != null ? Number(req.body.coordinates.lat) : null,
         lng: req.body.coordinates?.lng != null ? Number(req.body.coordinates.lng) : null,
       },
+      panNumber,
+      vatNumber,
+      businessDocuments,
       isVerified: false,
+      verificationStatus: 'none',
       ratingAverage: 0,
       reviewCount: 0,
       followersCount: 0,
       status: 'active'
     });
 
+    markVerificationPending(shop);
+    await shop.save();
+
     res.status(201).json({ 
       message: 'Shop created successfully',
-      shop: {
-        id: shop._id,
-        name: shop.name,
-        category: shop.category,
-        description: shop.description,
-        phone: shop.phone,
-        address: shop.address,
-        location: shop.location,
-        openingHours: shop.openingHours,
-        logo: shop.logo,
-        isVerified: shop.isVerified,
-        ratingAverage: shop.ratingAverage,
-        reviewCount: shop.reviewCount,
-        followersCount: shop.followersCount,
-        status: shop.status
-      }
+      shop: shopPublicFields(shop),
     });
   } catch (error) {
     next(error);
@@ -144,11 +146,39 @@ async function updateShop(req, res, next) {
       };
     }
 
+    let taxOrDocsTouched = false;
+    if (req.body.panNumber !== undefined) {
+      shop.panNumber = normalizeTaxId(req.body.panNumber);
+      taxOrDocsTouched = true;
+    }
+    if (req.body.vatNumber !== undefined) {
+      shop.vatNumber = normalizeTaxId(req.body.vatNumber);
+      taxOrDocsTouched = true;
+    }
+    if (req.body.businessDocuments !== undefined) {
+      const docs = parseBusinessDocuments(req.body.businessDocuments);
+      if (docs) {
+        shop.businessDocuments = docs;
+        taxOrDocsTouched = true;
+      }
+    }
+
+    if (taxOrDocsTouched) {
+      // New tax/docs material after approval → re-review and hide badge until approved again
+      if (shop.verificationStatus === 'approved' || shop.isVerified) {
+        shop.verificationStatus = 'pending';
+        shop.verificationSubmittedAt = new Date();
+        shop.isVerified = false;
+      } else {
+        markVerificationPending(shop);
+      }
+    }
+
     await shop.save();
 
     res.json({ 
       message: 'Shop updated successfully',
-      shop
+      shop: shopPublicFields(shop),
     });
   } catch (error) {
     next(error);
@@ -226,7 +256,7 @@ async function getAllShops(req, res, next) {
 async function updateShopStatus(req, res, next) {
   try {
     const { shopId } = req.params;
-    const { status, isVerified } = req.body;
+    const { status, isVerified, verificationNotes } = req.body;
 
     const shop = await Shop.findById(shopId);
     if (!shop) {
@@ -237,14 +267,30 @@ async function updateShopStatus(req, res, next) {
       shop.status = status;
     }
     if (isVerified !== undefined) {
-      shop.isVerified = isVerified;
+      shop.isVerified = Boolean(isVerified);
+      if (shop.isVerified) {
+        shop.verificationStatus = 'approved';
+      } else if (shop.verificationStatus === 'approved') {
+        shop.verificationStatus = 'rejected';
+      }
+    }
+    if (verificationNotes !== undefined) {
+      shop.verificationNotes = String(verificationNotes || '').trim();
+    }
+    if (req.body.verificationStatus !== undefined) {
+      const next = String(req.body.verificationStatus);
+      if (['none', 'pending', 'approved', 'rejected'].includes(next)) {
+        shop.verificationStatus = next;
+        if (next === 'approved') shop.isVerified = true;
+        if (next === 'rejected' || next === 'none') shop.isVerified = false;
+      }
     }
 
     await shop.save();
 
     res.json({ 
       message: 'Shop status updated successfully',
-      shop
+      shop: shopPublicFields(shop),
     });
   } catch (error) {
     next(error);

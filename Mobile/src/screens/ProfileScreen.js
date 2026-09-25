@@ -417,7 +417,7 @@ export default function ProfileScreen({ navigation }) {
                   <View style={styles.txThumb}>
                     {item.photos?.[0] ? (
                       <Image
-                        source={{ uri: item.photos[0] }}
+                        source={{ uri: resolveMediaUrl(item.photos[0]) }}
                         style={{ width: '100%', height: '100%' }}
                         resizeMode="cover"
                       />

@@ -11,12 +11,19 @@ import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAuth } from '../context/AuthContext';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
+import {
+  isHomeListingsFresh,
+  loadHomeListingsCache,
+  setHomeListingsCache,
+} from '../utils/homeListingsCache';
+
+const FOCUS_CACHE_TTL_MS = 60_000;
 
 export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
@@ -28,15 +35,48 @@ export default function HomeScreen({ navigation }) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
+  const [orderTick, setOrderTick] = useState(0);
   const [location, setLocation] = useState('Kathmandu');
   const [locating, setLocating] = useState(false);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
-  
+  const hasLoadedRef = useRef(false);
+  const hasAnimatedRef = useRef(false);
+  const locationLabelRef = useRef('Kathmandu');
+  const userCoordsRef = useRef({ lat: null, lng: null });
+
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const headerScaleAnim = useRef(new Animated.Value(1)).current;
   const bannerScaleAnim = useRef(new Animated.Value(0.95)).current;
+
+  const revealContent = useCallback(() => {
+    if (hasAnimatedRef.current) {
+      fadeAnim.setValue(1);
+      slideAnim.setValue(0);
+      bannerScaleAnim.setValue(1);
+      return;
+    }
+    hasAnimatedRef.current = true;
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(bannerScaleAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, slideAnim, bannerScaleAnim]);
 
   const fetchCurrentLocation = useCallback(async () => {
     setLocating(true);
@@ -46,13 +86,23 @@ export default function HomeScreen({ navigation }) {
         Alert.alert('Location permission', 'Allow location access to see items near you.');
         return null;
       }
+
+      let coords = null;
+      const last = await Location.getLastKnownPositionAsync();
+      if (last?.coords) {
+        coords = { lat: last.coords.latitude, lng: last.coords.longitude };
+        userCoordsRef.current = coords;
+        setUserCoords(coords);
+      }
+
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      const coords = {
+      coords = {
         lat: currentLocation.coords.latitude,
         lng: currentLocation.coords.longitude,
       };
+      userCoordsRef.current = coords;
       setUserCoords(coords);
 
       const reverseGeocode = await Location.reverseGeocodeAsync({
@@ -61,7 +111,9 @@ export default function HomeScreen({ navigation }) {
       });
       const addr = reverseGeocode?.[0];
       if (addr) {
-        setLocation(formatCityDistrict(addr, 'Kathmandu'));
+        const label = formatCityDistrict(addr, 'Kathmandu');
+        locationLabelRef.current = label;
+        setLocation(label);
       }
       return coords;
     } catch (error) {
@@ -73,76 +125,100 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   useEffect(() => {
-    fetchCurrentLocation();
-  }, [fetchCurrentLocation]);
-
-  const loadListings = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
-    let coords = userCoords;
-    if (!coords.lat || !coords.lng) {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Low,
-          });
-          coords = {
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude,
-          };
-          setUserCoords(coords);
-        }
-      } catch {
-        // ignore
+    let cancelled = false;
+    (async () => {
+      const cached = await loadHomeListingsCache();
+      if (cancelled || !cached?.listings?.length || hasLoadedRef.current) return;
+      setListings(shuffleArray(cached.listings));
+      setHasContent(true);
+      hasLoadedRef.current = true;
+      if (cached.location) {
+        locationLabelRef.current = cached.location;
+        setLocation(cached.location);
       }
+      if (cached.coords?.lat != null && cached.coords?.lng != null) {
+        userCoordsRef.current = cached.coords;
+        setUserCoords(cached.coords);
+      }
+      setOrderTick((tick) => tick + 1);
+      revealContent();
+    })();
+    fetchCurrentLocation();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchCurrentLocation, revealContent]);
+
+  const resolveCoordsQuick = useCallback(async () => {
+    const known = userCoordsRef.current;
+    if (known.lat != null && known.lng != null) return known;
+    try {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted') return known;
+      const last = await Location.getLastKnownPositionAsync();
+      if (last?.coords) {
+        const coords = { lat: last.coords.latitude, lng: last.coords.longitude };
+        userCoordsRef.current = coords;
+        setUserCoords(coords);
+        return coords;
+      }
+    } catch {
+      // ignore
     }
+    return known;
+  }, []);
+
+  const loadListings = useCallback(async ({ silent = false, force = false } = {}) => {
+    if (!force && silent && isHomeListingsFresh(FOCUS_CACHE_TTL_MS) && hasLoadedRef.current) {
+      return;
+    }
+
+    if (!silent) setLoading(true);
+
+    const coords = await Promise.race([
+      resolveCoordsQuick(),
+      new Promise((resolve) => setTimeout(() => resolve(userCoordsRef.current), 120)),
+    ]);
+
     const params = {};
-    if (coords.lat != null && coords.lng != null) {
+    if (coords?.lat != null && coords?.lng != null) {
       params.lat = coords.lat;
       params.lng = coords.lng;
     }
+    params.page = 1;
+    params.limit = 40;
+
     const { data, error } = await api.getListings(params);
     if (error) {
       console.error('Failed to load listings:', error);
-      setListings([]);
+      if (!hasLoadedRef.current) setListings([]);
     } else {
       const raw = (data?.listings || []).map(toCardItem).filter(Boolean);
-      const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
+      const withDistance = shuffleArray(
+        raw.map((it) => attachDistanceToCard(it, coords, user?.id))
+      );
       setListings(withDistance);
+      setHasContent(true);
+      hasLoadedRef.current = true;
+      setOrderTick((tick) => tick + 1);
+      setHomeListingsCache({
+        listings: withDistance,
+        location: locationLabelRef.current,
+        coords: coords || userCoordsRef.current,
+      });
+      revealContent();
     }
-    if (!silent) setLoading(false);
-    if (!silent) {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.timing(bannerScaleAnim, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [userCoords.lat, userCoords.lng, user?.id, fadeAnim, slideAnim, bannerScaleAnim]);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true }));
+    if (!silent) setLoading(false);
+  }, [user?.id, resolveCoordsQuick, revealContent]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true, force: true }));
 
   useFocusEffect(
     useCallback(() => {
-      loadListings();
-      return () => {
-        fadeAnim.setValue(0);
-        slideAnim.setValue(20);
-        bannerScaleAnim.setValue(0.95);
-      };
-    }, [loadListings, fadeAnim, slideAnim, bannerScaleAnim])
+      setOrderTick((tick) => tick + 1);
+      loadListings({ silent: hasLoadedRef.current });
+    }, [loadListings])
   );
 
   const openItem = (item) =>
@@ -180,15 +256,30 @@ export default function HomeScreen({ navigation }) {
     },
   ];
 
-  const resolvedTrending = listings.slice(0, 12).map((item) => ({
-    ...item,
-    onToggleSave: () => toggleSave(item),
-  }));
+  const resolvedTrending = useMemo(
+    () =>
+      shuffleArray(listings)
+        .slice(0, 12)
+        .map((item) => ({
+          ...item,
+          onToggleSave: () => toggleSave(item),
+        })),
+    // orderTick reshuffles whenever Home gains focus
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listings, orderTick]
+  );
 
-  const resolvedRecent = listings.slice(0, 16).map((item) => ({
-    ...item,
-    onToggleSave: () => toggleSave(item),
-  }));
+  const resolvedRecent = useMemo(
+    () =>
+      shuffleArray(listings)
+        .slice(0, 16)
+        .map((item) => ({
+          ...item,
+          onToggleSave: () => toggleSave(item),
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [listings, orderTick]
+  );
 
   return (
     <View style={styles.container}>
@@ -305,8 +396,10 @@ export default function HomeScreen({ navigation }) {
               style={[styles.banner, { backgroundColor: colors.primary, transform: [{ scale: bannerScaleAnim }] }]}
             >
               <View style={styles.bannerCopy}>
-                <Text style={styles.bannerTitle}>Sell Your Items</Text>
-                <Text style={styles.bannerBody}>Turn your unused items into cash. It's quick, easy & secure!</Text>
+                <Text style={styles.bannerTitle}>List in 30 seconds</Text>
+                <Text style={styles.bannerBody}>
+                  Snap a photo, set a price, and go live. Perfect for individual sellers.
+                </Text>
               </View>
 
               <Pressable 
@@ -329,7 +422,7 @@ export default function HomeScreen({ navigation }) {
                   }).start();
                 }}
               >
-                <Text style={styles.bannerButtonText}>Start Selling</Text>
+                <Text style={styles.bannerButtonText}>Post an item</Text>
               </Pressable>
             </Animated.View>
 

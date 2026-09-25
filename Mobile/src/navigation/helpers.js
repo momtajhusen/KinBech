@@ -42,6 +42,8 @@ export const ROUTES = {
   INDIVIDUAL_POST_LISTING: 'IndividualPostListing',
   SHOP_POST_LISTING: 'ShopPostListing',
   CREATE_SHOP: 'CreateShop',
+  SHOP_VERIFICATION: 'ShopVerification',
+  INVITE_FRIENDS: 'InviteFriends',
   SHOP_PROFILE: 'ShopProfile',
   SHOP_DASHBOARD: 'ShopDashboard',
   SHOP_STOREFRONT_QR: 'ShopStorefrontQr',

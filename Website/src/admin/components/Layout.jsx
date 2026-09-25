@@ -29,8 +29,10 @@ const Layout = () => {
     {
       title: 'Trust & Safety',
       items: [
-        { path: adminPath('reports'), label: 'Reports', icon: '🚩', badge: 7 },
+        { path: adminPath('reports'), label: 'Reports', icon: '🚩' },
+        { path: adminPath('error-log'), label: 'Error Log', icon: '🐛' },
         { path: adminPath('reviews'), label: 'Reviews', icon: '⭐' },
+        { path: adminPath('restricted-keywords'), label: 'Restricted Keywords', icon: '🚫' },
       ],
     },
     {
@@ -173,6 +175,7 @@ const pageTitleMap = {
   [adminPath('shops')]: 'Shops',
   [adminPath('listings')]: 'Listings',
   [adminPath('categories')]: 'Categories',
+  [adminPath('restricted-keywords')]: 'Restricted Keywords',
   [adminPath('reports')]: 'Reports',
   [adminPath('reviews')]: 'Reviews',
   [adminPath('notifications')]: 'Notifications',
@@ -185,6 +188,8 @@ const pageDescriptionMap = {
   [adminPath('shops')]: 'Manage shop verification and business profiles',
   [adminPath('listings')]: 'Moderate product listings and content',
   [adminPath('categories')]: 'Manage product and shop categories',
+  [adminPath('restricted-keywords')]:
+    'Block or hold listings that use prohibited words in title, description, and other fields',
   [adminPath('reports')]: 'Review and resolve user reports',
   [adminPath('reviews')]: 'Moderate ratings and written reviews',
   [adminPath('notifications')]: 'Send platform-wide announcements',

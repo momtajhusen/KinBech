@@ -5,6 +5,22 @@ const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
 const { publicUser } = require('../utils/token');
 const { recordShopMetric } = require('../utils/shopAnalytics');
+const { assertChatTextAllowed } = require('../utils/chatAbuseFilter');
+const {
+  isChatRestricted,
+  chatRestrictionPayload,
+} = require('../utils/userRestriction');
+
+function rejectIfChatRestricted(user, res) {
+  if (!isChatRestricted(user)) return false;
+  const info = chatRestrictionPayload(user);
+  res.status(403).json({
+    message: info.reason,
+    code: info.code,
+    until: info.until,
+  });
+  return true;
+}
 
 function otherParticipant(chat, userId) {
   return (chat.participants || []).find(
@@ -37,6 +53,8 @@ async function getChats(req, res, next) {
 
 async function createChat(req, res, next) {
   try {
+    if (rejectIfChatRestricted(req.user, res)) return;
+
     const { listingId, userId } = req.body;
     if (!userId) {
       return res.status(400).json({ message: 'userId is required' });
@@ -117,9 +135,19 @@ async function getMessages(req, res, next) {
 
 async function sendMessage(req, res, next) {
   try {
+    if (rejectIfChatRestricted(req.user, res)) return;
+
     const text = String(req.body.text || '').trim();
     if (!text) {
       return res.status(400).json({ message: 'Message text is required' });
+    }
+
+    const abuse = assertChatTextAllowed(text);
+    if (!abuse.ok) {
+      return res.status(abuse.httpStatus || 400).json({
+        message: abuse.message,
+        code: abuse.code,
+      });
     }
 
     const chat = await Chat.findOne({

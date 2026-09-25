@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -12,25 +13,19 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
+import { AlertModal, showErrorAlert } from '../components/AlertModal';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatPrice } from '../utils/listing';
+import {
+  CHAT_SAFETY_BANNER,
+  EXTERNAL_LINK_WARNING,
+  isTrustedChatUrl,
+  messageHasExternalUrl,
+  splitTextWithUrls,
+} from '../utils/chatSafety';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-
-/**
- * Resolve color references (e.g., 'colors.iconBackground') to actual color values
- * @param {string} colorRef - Color reference string or direct color value
- * @param {object} colors - Theme colors object
- * @returns {string} Resolved color value
- */
-function resolveColor(colorRef, colors) {
-  if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
-    const colorKey = colorRef.replace('colors.', '');
-    return colors[colorKey] || colorRef;
-  }
-  return colorRef;
-}
 
 function formatTime(dateValue) {
   if (!dateValue) return '';
@@ -57,6 +52,28 @@ function Avatar({ size = 36, colors, styles }) {
   );
 }
 
+function MessageBody({ text, isMe, styles, onLinkPress }) {
+  const parts = splitTextWithUrls(text);
+  return (
+    <Text style={isMe ? styles.bubbleTextMe : styles.bubbleTextThem}>
+      {parts.map((part, index) => {
+        if (part.type !== 'url') {
+          return <Text key={`t-${index}`}>{part.value}</Text>;
+        }
+        return (
+          <Text
+            key={`u-${index}`}
+            style={isMe ? styles.linkMe : styles.linkThem}
+            onPress={() => onLinkPress?.(part.href, isTrustedChatUrl(part.href))}
+          >
+            {part.value}
+          </Text>
+        );
+      })}
+    </Text>
+  );
+}
+
 export default function ChatScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -68,6 +85,8 @@ export default function ChatScreen({ navigation, route }) {
   const listingId = listing?.id || listing?._id;
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
+  const [linkAlert, setLinkAlert] = useState(null);
+  const [sendAlert, setSendAlert] = useState(null);
 
   const loadMessages = useCallback(async () => {
     if (!chatId) return;
@@ -84,14 +103,68 @@ export default function ChatScreen({ navigation, route }) {
     return () => clearInterval(interval);
   }, [chatId, loadMessages]);
 
+  const openExternalLink = useCallback(async (url) => {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleLinkPress = useCallback((url, trusted) => {
+    if (trusted) {
+      openExternalLink(url);
+      return;
+    }
+    setLinkAlert({
+      mode: 'open',
+      url,
+      title: EXTERNAL_LINK_WARNING.title,
+      message: `${EXTERNAL_LINK_WARNING.message}\n\n${url}`,
+    });
+  }, [openExternalLink]);
+
+  const sendMessage = useCallback(async (value) => {
+    if (!value || !chatId) return;
+    setDraft('');
+    const { data, error } = await api.sendMessage(chatId, value);
+    if (data?.message && typeof data.message === 'object') {
+      setMessages((prev) => [...prev, mapMessage(data.message)]);
+      return;
+    }
+    setDraft(value);
+    const serverMsg =
+      (typeof data?.message === 'string' && data.message) ||
+      (typeof error === 'string' && error) ||
+      'Could not send message. Please try again.';
+    setSendAlert(
+      showErrorAlert({
+        title: 'Message not sent',
+        message: serverMsg,
+        onConfirm: () => setSendAlert(null),
+      })
+    );
+  }, [chatId]);
+
   const send = async (text) => {
     const value = text.trim();
     if (!value || !chatId) return;
-    setDraft('');
-    const { data } = await api.sendMessage(chatId, value);
-    if (data?.message) {
-      setMessages((prev) => [...prev, mapMessage(data.message)]);
+
+    if (messageHasExternalUrl(value)) {
+      setLinkAlert({
+        mode: 'send',
+        pendingSend: value,
+        title: 'Sending an external link',
+        message:
+          'You are about to send a link outside KinBech. Reminder: KinBech support never asks for passwords, OTP codes, or bank details in chat. Continue only if this link is safe.',
+      });
+      return;
     }
+
+    await sendMessage(value);
   };
 
   const pinnedTitle = listing?.title || 'Listing';
@@ -130,55 +203,83 @@ export default function ChatScreen({ navigation, route }) {
             <Pressable hitSlop={10} style={styles.iconBtn}>
               <Ionicons name="call-outline" size={22} color={colors.onGradient} />
             </Pressable>
-            <Pressable hitSlop={10} style={styles.iconBtn} onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: otherUserId })}>
+            <Pressable
+              hitSlop={10}
+              style={styles.iconBtn}
+              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: otherUserId })}
+            >
               <Ionicons name="ellipsis-vertical" size={22} color={colors.onGradient} />
             </Pressable>
           </View>
         </View>
 
-        <Pressable
-          style={styles.pinnedCard}
-          onPress={() => listingId && openItemDetail(navigation, { listingId, item: listing, sharedId: listingId })}
-        >
-          <View style={styles.pinnedThumb}>
-            <Ionicons name="phone-portrait-outline" size={26} color={colors.primary} sharedTransitionTag={listingId ? `item.${listingId}.photo` : undefined} />
-          </View>
-          <View style={styles.pinnedInfo}>
-            <View style={styles.pinnedLabelRow}>
-              <Ionicons name="pin-outline" size={13} color={colors.textMuted} />
-              <Text style={styles.pinnedLabel}>Pinned Item</Text>
-            </View>
-            <Text style={styles.pinnedTitle} sharedTransitionTag={listingId ? `item.${listingId}.title` : undefined}>{pinnedTitle}</Text>
-            <Text style={styles.pinnedPrice} sharedTransitionTag={listingId ? `item.${listingId}.price` : undefined}>{pinnedPrice}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-        </Pressable>
-        {chatId ? (
+        <View style={styles.pinnedStack}>
           <Pressable
-            style={[styles.pinnedCard, { marginTop: 8 }]}
+            style={styles.pinnedCard}
             onPress={() =>
-              navigation.navigate(ROUTES.MEETUP, {
-                chatId,
-                seller: { name: contactName, id: otherUserId },
-                listing,
-              })
+              listingId && openItemDetail(navigation, { listingId, item: listing, sharedId: listingId })
             }
           >
             <View style={styles.pinnedThumb}>
-              <Ionicons name="location-outline" size={26} color={colors.primary} />
+              <Ionicons
+                name="phone-portrait-outline"
+                size={26}
+                color={colors.primary}
+                sharedTransitionTag={listingId ? `item.${listingId}.photo` : undefined}
+              />
             </View>
             <View style={styles.pinnedInfo}>
-              <Text style={styles.pinnedTitle}>Confirm meetup</Text>
-              <Text style={styles.pinnedLabel}>
-                {listing?.sellerType === 'shop'
-                  ? 'Meet in a public place, then rate the shop'
-                  : 'Meet in a public place and keep chat in the app'}
+              <View style={styles.pinnedLabelRow}>
+                <Ionicons name="pin-outline" size={13} color={colors.textMuted} />
+                <Text style={styles.pinnedLabel}>Pinned Item</Text>
+              </View>
+              <Text
+                style={styles.pinnedTitle}
+                sharedTransitionTag={listingId ? `item.${listingId}.title` : undefined}
+              >
+                {pinnedTitle}
+              </Text>
+              <Text
+                style={styles.pinnedPrice}
+                sharedTransitionTag={listingId ? `item.${listingId}.price` : undefined}
+              >
+                {pinnedPrice}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
           </Pressable>
-        ) : null}
+          {chatId ? (
+            <Pressable
+              style={styles.pinnedCard}
+              onPress={() =>
+                navigation.navigate(ROUTES.MEETUP, {
+                  chatId,
+                  seller: { name: contactName, id: otherUserId },
+                  listing,
+                })
+              }
+            >
+              <View style={styles.pinnedThumb}>
+                <Ionicons name="location-outline" size={26} color={colors.primary} />
+              </View>
+              <View style={styles.pinnedInfo}>
+                <Text style={styles.pinnedTitle}>Confirm meetup</Text>
+                <Text style={styles.pinnedLabel}>
+                  {listing?.sellerType === 'shop'
+                    ? 'Meet in a public place, then rate the shop'
+                    : 'Meet in a public place and keep chat in the app'}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+        </View>
       </LinearGradient>
+
+      <View style={styles.safetyBanner}>
+        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+        <Text style={styles.safetyBannerText}>{CHAT_SAFETY_BANNER}</Text>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.messages}
@@ -198,6 +299,7 @@ export default function ChatScreen({ navigation, route }) {
 
             {(messages || []).map((message) => {
               const isMe = message.sender === 'me';
+              const hasExternal = messageHasExternalUrl(message.text);
               return (
                 <View
                   key={message.id}
@@ -213,13 +315,42 @@ export default function ChatScreen({ navigation, route }) {
                         end={{ x: 1, y: 0 }}
                         style={[styles.bubble, styles.bubbleMe]}
                       >
-                        <Text style={styles.bubbleTextMe}>{message.text}</Text>
+                        <MessageBody
+                          text={message.text}
+                          isMe
+                          styles={styles}
+                          onLinkPress={handleLinkPress}
+                        />
                       </LinearGradient>
                     ) : (
                       <View style={[styles.bubble, styles.bubbleThem]}>
-                        <Text style={styles.bubbleTextThem}>{message.text}</Text>
+                        <MessageBody
+                          text={message.text}
+                          isMe={false}
+                          styles={styles}
+                          onLinkPress={handleLinkPress}
+                        />
                       </View>
                     )}
+
+                    {hasExternal ? (
+                      <View
+                        style={[
+                          styles.linkWarning,
+                          isMe ? styles.linkWarningMe : styles.linkWarningThem,
+                        ]}
+                      >
+                        <Ionicons
+                          name="warning-outline"
+                          size={12}
+                          color={colors.warning || '#D97706'}
+                        />
+                        <Text style={styles.linkWarningText}>
+                          External link — tap carefully. Official support never asks for personal
+                          details here.
+                        </Text>
+                      </View>
+                    ) : null}
 
                     <View style={[styles.metaRow, isMe ? styles.metaRowMe : styles.metaRowThem]}>
                       <Text style={styles.metaTime}>{message.time}</Text>
@@ -246,25 +377,27 @@ export default function ChatScreen({ navigation, route }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.quickReplies}
         >
-          {(['Is it available?', 'Final price?', 'Where are you located?', 'Schedule meetup'] || []).map((reply) => (
-            <Pressable
-              key={reply}
-              style={styles.chip}
-              onPress={() => {
-                if (reply === 'Schedule meetup') {
-                  navigation.navigate(ROUTES.MEETUP, {
-                    name: contactName,
-                    seller: { name: contactName },
-                    listing,
-                  });
-                  return;
-                }
-                send(reply);
-              }}
-            >
-              <Text style={styles.chipText}>{reply}</Text>
-            </Pressable>
-          ))}
+          {['Is it available?', 'Final price?', 'Where are you located?', 'Schedule meetup'].map(
+            (reply) => (
+              <Pressable
+                key={reply}
+                style={styles.chip}
+                onPress={() => {
+                  if (reply === 'Schedule meetup') {
+                    navigation.navigate(ROUTES.MEETUP, {
+                      name: contactName,
+                      seller: { name: contactName },
+                      listing,
+                    });
+                    return;
+                  }
+                  send(reply);
+                }}
+              >
+                <Text style={styles.chipText}>{reply}</Text>
+              </Pressable>
+            )
+          )}
         </ScrollView>
       </View>
 
@@ -291,6 +424,40 @@ export default function ChatScreen({ navigation, route }) {
           </LinearGradient>
         </Pressable>
       </View>
+
+      <AlertModal
+        visible={Boolean(linkAlert)}
+        onClose={() => setLinkAlert(null)}
+        type="warning"
+        title={linkAlert?.title || EXTERNAL_LINK_WARNING.title}
+        message={linkAlert?.message || EXTERNAL_LINK_WARNING.message}
+        primaryButton={{
+          text:
+            linkAlert?.mode === 'send'
+              ? 'Send anyway'
+              : EXTERNAL_LINK_WARNING.openLabel,
+          onPress: () => {
+            const pending = linkAlert;
+            if (pending?.mode === 'send' && pending.pendingSend) {
+              sendMessage(pending.pendingSend);
+              return;
+            }
+            if (pending?.url) {
+              openExternalLink(pending.url);
+            }
+          },
+        }}
+        secondaryButton={{
+          text: EXTERNAL_LINK_WARNING.cancelLabel,
+          onPress: () => setLinkAlert(null),
+        }}
+      />
+
+      <AlertModal
+        visible={Boolean(sendAlert)}
+        onClose={() => setSendAlert(null)}
+        {...(sendAlert || {})}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -354,13 +521,16 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     gap: 4,
   },
+  pinnedStack: {
+    gap: 8,
+    marginBottom: -24,
+  },
   pinnedCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: 18,
     padding: 12,
-    marginBottom: -30,
     shadowColor: colors.shadow,
     shadowOpacity: 0.1,
     shadowRadius: 12,
@@ -371,7 +541,7 @@ const createStyles = (colors) => ({
     width: 56,
     height: 56,
     borderRadius: 12,
-    backgroundColor: 'colors.iconBackground',
+    backgroundColor: colors.iconBackground || colors.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -400,9 +570,30 @@ const createStyles = (colors) => ({
     fontWeight: '800',
     color: colors.price,
   },
+  safetyBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 28,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.pastelOrange || colors.iconBackground || colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  safetyBannerText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
   messages: {
     paddingHorizontal: 16,
-    paddingTop: 46,
+    paddingTop: 12,
     paddingBottom: 16,
   },
   dateSeparator: {
@@ -453,6 +644,39 @@ const createStyles = (colors) => ({
     fontSize: 15,
     color: colors.onPrimary,
     lineHeight: 21,
+  },
+  linkThem: {
+    color: colors.primary,
+    textDecorationLine: 'underline',
+    fontWeight: '700',
+  },
+  linkMe: {
+    color: colors.onPrimary,
+    textDecorationLine: 'underline',
+    fontWeight: '700',
+  },
+  linkWarning: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    marginTop: 6,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: colors.pastelOrange || colors.iconBackground || colors.surface,
+  },
+  linkWarningMe: {
+    alignSelf: 'flex-end',
+  },
+  linkWarningThem: {
+    alignSelf: 'flex-start',
+  },
+  linkWarningText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 15,
+    color: colors.textSecondary,
   },
   metaRow: {
     flexDirection: 'row',
@@ -523,34 +747,5 @@ const createStyles = (colors) => ({
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 32,
-    marginTop: 40,
-  },
-  emptyIconWrap: {
-    width: 100,
-    height: 100,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sparkle: {
-    position: 'absolute',
-    fontSize: 13,
-    color: colors.primary,
-    opacity: 0.5,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-    marginTop: 12,
-  },
-  emptySubtitle: {
-    marginTop: 6,
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: 'center',
   },
 });

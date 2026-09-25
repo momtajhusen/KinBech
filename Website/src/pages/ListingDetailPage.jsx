@@ -221,8 +221,11 @@ export default function ListingDetailPage() {
                       {listing.sellerType === 'shop' ? 'Shop seller' : 'Individual seller'}
                     </p>
                     <div className="detail-seller-badges">
-                      {shop?.isVerified ? (
-                        <span className="seller-verified"><IconShield width={14} height={14} /> Verified shop</span>
+                      {shop?.isVerified || card.verificationKind === 'business' ? (
+                        <span className="seller-verified"><IconShield width={14} height={14} /> Business Verified</span>
+                      ) : null}
+                      {!shop && (card.verificationKind === 'phone' || card.verified || listing.sellerType !== 'shop') ? (
+                        <span className="seller-verified seller-verified-phone">Phone Verified</span>
                       ) : null}
                       {shop?.ratingAverage ? (
                         <span><IconStar width={14} height={14} /> {shop.ratingAverage} ({shop.reviewCount || 0} reviews)</span>

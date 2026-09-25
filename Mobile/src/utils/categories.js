@@ -80,17 +80,25 @@ export function mapApiCategory(item) {
   };
 }
 
+const categoriesMemory = {};
+
 export function useCategories(type = 'product') {
   const fallback = type === 'shop' ? FALLBACK_SHOP_CATEGORIES : FALLBACK_PRODUCT_CATEGORIES;
-  const [categories, setCategories] = useState(fallback);
+  const [categories, setCategories] = useState(() => categoriesMemory[type] || fallback);
 
   useEffect(() => {
     let active = true;
+    if (categoriesMemory[type]?.length) {
+      setCategories(categoriesMemory[type]);
+    }
     (async () => {
       const { data, error } = await api.getCategories(type);
       if (!active || error) return;
       const list = normalizeCategoriesResponse(data, type).map(mapApiCategory);
-      if (list.length) setCategories(list);
+      if (list.length) {
+        categoriesMemory[type] = list;
+        setCategories(list);
+      }
     })();
     return () => {
       active = false;

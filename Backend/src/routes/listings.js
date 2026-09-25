@@ -10,6 +10,7 @@ const {
   createListing,
   updateListing,
   deleteListing,
+  featureListing,
   getAllListingsAdmin,
   updateListingStatusAdmin,
 } = require('../controllers/listingController');
@@ -29,6 +30,7 @@ router.get('/admin/all', requireAdmin, getAllListingsAdmin);
 
 router.get('/:id', optionalAuth, getListing);
 router.post('/:id/view', optionalAuth, incrementView);
+router.post('/:id/feature', requireAuth, featureListing);
 
 // Protected routes
 router.post('/', requireAuth, createListing);

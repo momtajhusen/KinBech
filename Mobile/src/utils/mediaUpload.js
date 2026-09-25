@@ -31,37 +31,63 @@ export function isRemoteMediaUrl(uri) {
   return false;
 }
 
+const SAFETY_CODES = new Set([
+  'NSFW_BLOCKED',
+  'ADULT_IMAGE_TEXT',
+  'WEAPON_IMAGE',
+  'STOCK_OR_WATERMARK',
+  'SUSPECT_WATERMARK',
+  'FRAUD_IMAGE_TEXT',
+  'IMAGE_BLOCKED',
+  'IMAGE_SAFETY_UNAVAILABLE',
+]);
+
+function uploadFailure(error, data) {
+  const code = data?.code || '';
+  const message = data?.message || error || 'Upload failed';
+  return {
+    url: '',
+    error: message,
+    errorCode: code,
+    errorTitle: data?.title || null,
+    issues: data?.issues || null,
+    isSafetyBlock: SAFETY_CODES.has(code),
+  };
+}
+
 /**
  * Upload local media as JSON base64 (Expo-safe; avoids FormDataPart errors).
  * Returns durable `/uploads/...` path.
  */
 export async function uploadMediaUri(uri, folder = 'misc') {
-  if (!uri) return { url: '', error: 'Missing file' };
+  if (!uri) return uploadFailure('Missing file');
 
   // Already a data URL — send as-is payload
   if (String(uri).startsWith('data:')) {
     const match = String(uri).match(/^data:([^;]+);base64,(.+)$/i);
     const mimeType = match?.[1] || 'image/jpeg';
     const data = match?.[2] || '';
-    if (!data) return { url: '', error: 'Invalid image data' };
-    const { data: res, error } = await api.uploadMediaBase64({
+    if (!data) return uploadFailure('Invalid image data');
+    const result = await api.uploadMediaBase64({
       folder,
       mimeType,
       data,
       filename: guessNameAndType(uri).name,
     });
-    if (error || !res?.url) return { url: '', error: error || 'Upload failed' };
-    return { url: res.url, error: null };
+    if (result.error || !result.data?.url) {
+      return uploadFailure(result.error || 'Upload failed', result.data);
+    }
+    return { url: result.data.url, error: null, errorCode: null, isSafetyBlock: false };
   }
 
   if (isRemoteMediaUrl(uri)) {
-    return { url: uri, error: null };
+    return { url: uri, error: null, errorCode: null, isSafetyBlock: false };
   }
 
   try {
     const info = await FileSystem.getInfoAsync(uri);
     if (!info?.exists) {
-      return { url: '', error: 'Local photo file not found. Please pick the image again.' };
+      return uploadFailure('Local photo file not found. Please pick the image again.');
     }
 
     const { name, type } = guessNameAndType(uri);
@@ -70,22 +96,22 @@ export async function uploadMediaUri(uri, folder = 'misc') {
     });
 
     if (!data) {
-      return { url: '', error: 'Could not read photo file' };
+      return uploadFailure('Could not read photo file');
     }
 
-    const { data: res, error } = await api.uploadMediaBase64({
+    const result = await api.uploadMediaBase64({
       folder,
       mimeType: type,
       data,
       filename: name,
     });
 
-    if (error || !res?.url) {
-      return { url: '', error: error || 'Upload failed' };
+    if (result.error || !result.data?.url) {
+      return uploadFailure(result.error || 'Upload failed', result.data);
     }
-    return { url: res.url, error: null };
+    return { url: result.data.url, error: null, errorCode: null, isSafetyBlock: false };
   } catch (err) {
-    return { url: '', error: err?.message || 'Upload failed' };
+    return uploadFailure(err?.message || 'Upload failed');
   }
 }
 
@@ -93,11 +119,17 @@ export async function uploadMediaUris(uris, folder = 'listings') {
   const out = [];
   for (const uri of uris || []) {
     if (!uri) continue;
-    const { url, error } = await uploadMediaUri(uri, folder);
-    if (error || !url) {
-      return { urls: [], error: error || 'Upload failed' };
+    const result = await uploadMediaUri(uri, folder);
+    if (result.error || !result.url) {
+      return {
+        urls: [],
+        error: result.error || 'Upload failed',
+        errorCode: result.errorCode || null,
+        issues: result.issues || null,
+        isSafetyBlock: Boolean(result.isSafetyBlock),
+      };
     }
-    out.push(url);
+    out.push(result.url);
   }
-  return { urls: out, error: null };
+  return { urls: out, error: null, errorCode: null, isSafetyBlock: false };
 }

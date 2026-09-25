@@ -12,6 +12,8 @@ import Reviews from './pages/Reviews';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
 import Categories from './pages/Categories';
+import RestrictedKeywords from './pages/RestrictedKeywords';
+import ErrorLog from './pages/ErrorLog';
 import { adminPath } from './routes';
 import './admin.css';
 
@@ -56,7 +58,9 @@ export default function AdminApp() {
             <Route path="shops" element={<Shops />} />
             <Route path="listings" element={<Listings />} />
             <Route path="categories" element={<Categories />} />
+            <Route path="restricted-keywords" element={<RestrictedKeywords />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="error-log" element={<ErrorLog />} />
             <Route path="reviews" element={<Reviews />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<Settings />} />
