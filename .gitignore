@@ -37,3 +37,8 @@ yarn-error.*
 
 # uploads
 Backend/uploads/
+
+# local secrets / noisy artifacts
+Mobile/build-release.log
+*.local.ssh
+vps_ssh.local.*

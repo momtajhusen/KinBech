@@ -9,7 +9,8 @@ KINBECH — VPS COMMANDS (step by step)
 ssh root@148.230.67.252
 
 Password:
-4546@#Bijaysharma
+# Set locally only — never commit real passwords.
+# export VPS_SSH_PASSWORD='…'   or use SSH keys (recommended)
 
 ====================================
 2) PROJECT FACTS
