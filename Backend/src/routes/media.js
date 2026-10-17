@@ -5,6 +5,7 @@ const { requireAuth } = require('../middleware/auth');
 const { publicUploadPath } = require('../config/uploads');
 const { gateImageUpload } = require('../utils/imageSafetyCheck');
 const { putUpload } = require('../utils/r2');
+const { compressListingMedia } = require('../utils/compressMedia');
 
 const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'voice', 'documents', 'misc']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
@@ -83,7 +84,14 @@ async function saveCheckedFile({ buffer, mimeType, filename, folder }) {
       throw error;
     }
   }
-  await putUpload({ folder, filename, body: buffer, contentType: mimeType });
+  const stored = await compressListingMedia({ buffer, mimeType, filename, folder });
+  await putUpload({
+    folder,
+    filename: stored.filename,
+    body: stored.buffer,
+    contentType: stored.mimeType,
+  });
+  return stored;
 }
 
 const router = express.Router();
@@ -102,25 +110,24 @@ router.post('/upload', requireAuth, (req, res) => {
 
     const filename = makeFilename(req.file.originalname, req.file.mimetype);
     try {
-      await saveCheckedFile({
+      const stored = await saveCheckedFile({
         buffer: req.file.buffer,
         mimeType: req.file.mimetype,
         filename,
         folder,
+      });
+      return res.status(201).json({
+        url: publicUploadPath(folder, stored.filename),
+        filename: stored.filename,
+        folder,
+        mimeType: stored.mimeType,
+        size: stored.buffer.length,
       });
     } catch (error) {
       if (error.body) return res.status(error.status || 422).json(error.body);
       console.error('[media] upload failed:', error.message || error);
       return res.status(500).json({ message: error.message || 'Upload failed' });
     }
-
-    return res.status(201).json({
-      url: publicUploadPath(folder, filename),
-      filename,
-      folder,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-    });
   });
 });
 
@@ -153,14 +160,14 @@ router.post('/upload-base64', requireAuth, async (req, res) => {
     }
 
     const filename = makeFilename('', mimeType);
-    await saveCheckedFile({ buffer, mimeType, filename, folder });
+    const stored = await saveCheckedFile({ buffer, mimeType, filename, folder });
 
     return res.status(201).json({
-      url: publicUploadPath(folder, filename),
-      filename,
+      url: publicUploadPath(folder, stored.filename),
+      filename: stored.filename,
       folder,
-      mimeType,
-      size: buffer.length,
+      mimeType: stored.mimeType,
+      size: stored.buffer.length,
     });
   } catch (error) {
     if (error.body) return res.status(error.status || 422).json(error.body);
