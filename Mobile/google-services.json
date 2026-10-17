@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "455638709467",
+    "project_id": "kinbech-89a8e",
+    "storage_bucket": "kinbech-89a8e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:455638709467:android:5654bf8081e522d20608fe",
+        "android_client_info": {
+          "package_name": "com.codersalpha.kinbech"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAU9VrGWXTHnLTsvTvb5fZiRdJECYpGktk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
