@@ -1,6 +1,7 @@
 import { Alert, Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
+import { requestPhotoSource } from '../components/PhotoSourceSheet';
 
 export const MAX_LISTING_PHOTOS = 4;
 export const EXTRA_PHOTO_SLOTS = 3;
@@ -66,11 +67,6 @@ export function mediaUrisFromSlots(slots) {
   return (slots || []).filter((item) => item?.uri).map((item) => item.uri);
 }
 
-const SPECS = {
-  main: { aspect: [1, 1], width: 800 },
-  extra: { aspect: [1, 1], width: 720 },
-};
-
 function normalizeDurationMs(duration) {
   if (duration == null || Number.isNaN(Number(duration))) return null;
   const value = Number(duration);
@@ -88,44 +84,72 @@ async function ensurePhotoPermission() {
   return true;
 }
 
-async function ensureCameraPermission() {
+async function ensureCameraPermission(message = 'Allow camera access to record a listing video.') {
   const camera = await ImagePicker.requestCameraPermissionsAsync();
   if (camera.status !== 'granted') {
-    Alert.alert('Camera permission', 'Allow camera access to record a listing video.');
+    Alert.alert('Camera permission', message);
     return false;
   }
   return true;
 }
 
+const SPECS = {
+  main: { aspect: [4, 5], width: 1080 },
+  extra: { aspect: [4, 5], width: 1080 },
+};
+
 async function normalizePhoto(uri, spec) {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: spec.width } }],
-    { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
-  );
-  return result.uri;
+  try {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: spec.width } }],
+      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+    );
+    return result?.uri || uri;
+  } catch {
+    return uri;
+  }
 }
 
 export async function pickListingPhoto(slotType = 'main') {
-  const allowed = await ensurePhotoPermission();
-  if (!allowed) {
-    return null;
+  const source = await requestPhotoSource();
+  if (!source) return null;
+
+  if (source === 'camera') {
+    const allowed = await ensureCameraPermission('Allow camera access to take a listing photo.');
+    if (!allowed) return null;
+  } else {
+    const allowed = await ensurePhotoPermission();
+    if (!allowed) return null;
   }
 
   const spec = SPECS[slotType] || SPECS.extra;
 
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: true,
-    aspect: spec.aspect,
-    quality: 1,
-  });
+  try {
+    const options = {
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      // Instagram portrait post, 4:5. This is only the crop, not the camera lens.
+      aspect: spec.aspect,
+      quality: 1,
+    };
+    const result =
+      source === 'camera'
+        ? await ImagePicker.launchCameraAsync({
+            ...options,
+            // The phone camera captures its full wide frame first. The 4:5 crop comes after.
+            cameraType: ImagePicker.CameraType.back,
+          })
+        : await ImagePicker.launchImageLibraryAsync(options);
 
-  if (result.canceled || !result.assets?.[0]?.uri) {
+    if (result.canceled || !result.assets?.[0]?.uri) {
+      return null;
+    }
+
+    return normalizePhoto(result.assets[0].uri, spec);
+  } catch {
     return null;
   }
-
-  return normalizePhoto(result.assets[0].uri, spec);
 }
 
 /**

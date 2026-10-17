@@ -247,3 +247,13 @@ https://kinbech.codersalpha.com
 https://kinbech.app
 
 ==========================================================
+
+
+1. Logcat Buffer Clear karne ke liye:
+adb logcat -c
+
+2. Dump Logs aur Last 50 Lines dekhne ke liye:
+adb logcat -d | tail -50
+
+3. Specific Errors ya Keywords filter karne ke liye (Sabse Important):
+adb logcat | grep -E "(FATAL|AndroidRuntime|expo-av|Audio|ReactNativeError)"

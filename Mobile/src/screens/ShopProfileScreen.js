@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { Image, Modal, ActivityIndicator } from 'react-native';
+import { Image, Modal } from 'react-native';
+import ScreenLoader from '../components/ScreenLoader';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Pressable,
@@ -387,16 +388,8 @@ export default function ShopProfileScreen({ route, navigation }) {
     return stars;
   };
 
-  if (loading) {
-    return (
-      <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading shop...</Text>
-        </View>
-      </View>
-    );
+  if (loading && !shop) {
+    return <ScreenLoader label="Loading shop" />;
   }
 
   if (!shop) {

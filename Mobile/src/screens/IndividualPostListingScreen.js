@@ -1,29 +1,30 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as Location from 'expo-location';
 import {
   ActivityIndicator,
   Image,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll, KeyboardForm } from '../components/FormScroll';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
+import { coordinatesForPlace } from '../utils/listing';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingMediaPreview from '../components/ListingMediaPreview';
+import SearchWordsField, { mergeSearchWords } from '../components/SearchWordsField';
 import {
   EXTRA_PHOTO_SLOTS,
   MAX_LISTING_PHOTOS,
@@ -172,62 +173,94 @@ export default function IndividualPostListingScreen({ navigation }) {
   const [photos, setPhotos] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [aiFilling, setAiFilling] = useState(false);
+  const [aiError, setAiError] = useState('');
   const [alertConfig, setAlertConfig] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [searchWords, setSearchWords] = useState([]);
   const [category, setCategory] = useState('Mobiles');
   const [condition, setCondition] = useState('Good');
   const [price, setPrice] = useState('');
   const [location, setLocation] = useState('');
+  const [pin, setPin] = useState(null);
   const [negotiable, setNegotiable] = useState(true);
   const [meetup, setMeetup] = useState('Public place');
 
-  const getCurrentLocation = useCallback(async () => {
+  const getCurrentLocation = useCallback(async ({ silent = false } = {}) => {
     setLocating(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Location permission',
-            message: 'Allow location access to auto-fill your city.',
-            onConfirm: () => setAlertConfig(null),
-          })
-        );
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Location permission',
+              message: 'Allow location access to auto-fill your city.',
+              onConfirm: () => setAlertConfig(null),
+            })
+          );
+        }
         return;
       }
+      const last = await Location.getLastKnownPositionAsync();
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-      });
+      }).catch(() => last);
+      const coords = loc?.coords || last?.coords;
+      if (!coords) {
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Could not determine location',
+              message: 'Please enter location manually.',
+              onConfirm: () => setAlertConfig(null),
+            })
+          );
+        }
+        return;
+      }
       const geocode = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
       });
       const addr = geocode?.[0];
       if (!addr) {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Could not determine location',
-            message: 'Please enter location manually.',
-            onConfirm: () => setAlertConfig(null),
-          })
-        );
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Could not determine location',
+              message: 'Please enter location manually.',
+              onConfirm: () => setAlertConfig(null),
+            })
+          );
+        }
         return;
       }
       setLocation(formatCityDistrict(addr, 'Kathmandu'));
+      setPin({ lat: coords.latitude, lng: coords.longitude });
     } catch (e) {
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Location error',
-          message: 'Could not fetch location. Please enter manually.',
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
+      if (!silent) {
+        setAlertConfig(
+          showErrorAlert({
+            title: 'Location error',
+            message: 'Could not fetch location. Please enter manually.',
+            onConfirm: () => setAlertConfig(null),
+          })
+        );
+      }
     } finally {
       setLocating(false);
     }
   }, []);
+
+  const autoLocationRef = useRef(false);
+  useEffect(() => {
+    if (step !== 3 || location.trim() || autoLocationRef.current) return;
+    autoLocationRef.current = true;
+    getCurrentLocation({ silent: true });
+  }, [step, location, getCurrentLocation]);
 
   const mainPhoto = photos[0]?.type !== 'video' ? photos[0]?.uri ?? null : null;
   const extraPhotos = photos.slice(1);
@@ -250,6 +283,10 @@ export default function IndividualPostListingScreen({ navigation }) {
     }
     if (step > 1) {
       setStep((value) => value - 1);
+      return;
+    }
+    if (navigation.getState?.()?.type === 'tab') {
+      navigation.navigate('Home');
       return;
     }
     if (navigation.canGoBack()) navigation.goBack();
@@ -297,6 +334,78 @@ export default function IndividualPostListingScreen({ navigation }) {
       return next;
     });
   };
+
+  // Gemini reads the cover photo and fills every detail except the price.
+  const aiFillDetails = async ({ silent = false } = {}) => {
+    if (aiFilling) return;
+    const photoUri =
+      mainPhoto || photos.find((item) => item?.type !== 'video' && item?.uri)?.uri || null;
+    if (!photoUri) {
+      if (!silent) {
+        setAlertConfig(
+          showErrorAlert({
+            title: 'Add a photo first',
+            message: 'AI needs a product photo to read the details from.',
+            onConfirm: () => setAlertConfig(null),
+          })
+        );
+      }
+      return;
+    }
+    setAiFilling(true);
+    setAiError('');
+    try {
+      // Shrink before sending — a smaller photo comes back much faster.
+      const prepared = await ImageManipulator.manipulateAsync(
+        photoUri,
+        [{ resize: { width: 640 } }],
+        {
+          compress: 0.6,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        }
+      );
+      if (!prepared?.base64) throw new Error('Could not read that photo');
+
+      const { data, error } = await api.suggestListingDetails({
+        image: prepared.base64,
+        mimeType: 'image/jpeg',
+        categories: categories.map((cat) => cat.label),
+      });
+      const suggestion = data?.suggestion;
+      if (error || !suggestion) {
+        throw new Error(error || 'AI could not read that photo');
+      }
+      if (suggestion.title) setTitle(suggestion.title);
+      if (suggestion.description) setDescription(suggestion.description);
+      if (Array.isArray(suggestion.searchWords) && suggestion.searchWords.length) {
+        setSearchWords((current) => mergeSearchWords(current, suggestion.searchWords));
+      }
+      if (suggestion.category && categories.some((cat) => cat.label === suggestion.category)) {
+        setCategory(suggestion.category);
+      }
+      if (suggestion.condition && CONDITIONS.includes(suggestion.condition)) {
+        setCondition(suggestion.condition);
+      }
+    } catch (err) {
+      // An automatic fill must never interrupt with a dialog.
+      if (silent) {
+        setAiError('AI could not read the photo. Tap the sparkle icon to retry.');
+      } else {
+        setAlertConfig(
+          showErrorAlert({
+            title: 'AI fill failed',
+            message: err?.message || 'Could not analyse the photo. Please try again.',
+            onConfirm: () => setAlertConfig(null),
+          })
+        );
+      }
+    } finally {
+      setAiFilling(false);
+    }
+  };
+
+  // AI fill now only happens when the user clicks the gemini AI button - no auto-fill
 
   const validateStep1 = () => {
     if (!mainPhoto) {
@@ -384,11 +493,13 @@ export default function IndividualPostListingScreen({ navigation }) {
     const { data, error } = await api.createListing({
       title: title.trim(),
       description: description.trim(),
+      searchWords,
       price,
       category,
       condition,
       photos: uploaded.urls,
       location: location.trim(),
+      coordinates: coordinatesForPlace(pin, location),
       meetupOption: meetup,
       sellerType: 'individual',
     });
@@ -407,7 +518,7 @@ export default function IndividualPostListingScreen({ navigation }) {
       );
       return;
     }
-    navigation.navigate(ROUTES.LISTING_SUCCESS, {
+    navigation.replace(ROUTES.LISTING_SUCCESS, {
       listing: {
         id: data.listing.id,
         title: data.listing.title,
@@ -440,18 +551,11 @@ export default function IndividualPostListingScreen({ navigation }) {
         title="Post in 30 seconds"
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+      <KeyboardForm style={styles.flex}>
+        <FormScroll
           ref={scrollRef}
-          style={{ flex: 1 }}
+          lift={false}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
           {step === 1 && (
             <>
@@ -486,7 +590,7 @@ export default function IndividualPostListingScreen({ navigation }) {
               >
                 {mainPhoto ? (
                   <>
-                    <Image source={{ uri: mainPhoto }} style={styles.mainPhotoImage} />
+                    <Image source={{ uri: mainPhoto }} style={styles.mainPhotoImage} resizeMode="cover" />
                     <View style={styles.tapPreviewHint} pointerEvents="none">
                       <Ionicons name="expand-outline" size={14} color="#fff" />
                     </View>
@@ -512,7 +616,7 @@ export default function IndividualPostListingScreen({ navigation }) {
                       <Ionicons name="camera" size={26} color={colors.primary} />
                     </View>
                     <Text style={styles.mainPhotoTitle}>Add cover photo</Text>
-                    <Text style={styles.mainPhotoSub}>Square, well-lit, item in focus</Text>
+                    <Text style={styles.mainPhotoSub}>Instagram size, 4:5</Text>
                   </View>
                 )}
               </Pressable>
@@ -610,8 +714,25 @@ export default function IndividualPostListingScreen({ navigation }) {
 
           {step === 2 && (
             <>
-              <Text style={styles.sectionTitle}>Item details</Text>
-              <Text style={styles.sectionHint}>Tell buyers what you are selling</Text>
+              <View style={styles.detailsHeaderRow}>
+                <View style={styles.detailsHeaderText}>
+                  <Text style={styles.sectionTitle}>Item details</Text>
+                  <Text style={styles.sectionHint}>Tell buyers what you are selling</Text>
+                </View>
+                <Pressable
+                  style={styles.aiIconBtn}
+                  onPress={aiFillDetails}
+                  disabled={aiFilling}
+                  hitSlop={10}
+                  accessibilityLabel="Auto-fill details with AI"
+                >
+                  {aiFilling ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : (
+                    <Ionicons name="sparkles" size={16} color={colors.primary} />
+                  )}
+                </Pressable>
+              </View>
 
               <FloatingField
                 label="Title"
@@ -627,12 +748,14 @@ export default function IndividualPostListingScreen({ navigation }) {
                 label="Description"
                 value={description}
                 onChangeText={setDescription}
-                placeholder="Condition, age, reason for selling…"
+                placeholder="Condition, age, and what is included…"
                 multiline
                 colors={colors}
                 styles={styles}
                 inputRef={descRef}
               />
+
+              <SearchWordsField words={searchWords} onChange={setSearchWords} />
 
               <Text style={styles.fieldLabel}>Category</Text>
               <View style={styles.chipWrap}>
@@ -728,7 +851,10 @@ export default function IndividualPostListingScreen({ navigation }) {
               <FloatingField
                 label="Location"
                 value={location}
-                onChangeText={setLocation}
+                onChangeText={(text) => {
+                  setLocation(text);
+                  setPin(null);
+                }}
                 placeholder="City or area"
                 right={
                   <Pressable onPress={getCurrentLocation} disabled={locating} style={styles.locBtn}>
@@ -782,7 +908,7 @@ export default function IndividualPostListingScreen({ navigation }) {
               </View>
             </>
           )}
-        </ScrollView>
+        </FormScroll>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable style={styles.continueBtn} onPress={goNext} disabled={submitting}>
@@ -795,7 +921,7 @@ export default function IndividualPostListingScreen({ navigation }) {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardForm>
 
       <ListingMediaPreview
         visible={previewIndex != null}
@@ -965,6 +1091,7 @@ const createStyles = (colors) => ({
   mainPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   mainPlayOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1067,6 +1194,7 @@ const createStyles = (colors) => ({
   extraPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   extraVideoPlaceholder: {
     alignItems: 'center',
@@ -1126,6 +1254,24 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
     marginBottom: 8,
     marginTop: 4,
+  },
+  aiIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.iconBackground,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  detailsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  detailsHeaderText: {
+    flex: 1,
   },
   chipWrap: {
     flexDirection: 'row',
@@ -1233,6 +1379,7 @@ const createStyles = (colors) => ({
   previewImage: {
     width: '100%',
     height: 180,
+    resizeMode: 'cover',
     borderRadius: 12,
     marginBottom: 12,
   },

@@ -6,6 +6,19 @@ function guessNameAndType(uri, fallbackName = 'upload.jpg') {
   const base = clean.split('/').pop() || fallbackName;
   const lower = decodeURIComponent(base).toLowerCase();
 
+  if (/\.(m4a|aac|mp3|wav|3gp|amr)$/.test(lower)) {
+    const ext = lower.match(/\.(m4a|aac|mp3|wav|3gp|amr)$/)[0];
+    const types = {
+      '.m4a': 'audio/mp4',
+      '.aac': 'audio/aac',
+      '.mp3': 'audio/mpeg',
+      '.wav': 'audio/wav',
+      '.3gp': 'audio/3gpp',
+      '.amr': 'audio/amr',
+    };
+    return { name: `voice${ext}`, type: types[ext] || 'audio/mp4' };
+  }
+
   if (/\.(mp4|mov|m4v|webm)$/.test(lower)) {
     return {
       name: lower.endsWith('.mov') ? base : `${base.replace(/\.\w+$/, '') || 'video'}.mp4`,

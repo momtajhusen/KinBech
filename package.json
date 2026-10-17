@@ -10,7 +10,10 @@
     "website:start": "cd Website && echo '🌐 SITE + ADMIN: http://localhost:5180/admin/login' && npm run build && npm run preview",
     "website:dev": "cd Website && echo '🌐 SITE: http://localhost:5180  |  ADMIN: http://localhost:5180/admin/login' && npm run dev",
     "website:build": "cd Website && npm run build",
-    "website:preview": "cd Website && echo '🌐 PUBLIC SITE: http://localhost:4180' && npm run preview"
+    "website:preview": "cd Website && echo '🌐 PUBLIC SITE: http://localhost:4180' && npm run preview",
+    "mobile:start": "npm --prefix Mobile start",
+    "mobile:android": "npm --prefix Mobile run android --",
+    "mobile:ios": "npm --prefix Mobile run ios --"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

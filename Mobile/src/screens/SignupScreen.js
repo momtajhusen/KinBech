@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Alert, Keyboard, KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { Alert, Keyboard, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll } from '../components/FormScroll';
 import BrandLogo from '../components/BrandLogo';
 import { BRAND_TAGLINE } from '../content/brand';
 import GradientButton from '../components/GradientButton';
@@ -42,8 +43,11 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+  },
+  sheetInner: {
     paddingHorizontal: 24,
     paddingTop: 28,
+    paddingBottom: 24,
     gap: 10,
   },
   label: {
@@ -125,10 +129,7 @@ export default function SignupScreen({ navigation }) {
         <Text style={styles.subtitle}>{BRAND_TAGLINE}</Text>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={styles.sheet}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <FormScroll style={styles.sheet} contentContainerStyle={styles.sheetInner}>
         <Text style={styles.label}>Full Name</Text>
         <TextInput
           value={name}
@@ -167,7 +168,7 @@ export default function SignupScreen({ navigation }) {
           {' '}
           <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.LEGAL_HUB)}>All policies</Text>
         </Text>
-      </KeyboardAvoidingView>
+      </FormScroll>
     </View>
   );
 }

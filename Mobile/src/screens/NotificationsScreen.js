@@ -1,100 +1,158 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { navigateToTab, ROUTES, TABS } from '../navigation/helpers';
+import { navigateToTab, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
-/**
- * Resolve color references (e.g., 'colors.iconBackground') to actual color values
- * @param {string} colorRef - Color reference string or direct color value
- * @param {object} colors - Theme colors object
- * @returns {string} Resolved color value
- */
-function resolveColor(colorRef, colors) {
-  if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
-    const colorKey = colorRef.replace('colors.', '');
-    return colors[colorKey] || colorRef;
-  }
-  return colorRef;
+const FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'unread', label: 'Unread' },
+  { id: 'messages', label: 'Messages' },
+  { id: 'calls', label: 'Calls' },
+];
+
+function formatNoticeTime(dateValue) {
+  if (!dateValue) return '';
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return '';
+  const diff = Date.now() - date.getTime();
+  if (diff < 60 * 1000) return 'Just now';
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / 60000)}m`;
+  const start = (value) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const dayDiff = Math.round((start(new Date()) - start(date)) / 86400000);
+  const clock = date
+    .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    .replace(/^0/, '');
+  if (dayDiff === 0) return clock;
+  if (dayDiff === 1) return 'Yesterday';
+  return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
-const NOTIFICATIONS = [];
+function dayGroup(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return 'Earlier';
+  const start = (value) => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const dayDiff = Math.round((start(new Date()) - start(date)) / 86400000);
+  if (dayDiff === 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  return 'Earlier';
+}
+
+function noticeMeta(item, colors) {
+  const title = `${item.title || ''} ${item.body || ''}`;
+  const isCall = item.type === 'call' || item.icon === 'call-outline' || /call/i.test(item.title || '');
+  const missed = /missed|declined|no answer|cancelled/i.test(title);
+  if (isCall) {
+    return {
+      label: missed ? 'Missed call' : 'Call',
+      icon: 'call',
+      tint: missed ? '#DC2626' : '#16A34A',
+      bg: missed ? '#FEE2E2' : '#DCFCE7',
+    };
+  }
+  if (item.type === 'chat') {
+    return {
+      label: 'Message',
+      icon: 'chatbubble-ellipses',
+      tint: colors.primary,
+      bg: colors.pastelPurple || '#EDE9FE',
+    };
+  }
+  if (item.type === 'listing') {
+    return {
+      label: 'Listing',
+      icon: 'pricetag',
+      tint: '#2563EB',
+      bg: colors.pastelBlue || '#DBEAFE',
+    };
+  }
+  if (item.type === 'promotion' || item.type === 'broadcast') {
+    return {
+      label: 'Announcement',
+      icon: 'megaphone',
+      tint: '#D97706',
+      bg: colors.pastelOrange || '#FFEDD5',
+    };
+  }
+  if (/meetup/i.test(item.title || '')) {
+    return {
+      label: 'Meetup',
+      icon: 'location',
+      tint: '#0F766E',
+      bg: colors.pastelCyan || '#CCFBF1',
+    };
+  }
+  return {
+    label: 'Update',
+    icon: 'notifications',
+    tint: colors.primary,
+    bg: colors.pastelIndigo || colors.iconBackground,
+  };
+}
+
+function isCallItem(item) {
+  return item.type === 'call' || item.icon === 'call-outline' || /call/i.test(item.title || '');
+}
 
 export default function NotificationsScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState('all');
-  const [notifications, setNotifications] = useState(NOTIFICATIONS);
-  const [loading, setLoading] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  const loadNotifications = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setLoading(true);
+  const loadNotifications = useCallback(async () => {
     const { data, error } = await api.getNotifications();
-    if (!error && data?.notifications) {
-      setNotifications(
-        (data.notifications || []).map((n) => ({
-          ...n,
-          id: n.id || n._id,
-          body: n.body || n.message || '',
-          time: n.createdAt ? new Date(n.createdAt).toLocaleString() : '',
-          unread: n.unread !== false,
-          icon: n.icon || 'notifications-outline',
-        }))
-      );
-    }
-    if (!silent) setLoading(false);
+    if (error || !data?.notifications) return;
+    setNotifications(data.notifications);
+    setUnreadCount(data.unreadCount || data.notifications.filter((item) => item.unread).length);
   }, []);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => loadNotifications({ silent: true }));
+  const { refreshing, onRefresh } = usePullRefresh(loadNotifications);
 
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
 
-  // Guard against undefined colors
-  if (!colors) {
-    return null;
-  }
+  if (!colors) return null;
 
-  // Resolve notification colors dynamically
-  const resolvedNotifications = (notifications || []).map(notification => ({
-    ...notification,
-    iconBg: resolveColor(`colors.${notification.iconBg || 'iconBackground'}`, colors)
-  }));
-
-  const list = tab === 'unread' ? resolvedNotifications.filter((n) => n.unread) : resolvedNotifications;
+  const list = notifications.filter((item) => {
+    if (tab === 'unread') return item.unread;
+    if (tab === 'messages') return item.type === 'chat';
+    if (tab === 'calls') return isCallItem(item);
+    return true;
+  });
 
   const openNotification = async (item) => {
     if (item.unread && item.id) {
       await api.markNotificationRead(item.id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === item.id ? { ...n, unread: false } : n))
-      );
+      setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, unread: false } : n)));
+      setUnreadCount((count) => Math.max(0, count - 1));
     }
     if (item.tab) {
       navigateToTab(navigation, item.tab);
       return;
     }
-    if (item.route) {
-      navigation.navigate(item.route, item.params);
+    if ((item.route === 'Call' || item.route === 'Chat') && item.params?.chatId) {
+      navigation.navigate(ROUTES.CHAT, item.params);
+      return;
     }
+    if (item.route) navigation.navigate(item.route, item.params || undefined);
   };
 
   const markAllRead = async () => {
     await api.markAllNotificationsRead();
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    setUnreadCount(0);
   };
+
+  let lastGroup = '';
 
   return (
     <View style={styles.root}>
@@ -108,67 +166,82 @@ export default function NotificationsScreen({ navigation }) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
           <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <Pressable onPress={markAllRead} hitSlop={12}>
-          <Text style={{ color: colors.onGradient, fontWeight: '700', fontSize: 13 }}>Read all</Text>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>Notifications</Text>
+          <Text style={styles.headerSub}>
+            {unreadCount > 0 ? `${unreadCount} new` : 'Messages, calls, and updates'}
+          </Text>
+        </View>
+        <Pressable onPress={markAllRead} hitSlop={12} disabled={unreadCount === 0}>
+          <Text style={[styles.readAll, unreadCount === 0 && styles.readAllDisabled]}>Read all</Text>
         </Pressable>
       </LinearGradient>
 
-      <View style={styles.tabRow}>
-        <Pressable style={styles.tabItem} onPress={() => setTab('all')}>
-          <Text style={[styles.tabText, tab === 'all' && styles.tabTextActive]}>All</Text>
-        </Pressable>
-        <Pressable style={styles.tabItem} onPress={() => setTab('unread')}>
-          <Text style={[styles.tabText, tab === 'unread' && styles.tabTextActive]}>
-            Unread
-          </Text>
-        </Pressable>
-      </View>
-      <View style={styles.tabDivider}>
-        <LinearGradient
-          colors={colors.gradient}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[
-            styles.tabIndicator,
-            tab === 'unread' && styles.tabIndicatorRight,
-          ]}
-        />
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filters}
+      >
+        {FILTERS.map((filter) => {
+          const active = tab === filter.id;
+          return (
+            <Pressable
+              key={filter.id}
+              onPress={() => setTab(filter.id)}
+              style={[styles.filterChip, active && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterText, active && styles.filterTextActive]}>{filter.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
 
       <ScrollView
-        contentContainerStyle={[styles.list, list.length === 0 && { flexGrow: 1 }]}
+        contentContainerStyle={[styles.list, list.length === 0 && styles.listEmpty]}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
         {list.length > 0 ? (
-          (list || []).map((item) => (
-            <Pressable
-              key={item.id}
-              style={[styles.card, item.unread && styles.cardUnread]}
-              onPress={() => openNotification(item)}
-            >
-              <View style={[styles.iconCircle, { backgroundColor: item.iconBg }]}>
-                <Ionicons name={item.icon} size={22} color={colors.onGradient} />
+          list.map((item) => {
+            const meta = noticeMeta(item, colors);
+            const group = dayGroup(item.createdAt);
+            const showGroup = group !== lastGroup;
+            lastGroup = group;
+            return (
+              <View key={item.id}>
+                {showGroup ? <Text style={styles.groupLabel}>{group}</Text> : null}
+                <Pressable
+                  style={[styles.card, item.unread && styles.cardUnread]}
+                  onPress={() => openNotification(item)}
+                >
+                  <View style={[styles.iconCircle, { backgroundColor: meta.bg }]}>
+                    <Ionicons name={meta.icon} size={20} color={meta.tint} />
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardTopRow}>
+                      <Text style={[styles.kind, { color: meta.tint }]}>{meta.label}</Text>
+                      <Text style={styles.cardTime}>{formatNoticeTime(item.createdAt)}</Text>
+                    </View>
+                    <Text style={styles.cardTitle} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    {item.body ? (
+                      <Text style={styles.cardText} numberOfLines={2}>
+                        {item.body}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {item.unread ? <View style={styles.unreadDot} /> : null}
+                </Pressable>
               </View>
-              <View style={styles.cardBody}>
-                <View style={styles.cardTopRow}>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardTime}>{item.time}</Text>
-                </View>
-                <View style={styles.cardBottomRow}>
-                  <Text style={styles.cardText}>{item.body}</Text>
-                  {item.unread && <View style={styles.unreadDot} />}
-                </View>
-              </View>
-            </Pressable>
-          ))
+            );
+          })
         ) : (
           <EmptyState
             compact
             icon="notifications-off-outline"
-            title="No notifications"
-            body="You’ll see updates about chats, listings, and offers here."
+            title={tab === 'all' ? 'No notifications' : 'Nothing in this filter'}
+            body="Messages, calls, missed calls, and meetup updates show up here."
           />
         )}
       </ScrollView>
@@ -185,7 +258,7 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingBottom: 20,
+    paddingBottom: 18,
   },
   back: {
     width: 36,
@@ -193,63 +266,86 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
+  headerText: {
     flex: 1,
     marginLeft: 6,
-    fontSize: 24,
+  },
+  headerTitle: {
+    fontSize: 22,
     fontWeight: '800',
     color: colors.onGradient,
   },
-  tabRow: {
-    flexDirection: 'row',
-    paddingTop: 18,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingBottom: 12,
-  },
-  tabText: {
-    fontSize: 16,
+  headerSub: {
+    marginTop: 2,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.82)',
     fontWeight: '600',
+  },
+  readAll: {
+    color: colors.onGradient,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  readAllDisabled: {
+    opacity: 0.45,
+  },
+  filters: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: '700',
     color: colors.textMuted,
   },
-  tabTextActive: {
-    color: colors.primary,
-    fontWeight: '800',
-  },
-  tabDivider: {
-    height: 3,
-    backgroundColor: colors.border,
-  },
-  tabIndicator: {
-    width: '50%',
-    height: 3,
-  },
-  tabIndicatorRight: {
-    marginLeft: '50%',
+  filterTextActive: {
+    color: colors.onPrimary || '#fff',
   },
   list: {
-    padding: 16,
+    paddingHorizontal: 16,
     paddingBottom: 32,
+  },
+  listEmpty: {
+    flexGrow: 1,
+  },
+  groupLabel: {
+    marginTop: 4,
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.textMuted,
   },
   card: {
     flexDirection: 'row',
-    padding: 14,
+    alignItems: 'center',
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   cardUnread: {
+    borderColor: colors.primary,
     backgroundColor: colors.surfaceMuted,
-    borderColor: colors.surfaceMutedBorder,
   },
   iconCircle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -260,29 +356,31 @@ const createStyles = (colors) => ({
   cardTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 8,
   },
+  kind: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  cardTime: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
   cardTitle: {
-    flex: 1,
+    marginTop: 2,
     fontSize: 15,
     fontWeight: '800',
     color: colors.text,
   },
-  cardTime: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  cardBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginTop: 4,
-  },
   cardText: {
-    flex: 1,
+    marginTop: 2,
     fontSize: 13,
     color: colors.textMuted,
-    lineHeight: 19,
+    lineHeight: 18,
   },
   unreadDot: {
     width: 8,
@@ -290,27 +388,5 @@ const createStyles = (colors) => ({
     borderRadius: 4,
     backgroundColor: colors.primary,
     marginLeft: 8,
-    marginBottom: 3,
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 60,
-    gap: 12,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: colors.text,
-    marginTop: 8,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  loadingState: {
-    alignItems: 'center',
-    paddingVertical: 60,
   },
 });

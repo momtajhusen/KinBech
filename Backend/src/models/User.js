@@ -68,6 +68,7 @@ const userSchema = new mongoose.Schema(
     referralRewardGranted: { type: Boolean, default: false },
     /** Each credit = 1 day featured listing */
     featuredCredits: { type: Number, default: 0, min: 0 },
+    fcmToken: { type: String, default: '', index: true },
   },
   { timestamps: true, collection: 'users' }
 );

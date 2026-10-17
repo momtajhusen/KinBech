@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { LinearGradient } from 'expo-linear-gradient';
-import { KeyboardAvoidingView, Platform, Text, TextInput, View } from 'react-native';
+import { Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll } from '../components/FormScroll';
 import BrandLogo from '../components/BrandLogo';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert } from '../components/AlertModal';
@@ -42,8 +43,11 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+  },
+  sheetInner: {
     paddingHorizontal: 24,
     paddingTop: 28,
+    paddingBottom: 24,
     gap: 10,
   },
   label: {
@@ -113,10 +117,7 @@ export default function NameInputScreen({ navigation, route }) {
         <Text style={styles.subtitle}>Tell us your name to get started</Text>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={styles.sheet}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <FormScroll style={styles.sheet} contentContainerStyle={styles.sheetInner}>
         <Text style={styles.label}>Your Name</Text>
         <TextInput
           value={name}
@@ -132,7 +133,7 @@ export default function NameInputScreen({ navigation, route }) {
           disabled={loading}
           onPress={completeSignup}
         />
-      </KeyboardAvoidingView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

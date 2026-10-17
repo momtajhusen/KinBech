@@ -1,9 +1,10 @@
 import { useCallback, useState, useRef } from 'react';
-import { Image, Pressable, ScrollView, Text, View, Animated } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import EmptyState from '../components/EmptyState';
+import ScreenLoader from '../components/ScreenLoader';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
@@ -37,6 +38,15 @@ function formatChatTime(dateValue) {
   return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
+function previewMeta(chat) {
+  const kind = chat.lastMessageKind || 'text';
+  const text = chat.lastMessage || 'Start the conversation';
+  if (kind === 'call') return { icon: 'call-outline', text };
+  if (kind === 'voice') return { icon: 'mic-outline', text };
+  if (chat.lastMessageMine && chat.lastMessage) return { icon: null, text: `You: ${text}` };
+  return { icon: null, text };
+}
+
 function ChatAvatar({ uri, name, colors, styles }) {
   if (uri) {
     return <Image source={{ uri }} style={styles.avatarImage} />;
@@ -58,14 +68,6 @@ export default function ChatListScreen({ navigation }) {
   const hasLoadedRef = useRef(false);
   const hasAnimatedRef = useRef(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const chatItemAnims = useRef(new Map()).current;
-
-  const getChatItemAnim = useCallback((chatId) => {
-    if (!chatItemAnims.has(chatId)) {
-      chatItemAnims.set(chatId, new Animated.Value(1));
-    }
-    return chatItemAnims.get(chatId);
-  }, [chatItemAnims]);
 
   const revealList = useCallback(() => {
     if (hasAnimatedRef.current) {
@@ -127,94 +129,72 @@ export default function ChatListScreen({ navigation }) {
             body="Open an item and message the seller. Your chats will show up here."
           />
         ) : (
-          <Animated.View style={[styles.listInner, { opacity: fadeAnim }]}>
-            {chats.map((chat) => {
-              const itemAnim = getChatItemAnim(chat.id);
+          <Animated.View style={{ opacity: fadeAnim }}>
+            {chats.map((chat, index) => {
               const name = chat.otherUser?.name || 'Seller';
               const listingTitle = chat.listing?.title;
               const listingPrice =
                 chat.listing?.price != null ? formatPrice(chat.listing.price) : '';
-              const avatarUri = resolveMediaUrl(
-                chat.otherUser?.avatarUrl || chat.listing?.photos?.[0] || ''
-              );
+              const avatarUri = resolveMediaUrl(chat.otherUser?.avatarUrl || '');
               const listingThumb = resolveMediaUrl(chat.listing?.photos?.[0] || '');
               const timeLabel = formatChatTime(chat.lastMessageAt);
+              const preview = previewMeta(chat);
 
               return (
-                <Animated.View
+                <Pressable
                   key={chat.id}
-                  style={[styles.cardWrap, { transform: [{ scale: itemAnim }] }]}
+                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  onPress={() =>
+                    navigation.navigate(ROUTES.CHAT, {
+                      chatId: chat.id,
+                      name,
+                      listing: chat.listing,
+                      otherUserId: chat.otherUser?.id,
+                      image: avatarUri || listingThumb,
+                    })
+                  }
                 >
-                  <Pressable
-                    style={styles.row}
-                    onPress={() =>
-                      navigation.navigate(ROUTES.CHAT, {
-                        chatId: chat.id,
-                        name,
-                        listing: chat.listing,
-                        otherUserId: chat.otherUser?.id,
-                      })
-                    }
-                    onPressIn={() => {
-                      Animated.spring(itemAnim, {
-                        toValue: 0.985,
-                        useNativeDriver: true,
-                        tension: 300,
-                        friction: 12,
-                      }).start();
-                    }}
-                    onPressOut={() => {
-                      Animated.spring(itemAnim, {
-                        toValue: 1,
-                        useNativeDriver: true,
-                        tension: 300,
-                        friction: 12,
-                      }).start();
-                    }}
-                  >
-                    <ChatAvatar
-                      uri={avatarUri}
-                      name={name}
-                      colors={colors}
-                      styles={styles}
-                    />
+                  <ChatAvatar uri={avatarUri} name={name} colors={colors} styles={styles} />
 
-                    <View style={styles.body}>
+                  <View style={[styles.body, index < chats.length - 1 && styles.bodyDivider]}>
+                    <View style={styles.copy}>
                       <View style={styles.topRow}>
                         <Text style={styles.name} numberOfLines={1}>
                           {name}
                         </Text>
-                        {timeLabel ? (
-                          <Text style={styles.time}>{timeLabel}</Text>
-                        ) : null}
+                        {timeLabel ? <Text style={styles.time}>{timeLabel}</Text> : null}
                       </View>
 
                       {listingTitle ? (
                         <Text style={styles.listingLine} numberOfLines={1}>
                           {listingTitle}
-                          {listingPrice ? ` · ${listingPrice}` : ''}
+                          {listingPrice ? (
+                            <Text style={styles.listingPrice}>{`  ${listingPrice}`}</Text>
+                          ) : null}
                         </Text>
                       ) : null}
 
-                      <Text style={styles.preview} numberOfLines={1}>
-                        {chat.lastMessage || 'Start the conversation'}
-                      </Text>
+                      <View style={styles.previewRow}>
+                        {preview.icon ? (
+                          <Ionicons name={preview.icon} size={14} color={colors.textMuted} />
+                        ) : null}
+                        <Text style={styles.preview} numberOfLines={1}>
+                          {preview.text}
+                        </Text>
+                      </View>
                     </View>
 
                     {listingThumb ? (
                       <Image source={{ uri: listingThumb }} style={styles.listingThumb} />
-                    ) : (
-                      <View style={styles.chevronWrap}>
-                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                      </View>
-                    )}
-                  </Pressable>
-                </Animated.View>
+                    ) : null}
+                  </View>
+                </Pressable>
               );
             })}
           </Animated.View>
         )}
       </ScrollView>
+      {loading && chats.length === 0 ? <ScreenLoader overlay label="Loading chats" /> : null}
     </SafeAreaView>
   );
 }
@@ -226,66 +206,72 @@ const createStyles = (colors) => ({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
     color: colors.text,
-    letterSpacing: -0.4,
+    letterSpacing: -0.6,
   },
   subtitle: {
-    marginTop: 4,
-    fontSize: 14,
+    marginTop: 2,
+    fontSize: 13,
     color: colors.textMuted,
   },
   list: {
-    paddingHorizontal: 16,
-    paddingBottom: 28,
+    paddingBottom: 24,
   },
   listEmpty: {
     flexGrow: 1,
-  },
-  listInner: {
-    gap: 12,
-  },
-  cardWrap: {
-    borderRadius: 18,
+    paddingHorizontal: 16,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingLeft: 16,
+    gap: 12,
+  },
+  rowPressed: {
     backgroundColor: colors.surface,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 14,
   },
   avatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: colors.iconBackground || colors.background,
   },
   avatarFallback: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     backgroundColor: colors.iconBackground || colors.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarInitial: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.primary,
   },
   body: {
     flex: 1,
     minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingRight: 16,
+  },
+  bodyDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  copy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   topRow: {
     flexDirection: 'row',
@@ -300,30 +286,34 @@ const createStyles = (colors) => ({
   },
   time: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.textMuted,
   },
   listingLine: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  preview: {
-    marginTop: 4,
     fontSize: 13,
-    lineHeight: 18,
+    fontWeight: '500',
     color: colors.textSecondary,
   },
-  listingThumb: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.iconBackground || colors.background,
+  listingPrice: {
+    fontWeight: '700',
+    color: colors.price || colors.primary,
   },
-  chevronWrap: {
-    width: 28,
+  previewRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 4,
+    marginTop: 1,
+  },
+  preview: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.textMuted,
+  },
+  listingThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: colors.iconBackground || colors.background,
   },
 });

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const notificationSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-    type: { type: String, enum: ['listing', 'chat', 'system', 'promotion', 'broadcast'], default: 'system' },
+    type: { type: String, enum: ['listing', 'chat', 'call', 'system', 'promotion', 'broadcast'], default: 'system' },
     title: { type: String, required: true },
     body: { type: String },
     message: { type: String }, // Alternative to body for broadcast notifications

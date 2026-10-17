@@ -45,17 +45,20 @@ export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [myShop, setMyShop] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const isShopAccount =
     user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
 
   const loadProfile = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
-    const [{ data, error }, purchasesRes, shopRes] = await Promise.all([
+    const [{ data, error }, purchasesRes, shopRes, notesRes] = await Promise.all([
       api.getMyListings(),
       api.getMyPurchases(),
       isShopAccount ? api.getMyShop() : Promise.resolve({ data: null }),
+      api.getNotifications(),
     ]);
+    setUnreadCount(notesRes.data?.unreadCount || 0);
     if (error) {
       console.error('Failed to load profile data:', error);
       setListings([]);
@@ -479,6 +482,11 @@ export default function ProfileScreen({ navigation }) {
                   <Ionicons name={item.icon} size={18} color={item.tint} />
                 </View>
                 <Text style={styles.menuLabel}>{item.label}</Text>
+                {item.label === 'Notifications' && unreadCount > 0 ? (
+                  <View style={styles.menuBadge}>
+                    <Text style={styles.menuBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  </View>
+                ) : null}
                 <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
               </Pressable>
             ))}
@@ -894,6 +902,21 @@ const createStyles = (colors) => ({
     fontSize: 14.5,
     fontWeight: '600',
     color: colors.text,
+  },
+  menuBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  menuBadgeText: {
+    color: colors.onPrimary,
+    fontSize: 11,
+    fontWeight: '800',
   },
   appInfo: {
     textAlign: 'center',

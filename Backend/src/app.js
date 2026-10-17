@@ -14,6 +14,7 @@ const categoryRoutes = require('./routes/categories');
 const moderationRoutes = require('./routes/moderation');
 const mapRoutes = require('./routes/map');
 const mediaRoutes = require('./routes/media');
+const aiRoutes = require('./routes/ai');
 const errorRoutes = require('./routes/errors');
 const { notFound, errorHandler } = require('./middleware/error');
 const { getUploadsRoot } = require('./config/uploads');
@@ -57,6 +58,7 @@ app.use('/categories', categoryRoutes);
 app.use('/moderation', moderationRoutes);
 app.use('/map', mapRoutes);
 app.use('/media', mediaRoutes);
+app.use('/ai', aiRoutes);
 app.use('/errors', errorRoutes);
 
 app.use(notFound);

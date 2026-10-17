@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import ScreenLoader from '../components/ScreenLoader';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../services/api';
@@ -126,9 +127,7 @@ export default function WalletScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
-        {loading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
-        ) : (
+        {loading && !wallet ? null : (
           <>
             <LinearGradient
               colors={[colors.gradientStart, colors.gradientEnd]}
@@ -203,6 +202,7 @@ export default function WalletScreen({ navigation }) {
           </>
         )}
       </ScrollView>
+      {loading && !wallet ? <ScreenLoader overlay label="Loading wallet" /> : null}
     </SafeAreaView>
   );
 }

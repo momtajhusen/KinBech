@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, me, updateMe, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus } = require('../controllers/authController');
+const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -26,6 +26,7 @@ router.post('/complete-signup', completeSignup);
 // Protected routes
 router.get('/me', requireAuth, me);
 router.patch('/me', requireAuth, updateMe);
+router.post('/device-token', requireAuth, saveDeviceToken);
 router.patch('/preferences', requireAuth, updatePreferences);
 router.get('/referral', requireAuth, getReferral);
 router.post('/referral/apply', requireAuth, applyMyReferral);

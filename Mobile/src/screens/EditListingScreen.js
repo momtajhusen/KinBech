@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ScreenLoader from '../components/ScreenLoader';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -6,10 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -17,8 +15,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll, KeyboardForm } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import EmptyState from '../components/EmptyState';
+import SearchWordsField from '../components/SearchWordsField';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import VariantEditor from '../components/VariantEditor';
 import { api } from '../services/api';
@@ -42,6 +42,7 @@ import {
   recordListingVideo,
   VIDEO_SLOT_INDEX,
 } from '../utils/listingPhotos';
+import { coordinatesForPlace } from '../utils/listing';
 
 const TOTAL_STEPS = 3;
 const CONDITIONS = ['New', 'Good', 'Fair'];
@@ -166,10 +167,18 @@ export default function EditListingScreen({ navigation, route }) {
 
   const [title, setTitle] = useState(incoming?.title || '');
   const [description, setDescription] = useState(incoming?.description || '');
+  const [searchWords, setSearchWords] = useState(
+    Array.isArray(incoming?.searchWords) ? incoming.searchWords : []
+  );
   const [category, setCategory] = useState(incoming?.category || 'Mobiles');
   const [condition, setCondition] = useState(incoming?.condition || 'Good');
   const [price, setPrice] = useState(incoming?.price != null ? String(incoming.price) : '');
   const [location, setLocation] = useState(incoming?.location || '');
+  const [pin, setPin] = useState(() => {
+    const point = incoming?.coordinates;
+    if (point?.lat == null || point?.lng == null) return null;
+    return { lat: Number(point.lat), lng: Number(point.lng) };
+  });
   const [meetup, setMeetup] = useState(incoming?.meetupOption || 'Public place');
   const [markSold, setMarkSold] = useState(incoming?.status === 'sold');
 
@@ -208,10 +217,14 @@ export default function EditListingScreen({ navigation, route }) {
       const listing = data.listing;
       setTitle(listing.title || '');
       setDescription(listing.description || '');
+      setSearchWords(Array.isArray(listing.searchWords) ? listing.searchWords : []);
       setCategory(listing.category || 'Mobiles');
       setCondition(listing.condition || 'Good');
       setPrice(listing.price != null ? String(listing.price) : '');
       setLocation(listing.location || '');
+      if (listing.coordinates?.lat != null && listing.coordinates?.lng != null) {
+        setPin({ lat: Number(listing.coordinates.lat), lng: Number(listing.coordinates.lng) });
+      }
       setMeetup(listing.meetupOption || 'Public place');
       setMarkSold(listing.status === 'sold');
       setSellerType(listing.sellerType || 'individual');
@@ -262,51 +275,79 @@ export default function EditListingScreen({ navigation, route }) {
   const photoCount = countListingPhotos(photos);
   const videoCount = countListingVideos(photos);
 
-  const getCurrentLocation = useCallback(async () => {
+  const getCurrentLocation = useCallback(async ({ silent = false } = {}) => {
     setLocating(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Location permission',
-            message: 'Allow location access to auto-fill your city.',
-            onConfirm: () => setAlertConfig(null),
-          }),
-        );
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Location permission',
+              message: 'Allow location access to auto-fill your city.',
+              onConfirm: () => setAlertConfig(null),
+            }),
+          );
+        }
         return;
       }
+      const last = await Location.getLastKnownPositionAsync();
       const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-      });
+      }).catch(() => last);
+      const coords = loc?.coords || last?.coords;
+      if (!coords) {
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Could not determine location',
+              message: 'Please enter location manually.',
+              onConfirm: () => setAlertConfig(null),
+            }),
+          );
+        }
+        return;
+      }
       const geocode = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
+        latitude: coords.latitude,
+        longitude: coords.longitude,
       });
       const addr = geocode?.[0];
       if (!addr) {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Could not determine location',
-            message: 'Please enter location manually.',
-            onConfirm: () => setAlertConfig(null),
-          }),
-        );
+        if (!silent) {
+          setAlertConfig(
+            showErrorAlert({
+              title: 'Could not determine location',
+              message: 'Please enter location manually.',
+              onConfirm: () => setAlertConfig(null),
+            }),
+          );
+        }
         return;
       }
       setLocation(formatCityDistrict(addr, 'Kathmandu'));
+      setPin({ lat: coords.latitude, lng: coords.longitude });
     } catch {
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Location error',
-          message: 'Could not fetch location. Please enter manually.',
-          onConfirm: () => setAlertConfig(null),
-        }),
-      );
+      if (!silent) {
+        setAlertConfig(
+          showErrorAlert({
+            title: 'Location error',
+            message: 'Could not fetch location. Please enter manually.',
+            onConfirm: () => setAlertConfig(null),
+          }),
+        );
+      }
     } finally {
       setLocating(false);
     }
   }, []);
+
+  const autoLocationRef = useRef(false);
+  useEffect(() => {
+    if (step !== 3 || isShop || location.trim() || autoLocationRef.current) return;
+    autoLocationRef.current = true;
+    getCurrentLocation({ silent: true });
+  }, [step, isShop, location, getCurrentLocation]);
 
   const openMediaPreview = (index) => {
     const item = photos[index];
@@ -474,6 +515,7 @@ export default function EditListingScreen({ navigation, route }) {
     const payload = {
       title: title.trim(),
       description: description.trim(),
+      searchWords,
       category,
       condition,
       price,
@@ -498,6 +540,8 @@ export default function EditListingScreen({ navigation, route }) {
     } else {
       payload.location = location.trim();
       payload.meetupOption = meetup;
+      const coordinates = coordinatesForPlace(pin, location);
+      if (coordinates) payload.coordinates = coordinates;
     }
 
     const { error } = await api.updateListing(listingId, payload);
@@ -558,15 +602,7 @@ export default function EditListingScreen({ navigation, route }) {
   if (!colors) return null;
 
   if (loading) {
-    return (
-      <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading listing…</Text>
-        </View>
-      </View>
-    );
+    return <ScreenLoader label="Loading listing" />;
   }
 
   if (listingNotFound) {
@@ -746,7 +782,7 @@ export default function EditListingScreen({ navigation, route }) {
                 <Ionicons name="camera" size={26} color={colors.primary} />
               </View>
               <Text style={styles.mainPhotoTitle}>Add cover photo</Text>
-              <Text style={styles.mainPhotoSub}>Square, well-lit, item in focus</Text>
+              <Text style={styles.mainPhotoSub}>Instagram size, 4:5</Text>
             </View>
           )}
         </Pressable>
@@ -936,6 +972,8 @@ export default function EditListingScreen({ navigation, route }) {
             inputRef={descRef}
           />
 
+          <SearchWordsField words={searchWords} onChange={setSearchWords} />
+
           {renderCategoryChips()}
           {renderConditionChips()}
 
@@ -1052,12 +1090,14 @@ export default function EditListingScreen({ navigation, route }) {
           label="Description"
           value={description}
           onChangeText={setDescription}
-          placeholder="Condition, age, reason for selling…"
+          placeholder="Condition, age, and what is included…"
           multiline
           colors={colors}
           styles={styles}
           inputRef={descRef}
         />
+
+        <SearchWordsField words={searchWords} onChange={setSearchWords} />
 
         {renderCategoryChips()}
         {renderConditionChips()}
@@ -1164,7 +1204,10 @@ export default function EditListingScreen({ navigation, route }) {
         <FloatingField
           label="Location"
           value={location}
-          onChangeText={setLocation}
+          onChangeText={(text) => {
+            setLocation(text);
+            setPin(null);
+          }}
           placeholder="City or area"
           right={
             <Pressable onPress={getCurrentLocation} disabled={locating} style={styles.locBtn}>
@@ -1236,23 +1279,16 @@ export default function EditListingScreen({ navigation, route }) {
         stepLabels={stepLabels}
       />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+      <KeyboardForm style={styles.flex}>
+        <FormScroll
           ref={scrollRef}
-          style={{ flex: 1 }}
+          lift={false}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
           {step === 1 && renderStep1()}
           {step === 2 && renderStep2()}
           {step === 3 && renderStep3()}
-        </ScrollView>
+        </FormScroll>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable style={styles.continueBtn} onPress={goNext} disabled={submitting}>
@@ -1265,7 +1301,7 @@ export default function EditListingScreen({ navigation, route }) {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardForm>
 
       <ListingMediaPreview
         visible={previewIndex != null}
@@ -1462,6 +1498,7 @@ const createStyles = (colors) => ({
   mainPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   mainPlayOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -1564,6 +1601,7 @@ const createStyles = (colors) => ({
   extraPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   extraVideoPlaceholder: {
     alignItems: 'center',
@@ -1770,6 +1808,7 @@ const createStyles = (colors) => ({
   previewImage: {
     width: '100%',
     height: 180,
+    resizeMode: 'cover',
     borderRadius: 12,
     marginBottom: 12,
   },

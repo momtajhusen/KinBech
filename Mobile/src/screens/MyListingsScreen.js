@@ -15,6 +15,7 @@ import { openItemDetail, navigateToTab, ROUTES, TABS } from '../navigation/helpe
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
+import ScreenLoader from '../components/ScreenLoader';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -429,6 +430,7 @@ export default function MyListingsScreen({ navigation, route }) {
           </Text>
         </Pressable>
       </View>
+      {loading && listings.length === 0 ? <ScreenLoader overlay label="Loading listings" /> : null}
     </View>
   );
 }

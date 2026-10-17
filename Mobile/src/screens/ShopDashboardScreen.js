@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ScreenLoader from '../components/ScreenLoader';
 import { api } from '../services/api';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { ROUTES } from '../navigation/helpers';
@@ -581,6 +582,7 @@ export default function ShopDashboardScreen({ navigation }) {
           </View>
         </View>
       </ScrollView>
+      {loading && !data ? <ScreenLoader overlay label="Loading shop" /> : null}
     </View>
   );
 }

@@ -16,10 +16,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedTransition } from '../context/SharedTransitionContext';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
+import ScreenLoader from '../components/ScreenLoader';
+import {
+  catalogFingerprint,
+  getExploreMemory,
+  getHomeListingsMemory,
+  loadExploreCache,
+  loadHomeListingsCache,
+  setExploreMemory,
+  setHomeListingsCache,
+} from '../utils/homeListingsCache';
 import EmptyState from '../components/EmptyState';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { useAuth } from '../context/AuthContext';
 import { useCategories, mergeSidebarCategories } from '../utils/categories';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -31,14 +40,20 @@ export default function CategoryScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { width: windowWidth } = useWindowDimensions();
-  const { user } = useAuth();
   const initialCategory = route?.params?.category;
   const productCategories = useCategories('product');
   const shopCategories = useCategories('shop');
 
-  const [allListings, setAllListings] = useState([]);
-  const [allStores, setAllStores] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const seededListings = getHomeListingsMemory()?.listings || getExploreMemory()?.products || [];
+  const seededStores = getExploreMemory()?.shops || [];
+  const [allListings, setAllListings] = useState(seededListings);
+  const [allStores, setAllStores] = useState(seededStores);
+  const [viewerCoords, setViewerCoords] = useState({ lat: null, lng: null });
+  const [loading, setLoading] = useState(seededListings.length === 0 && seededStores.length === 0);
+  const [orderTick, setOrderTick] = useState(0);
+  const hasLoadedRef = useRef(seededListings.length > 0 || seededStores.length > 0);
+  const listingsFpRef = useRef(catalogFingerprint(seededListings));
+  const storesFpRef = useRef(catalogFingerprint(seededStores));
   const [activeCategory, setActiveCategory] = useState(null);
   const [activeTab, setActiveTab] = useState('products');
   const paneAnim = useRef(new Animated.Value(0)).current;
@@ -109,19 +124,27 @@ export default function CategoryScreen({ navigation, route }) {
   }, [activeCategory, loading]);
 
   const loadData = useCallback(async ({ silent } = {}) => {
-    if (!silent) setLoading(true);
+    if (!silent && !hasLoadedRef.current) setLoading(true);
     let coords = { lat: null, lng: null };
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Low,
-        }).catch(() => null);
-        if (loc?.coords) {
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords) {
           coords = {
-            lat: loc.coords.latitude,
-            lng: loc.coords.longitude,
+            lat: last.coords.latitude,
+            lng: last.coords.longitude,
           };
+          setViewerCoords(coords);
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+            .then((current) => {
+              if (!current?.coords) return;
+              setViewerCoords({
+                lat: current.coords.latitude,
+                lng: current.coords.longitude,
+              });
+            })
+            .catch(() => {});
         }
       }
     } catch (e) {
@@ -136,29 +159,73 @@ export default function CategoryScreen({ navigation, route }) {
     const { data: listingsData, error: listingsError } = await api.getListings(locParams);
     if (listingsError) {
       console.error('Failed to load listings:', listingsError);
-      setAllListings([]);
+      if (!hasLoadedRef.current) setAllListings([]);
     } else {
       const raw = (listingsData?.listings || []).map(toCardItem).filter(Boolean);
-      const withDistance = raw.map((it) => attachDistanceToCard(it, coords, user?.id));
-      setAllListings(withDistance);
+      const withDistance = raw.map((it) => attachDistanceToCard(it, coords));
+      const nextFp = catalogFingerprint(withDistance);
+      if (nextFp !== listingsFpRef.current || !hasLoadedRef.current) {
+        listingsFpRef.current = nextFp;
+        setAllListings(withDistance);
+        setHomeListingsCache({ listings: withDistance, coords });
+      }
     }
 
     const { data: storesData, error: storesError } = await api.getAllShops(locParams);
     if (storesError) {
       console.error('Failed to load stores:', storesError);
-      setAllStores([]);
+      if (!hasLoadedRef.current) setAllStores([]);
     } else {
-      setAllStores(storesData?.shops || []);
+      const shops = storesData?.shops || [];
+      const nextFp = catalogFingerprint(shops);
+      if (nextFp !== storesFpRef.current || !hasLoadedRef.current) {
+        storesFpRef.current = nextFp;
+        setAllStores(shops);
+        setExploreMemory({
+          products: getExploreMemory()?.products || getHomeListingsMemory()?.listings || [],
+          featured: getExploreMemory()?.featured || [],
+          popular: getExploreMemory()?.popular || [],
+          nearby: getExploreMemory()?.nearby || [],
+          shops,
+        });
+      }
     }
 
+    hasLoadedRef.current = true;
     setLoading(false);
-  }, [user?.id]);
+  }, []);
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadData({ silent: true }));
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (hasLoadedRef.current) return;
+      const [home, explore] = await Promise.all([loadHomeListingsCache(), loadExploreCache()]);
+      if (cancelled || hasLoadedRef.current) return;
+      const listings = home?.listings?.length ? home.listings : explore?.products;
+      if (listings?.length) {
+        listingsFpRef.current = catalogFingerprint(listings);
+        setAllListings(listings);
+        hasLoadedRef.current = true;
+        setLoading(false);
+      }
+      if (explore?.shops?.length) {
+        storesFpRef.current = catalogFingerprint(explore.shops);
+        setAllStores(explore.shops);
+        hasLoadedRef.current = true;
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      loadData();
+      setOrderTick((tick) => tick + 1);
+      loadData({ silent: hasLoadedRef.current });
     }, [loadData])
   );
 
@@ -199,30 +266,21 @@ export default function CategoryScreen({ navigation, route }) {
 
   const items = useMemo(() => {
     if (!activeCategory) return [];
+    let list = [];
     if (activeTab === 'products') {
-      if (activeCategory === 'All') return allListings;
-      return allListings.filter(
-        (it) => (it.category || it.listing?.category) === activeCategory
-      );
+      const source = activeCategory === 'All'
+        ? allListings
+        : allListings.filter((it) => (it.category || it.listing?.category) === activeCategory);
+      list = source.map((it) => attachDistanceToCard(it, viewerCoords));
     } else {
-      if (activeCategory === 'All') return allStores;
-      return allStores.filter(
-        (store) => store.category === activeCategory
-      );
+      list = activeCategory === 'All'
+        ? allStores
+        : allStores.filter((store) => store.category === activeCategory);
     }
-  }, [allListings, allStores, activeCategory, activeTab]);
-
-  // Debug logging
-  useEffect(() => {
-    console.log('CategoryScreen Debug:', {
-      activeCategory,
-      activeTab,
-      allListingsLength: allListings.length,
-      allStoresLength: allStores.length,
-      itemsLength: items.length,
-      categoriesLength: categories.length
-    });
-  }, [activeCategory, activeTab, allListings.length, allStores.length, items.length, categories.length]);
+    return shuffleArray(list);
+    // orderTick reshuffles each time this screen is opened
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allListings, allStores, activeCategory, activeTab, orderTick, viewerCoords]);
 
   const activeMeta = categories.find((c) => c.label === activeCategory);
   const paneWidth = Math.max(windowWidth - SIDEBAR_WIDTH, 160);
@@ -477,37 +535,32 @@ export default function CategoryScreen({ navigation, route }) {
                             <Text numberOfLines={2} style={styles.itemTitle} sharedTransitionTag={`item.${it.id}.title`}>
                               {it.title}
                             </Text>
-                            <Text numberOfLines={1} style={styles.itemPrice} sharedTransitionTag={`item.${it.id}.price`}>
-                              {it.price}
-                            </Text>
-                            <View style={styles.itemMeta}>
+                            <View style={styles.itemPriceRow}>
+                              <Text numberOfLines={1} style={styles.itemPrice} sharedTransitionTag={`item.${it.id}.price`}>
+                                {it.price}
+                              </Text>
                               {it.distanceLabel ? (
-                                <View style={styles.itemMetaItem}>
-                                  <Ionicons
-                                    name="navigate"
-                                    size={9}
-                                    color={colors.textMuted}
-                                  />
-                                  <Text numberOfLines={1} style={styles.itemMetaText}>
-                                    {it.distanceLabel}
-                                  </Text>
-                                </View>
-                              ) : null}
-                              {it.views != null && Number(it.views) >= 0 ? (
-                                <View style={styles.itemMetaItem}>
-                                  <Ionicons
-                                    name="eye"
-                                    size={9}
-                                    color={colors.textMuted}
-                                  />
-                                  <Text numberOfLines={1} style={styles.itemMetaText}>
-                                    {it.views >= 1000
-                                      ? `${(it.views / 1000).toFixed(1)}k`
-                                      : it.views}
-                                  </Text>
-                                </View>
+                                <Text numberOfLines={1} style={styles.itemAway}>
+                                  {it.distanceLabel}
+                                </Text>
                               ) : null}
                             </View>
+                            <View style={styles.itemMetaItem}>
+                              <Ionicons name="location-outline" size={10} color={colors.textMuted} />
+                              <Text numberOfLines={1} style={styles.itemMetaText}>
+                                {(it.location || '').split(',')[0].trim() || 'Location'}
+                              </Text>
+                            </View>
+                            {it.sellerName ? (
+                              <View style={styles.itemMetaItem}>
+                                <Ionicons
+                                  name={it.sellerType === 'shop' ? 'storefront-outline' : 'person-outline'}
+                                  size={10}
+                                  color={colors.textMuted}
+                                />
+                                <Text numberOfLines={1} style={styles.itemMetaText}>{it.sellerName}</Text>
+                              </View>
+                            ) : null}
                           </View>
                             </Pressable>
                           </Animated.View>
@@ -589,6 +642,7 @@ export default function CategoryScreen({ navigation, route }) {
             </Animated.View>
           </View>
       </View>
+      {loading ? <ScreenLoader overlay label="Loading" /> : null}
     </SafeAreaView>
   );
 }
@@ -850,26 +904,34 @@ const createStyles = (colors) => ({
     color: colors.text,
     lineHeight: 15,
   },
+  itemPriceRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
   itemPrice: {
+    flexShrink: 1,
     fontSize: 13,
     fontWeight: '800',
     color: colors.price,
-    marginTop: 2,
   },
-  itemMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 2,
+  itemAway: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   itemMetaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
+    marginTop: 2,
   },
   itemMetaText: {
-    fontSize: 9,
+    flex: 1,
+    fontSize: 10,
     color: colors.textMuted,
     fontWeight: '600',
   },

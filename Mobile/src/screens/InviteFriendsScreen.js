@@ -3,16 +3,16 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Share } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import ScreenLoader from '../components/ScreenLoader';
 import {
-  ActivityIndicator,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
+import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -135,15 +135,7 @@ export default function InviteFriendsScreen({ navigation }) {
         </Text>
       </LinearGradient>
 
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-          keyboardShouldPersistTaps="handled"
-        >
+      <FormScroll contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
           <View style={styles.creditCard}>
             <Ionicons name="sparkles" size={22} color={colors.primary} />
             <View style={{ flex: 1 }}>
@@ -189,14 +181,14 @@ export default function InviteFriendsScreen({ navigation }) {
               </Pressable>
             </>
           ) : null}
-        </ScrollView>
-      )}
+        </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}
         onClose={() => setAlertConfig(null)}
         {...(alertConfig || {})}
       />
+      {loading && !shareMessage ? <ScreenLoader overlay label="Loading invite" /> : null}
     </View>
   );
 }

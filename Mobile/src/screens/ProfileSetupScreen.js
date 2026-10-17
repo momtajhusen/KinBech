@@ -6,16 +6,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import {
   ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
+import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
@@ -23,7 +21,7 @@ import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
-import { formatCityDistrict } from '../utils/locations';
+import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 
 const createStyles = (colors) => ({
   root: {
@@ -427,11 +425,18 @@ export default function ProfileSetupScreen({ navigation }) {
         nextAvatarUrl = uploaded.url;
       }
 
+      const namedPlace = coordinates?.latitude != null ? null : coordsForPlaceName(location);
+      const profileCoordinates = coordinates?.latitude != null
+        ? coordinates
+        : namedPlace
+          ? { latitude: namedPlace.lat, longitude: namedPlace.lng }
+          : undefined;
+
       const { data, error } = await api.updateProfile({
         name: name.trim(),
         location: location.trim(),
         avatarUrl: nextAvatarUrl,
-        coordinates,
+        coordinates: profileCoordinates,
         sellerTypePreference,
       });
 
@@ -457,9 +462,11 @@ export default function ProfileSetupScreen({ navigation }) {
           openingHours: openingHours.trim() || '9:00 AM - 8:00 PM',
           panNumber: panNumber.trim() || undefined,
           vatNumber: vatNumber.trim() || undefined,
-          coordinates: coordinates
+          coordinates: coordinates?.latitude != null
             ? { lat: coordinates.latitude, lng: coordinates.longitude }
-            : undefined,
+            : profileCoordinates
+              ? { lat: profileCoordinates.latitude, lng: profileCoordinates.longitude }
+              : undefined,
         });
         if (shopRes.error && !String(shopRes.error).toLowerCase().includes('already')) {
           setLoading(false);
@@ -500,16 +507,10 @@ export default function ProfileSetupScreen({ navigation }) {
         <Text style={styles.subtitle}>Buyers and sellers nearby will see these details.</Text>
       </LinearGradient>
 
-      <KeyboardAvoidingView
+      <FormScroll
         style={styles.sheet}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
       >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
           <View style={styles.avatarSection}>
             <Pressable onPress={pickImage} style={styles.avatarWrap}>
               <LinearGradient
@@ -576,7 +577,10 @@ export default function ProfileSetupScreen({ navigation }) {
                 <Text style={styles.fieldLabel}>Location</Text>
                 <TextInput
                   value={location}
-                  onChangeText={setLocation}
+                  onChangeText={(text) => {
+                    setLocation(text);
+                    setCoordinates(null);
+                  }}
                   placeholder="City or area"
                   placeholderTextColor={colors.textTertiary}
                   style={styles.input}
@@ -757,8 +761,7 @@ export default function ProfileSetupScreen({ navigation }) {
             onPress={completeProfile}
             style={styles.submit}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

@@ -5,7 +5,6 @@ import {
   TextInput,
   View,
   Pressable,
-  ScrollView,
   Switch,
   ActivityIndicator,
 } from 'react-native';
@@ -14,6 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../services/api';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { FormScroll } from '../components/FormScroll';
 
 /**
  * Resolve color references (e.g., 'colors.iconBackground') to actual color values
@@ -153,10 +153,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
+      <FormScroll contentContainerStyle={styles.content}>
         <View style={styles.illustrationWrap}>
           <View style={styles.illustrationGlow} />
           <View style={styles.shieldCircle}>
@@ -258,7 +255,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
         <Pressable onPress={() => navigation.goBack()} style={styles.cancelButton}>
           <Text style={styles.cancelLabel}>Cancel</Text>
         </Pressable>
-      </ScrollView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

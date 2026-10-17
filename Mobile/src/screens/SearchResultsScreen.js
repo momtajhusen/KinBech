@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
@@ -14,16 +14,22 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 import ProductCard from '../components/ProductCard';
+import SellerProfileCard from '../components/SellerProfileCard';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
-import { openItemDetail } from '../navigation/helpers';
+import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { toCardItem, attachDistanceToCard } from '../utils/listing';
+import { catalogFingerprint, readSearchMemory, writeSearchMemory } from '../utils/homeListingsCache';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-import { useAuth } from '../context/AuthContext';
 
 const GRID_PADDING = 16;
 const GRID_GUTTER = 12;
+const SCOPES = [
+  { key: 'all', label: 'All' },
+  { key: 'products', label: 'Products' },
+  { key: 'sellers', label: 'Sellers' },
+];
 
 const SORT_ORDER = [
   { label: 'Nearest First', key: 'distance' },
@@ -45,14 +51,16 @@ export default function SearchResultsScreen({ navigation, route }) {
   const { width: windowWidth } = useWindowDimensions();
   const cardWidth = (windowWidth - GRID_PADDING * 2 - GRID_GUTTER) / 2;
 
-  const { user } = useAuth();
   const [searchText, setSearchText] = useState(route?.params?.query || '');
   const [query, setQuery] = useState(route?.params?.query || '');
   const [favorites, setFavorites] = useState({});
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortKey, setSortKey] = useState(route?.params?.sort || 'distance');
   const [listings, setListings] = useState([]);
+  const [sellers, setSellers] = useState([]);
+  const [scope, setScope] = useState('all');
   const [loading, setLoading] = useState(true);
+  const listingsFpRef = useRef('');
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -137,23 +145,52 @@ export default function SearchResultsScreen({ navigation, route }) {
     if (append) setLoadingMore(true);
     else if (!silent) setLoading(true);
 
-    const { data, error } = await api.searchListings({
+    const listingPromise = api.searchListings({
       ...queryParams,
       page: pageToLoad,
       limit: 20,
     });
+    const sellerPromise = append
+      ? Promise.resolve(null)
+      : api.searchSellers({
+          ...queryParams,
+          nearby: queryParams.lat != null ? 'true' : undefined,
+        });
+    const [{ data, error }, sellerResult] = await Promise.all([listingPromise, sellerPromise]);
+    const radiusKm = Number(queryParams.radius);
+    const nextSellers = (sellerResult?.data?.sellers || []).filter((seller) => {
+      if (!radiusKm) return true;
+      return seller.distance != null && Number(seller.distance) <= radiusKm;
+    });
+
+    if (!append) setSellers(nextSellers);
 
     if (error) {
       console.error('Failed to load search results:', error);
-      if (!append) setListings([]);
-      setHasMore(false);
-      setTotalResults(0);
+      if (!append && !listingsFpRef.current) setListings([]);
+      if (!append && !listingsFpRef.current) {
+        setHasMore(false);
+        setTotalResults(0);
+      }
     } else {
       const next = data?.listings || [];
-      setListings((prev) => (append ? [...prev, ...next] : next));
+      const nextFp = catalogFingerprint(next);
+      if (append || nextFp !== listingsFpRef.current) {
+        listingsFpRef.current = append ? `${listingsFpRef.current}\n${nextFp}` : nextFp;
+        setListings((prev) => (append ? [...prev, ...next] : next));
+      }
       setPage(data?.page || pageToLoad);
       setHasMore(Boolean(data?.hasMore));
       setTotalResults(Number(data?.total) || next.length);
+      if (!append) {
+        writeSearchMemory(JSON.stringify(queryParams), {
+          listings: next,
+          sellers: nextSellers,
+          page: data?.page || pageToLoad,
+          hasMore: Boolean(data?.hasMore),
+          total: Number(data?.total) || next.length,
+        });
+      }
     }
 
     if (append) setLoadingMore(false);
@@ -164,23 +201,48 @@ export default function SearchResultsScreen({ navigation, route }) {
     loadResults({ silent: true, pageToLoad: 1, append: false })
   );
 
+  const searchKey = JSON.stringify(queryParams);
+
   useEffect(() => {
-    loadResults({ pageToLoad: 1, append: false });
-  }, [loadResults]);
+    const cached = readSearchMemory(searchKey);
+    if (cached?.listings?.length || cached?.sellers?.length) {
+      listingsFpRef.current = catalogFingerprint(cached.listings || []);
+      setListings(cached.listings || []);
+      setSellers(cached.sellers || []);
+      setPage(cached.page || 1);
+      setHasMore(Boolean(cached.hasMore));
+      setTotalResults(cached.total || cached.listings?.length || 0);
+      setLoading(false);
+      loadResults({ silent: true, pageToLoad: 1, append: false });
+      return;
+    }
+    listingsFpRef.current = '';
+    loadResults({ silent: false, pageToLoad: 1, append: false });
+  }, [searchKey, loadResults]);
 
   const loadMore = useCallback(() => {
-    if (loading || loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore || scope === 'sellers') return;
     loadResults({ silent: true, pageToLoad: page + 1, append: true });
-  }, [loading, loadingMore, hasMore, page, loadResults]);
+  }, [loading, loadingMore, hasMore, page, loadResults, scope]);
 
   const cards = useMemo(
-    () =>
-      (listings || [])
-        .map(toCardItem)
-        .filter(Boolean)
-        .map((it) => attachDistanceToCard(it, userCoords, user?.id)),
-    [listings, userCoords, user?.id]
+    () => (listings || []).map(toCardItem).filter(Boolean).map((it) => attachDistanceToCard(it, userCoords)),
+    [listings, userCoords],
   );
+
+  const matchedSellers = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return [];
+    return sellers.filter((seller) => {
+      const name = String(seller.name || '').toLowerCase();
+      const about = String(seller.description || '').toLowerCase();
+      return name.includes(needle) || about.includes(needle);
+    });
+  }, [sellers, query]);
+
+  const showProducts = scope !== 'sellers';
+  const showSellers = scope !== 'products';
+  const visibleCount = (showProducts ? totalResults : 0) + (showSellers ? matchedSellers.length : 0);
 
   const cycleSort = () => {
     const idx = SORT_ORDER.findIndex((s) => s.key === sortKey);
@@ -251,6 +313,27 @@ export default function SearchResultsScreen({ navigation, route }) {
         </Pressable>
       </LinearGradient>
 
+      <View style={styles.scopeRow}>
+        {SCOPES.map((item) => {
+          const active = scope === item.key;
+          const count = item.key === 'products'
+            ? totalResults
+            : item.key === 'sellers'
+              ? matchedSellers.length
+              : totalResults + matchedSellers.length;
+          return (
+            <Pressable
+              key={item.key}
+              style={[styles.scopeTab, active && styles.scopeTabActive]}
+              onPress={() => setScope(item.key)}
+            >
+              <Text style={[styles.scopeText, active && styles.scopeTextActive]}>{item.label}</Text>
+              <Text style={[styles.scopeCount, active && styles.scopeCountActive]}>{count}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
       <View style={styles.chipsWrap}>
         <ScrollView
           horizontal
@@ -280,7 +363,7 @@ export default function SearchResultsScreen({ navigation, route }) {
         <Text style={styles.resultsCount}>
           {loading
             ? 'Searching…'
-            : `${totalResults} result${totalResults === 1 ? '' : 's'} found`}
+            : `${visibleCount} result${visibleCount === 1 ? '' : 's'} found`}
         </Text>
         <Pressable style={styles.sortBtn} onPress={cycleSort}>
           <Ionicons name="swap-vertical" size={15} color={colors.text} />
@@ -313,45 +396,76 @@ export default function SearchResultsScreen({ navigation, route }) {
               <ProductCardSkeleton key={i} width={cardWidth} compact />
             ))}
           </View>
-        ) : cards.length === 0 ? (
+        ) : visibleCount === 0 ? (
           <EmptyState
             compact
             icon="search-outline"
             title="No results found"
-            body="Try another search or change filters to find what you need."
+            body="Try another word, or change distance, category, and price filters."
           />
         ) : (
-          <View style={styles.grid}>
-            {cards.map((item) => (
-              <ProductCard
-                key={item.id}
-                {...item}
-                compact
-                width={cardWidth}
-                sharedId={item.id}
-                saved={!!favorites[item.id]}
-                onToggleSave={() => toggleFavorite(item.id)}
-                onPress={() =>
-                  openItemDetail(navigation, {
-                    listingId: item.id,
-                    item: item.listing,
-                    sharedId: item.id,
-                  })
-                }
-              />
-            ))}
-          </View>
-          {hasMore ? (
-            <Pressable
-              style={styles.loadMoreBtn}
-              onPress={loadMore}
-              disabled={loadingMore}
-            >
-              <Text style={styles.loadMoreText}>
-                {loadingMore ? 'Loading…' : 'Load more'}
-              </Text>
-            </Pressable>
-          ) : null}
+          <>
+            <View style={styles.grid}>
+              {showProducts
+                ? cards.map((item) => (
+                    <ProductCard
+                      key={`product-${item.id}`}
+                      {...item}
+                      compact
+                      width={cardWidth}
+                      sharedId={item.id}
+                      saved={!!favorites[item.id]}
+                      onToggleSave={() => toggleFavorite(item.id)}
+                      onPress={() =>
+                        openItemDetail(navigation, {
+                          listingId: item.id,
+                          item: item.listing,
+                          sharedId: item.id,
+                        })
+                      }
+                    />
+                  ))
+                : null}
+            </View>
+            {showSellers && matchedSellers.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.sellerRow}
+              >
+                {matchedSellers.map((seller) => (
+                  <SellerProfileCard
+                    key={`seller-${seller.id || seller._id}`}
+                    seller={seller}
+                    sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
+                    onPress={() => {
+                      if (seller.sellerType === 'shop' || seller.shopId) {
+                        navigation.navigate(ROUTES.SHOP_PROFILE, {
+                          shopId: seller.shopId || seller._id || seller.id,
+                        });
+                        return;
+                      }
+                      navigation.navigate(ROUTES.SELLER_PROFILE, {
+                        seller,
+                        sellerId: seller._id || seller.id || seller.userId,
+                      });
+                    }}
+                  />
+                ))}
+              </ScrollView>
+            ) : null}
+            {showProducts && hasMore ? (
+              <Pressable
+                style={styles.loadMoreBtn}
+                onPress={loadMore}
+                disabled={loadingMore}
+              >
+                <Text style={styles.loadMoreText}>
+                  {loadingMore ? 'Loading…' : 'Load more'}
+                </Text>
+              </Pressable>
+            ) : null}
+          </>
         )}
       </ScrollView>
 
@@ -512,6 +626,12 @@ const createStyles = (colors) => ({
     flexWrap: 'wrap',
     gap: GRID_GUTTER,
   },
+  sellerRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
   loadMoreBtn: {
     marginTop: 16,
     marginBottom: 8,
@@ -527,5 +647,43 @@ const createStyles = (colors) => ({
     fontSize: 14,
     fontWeight: '700',
     color: colors.primary,
+  },
+  scopeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  scopeTab: {
+    flex: 1,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  scopeTabActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  scopeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  scopeTextActive: {
+    color: colors.onPrimary,
+  },
+  scopeCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  scopeCountActive: {
+    color: colors.onPrimary,
   },
 });

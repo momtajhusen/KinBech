@@ -9,15 +9,18 @@ import FilterBottomSheet from '../components/FilterBottomSheet';
 import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
+import ScreenLoader from '../components/ScreenLoader';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, toCardItem } from '../utils/listing';
+import { loadRecentlyViewed, getRecentlyViewed } from '../utils/recentlyViewed';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-import { useAuth } from '../context/AuthContext';
 import { useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
 import {
+  catalogFingerprint,
+  getHomeListingsMemory,
   isHomeListingsFresh,
   loadHomeListingsCache,
   setHomeListingsCache,
@@ -29,18 +32,21 @@ export default function HomeScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const { user } = useAuth();
   const productCategories = useCategories('product');
   const [query, setQuery] = useState('');
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [listings, setListings] = useState([]);
+  const initialCatalog = getHomeListingsMemory();
+  const [listings, setListings] = useState(() => initialCatalog?.listings || []);
   const [loading, setLoading] = useState(false);
-  const [hasContent, setHasContent] = useState(false);
-  const [orderTick, setOrderTick] = useState(0);
-  const [location, setLocation] = useState('Kathmandu');
+  const [hasContent, setHasContent] = useState(() => Boolean(initialCatalog?.listings?.length));
+  const [settled, setSettled] = useState(() => Boolean(initialCatalog?.listings?.length));
+  const [location, setLocation] = useState(initialCatalog?.location || 'Kathmandu');
   const [locating, setLocating] = useState(false);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
-  const hasLoadedRef = useRef(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [recentViews, setRecentViews] = useState(() => getRecentlyViewed());
+  const hasLoadedRef = useRef(Boolean(initialCatalog?.listings?.length));
+  const catalogFpRef = useRef(catalogFingerprint(initialCatalog?.listings || []));
   const hasAnimatedRef = useRef(false);
   const locationLabelRef = useRef('Kathmandu');
   const userCoordsRef = useRef({ lat: null, lng: null });
@@ -129,8 +135,10 @@ export default function HomeScreen({ navigation }) {
     (async () => {
       const cached = await loadHomeListingsCache();
       if (cancelled || !cached?.listings?.length || hasLoadedRef.current) return;
-      setListings(shuffleArray(cached.listings));
+      catalogFpRef.current = catalogFingerprint(cached.listings);
+      setListings(cached.listings);
       setHasContent(true);
+      setSettled(true);
       hasLoadedRef.current = true;
       if (cached.location) {
         locationLabelRef.current = cached.location;
@@ -140,7 +148,6 @@ export default function HomeScreen({ navigation }) {
         userCoordsRef.current = cached.coords;
         setUserCoords(cached.coords);
       }
-      setOrderTick((tick) => tick + 1);
       revealContent();
     })();
     fetchCurrentLocation();
@@ -173,7 +180,7 @@ export default function HomeScreen({ navigation }) {
       return;
     }
 
-    if (!silent) setLoading(true);
+    if (!silent && !hasLoadedRef.current) setLoading(true);
 
     const coords = await Promise.race([
       resolveCoordsQuick(),
@@ -191,16 +198,22 @@ export default function HomeScreen({ navigation }) {
     const { data, error } = await api.getListings(params);
     if (error) {
       console.error('Failed to load listings:', error);
-      if (!hasLoadedRef.current) setListings([]);
+      if (!hasLoadedRef.current) {
+        setListings([]);
+        setSettled(true);
+      }
     } else {
       const raw = (data?.listings || []).map(toCardItem).filter(Boolean);
-      const withDistance = shuffleArray(
-        raw.map((it) => attachDistanceToCard(it, coords, user?.id))
-      );
-      setListings(withDistance);
+      const withDistance = raw.map((it) => attachDistanceToCard(it, coords));
+      const nextFp = catalogFingerprint(withDistance);
+      const changed = nextFp !== catalogFpRef.current;
+      catalogFpRef.current = nextFp;
+      if (changed || !hasLoadedRef.current) {
+        setListings(withDistance);
+      }
       setHasContent(true);
+      setSettled(true);
       hasLoadedRef.current = true;
-      setOrderTick((tick) => tick + 1);
       setHomeListingsCache({
         listings: withDistance,
         location: locationLabelRef.current,
@@ -210,14 +223,17 @@ export default function HomeScreen({ navigation }) {
     }
 
     if (!silent) setLoading(false);
-  }, [user?.id, resolveCoordsQuick, revealContent]);
+  }, [resolveCoordsQuick, revealContent]);
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true, force: true }));
 
   useFocusEffect(
     useCallback(() => {
-      setOrderTick((tick) => tick + 1);
       loadListings({ silent: hasLoadedRef.current });
+      loadRecentlyViewed().then((items) => setRecentViews(items));
+      api.getNotifications().then(({ data }) => {
+        if (data) setUnreadCount(data.unreadCount || 0);
+      });
     }, [loadListings])
   );
 
@@ -258,27 +274,27 @@ export default function HomeScreen({ navigation }) {
 
   const resolvedTrending = useMemo(
     () =>
-      shuffleArray(listings)
+      listings
+        .map((item) => attachDistanceToCard(item, userCoords))
+        .sort(compareTrendingNear)
         .slice(0, 12)
         .map((item) => ({
           ...item,
           onToggleSave: () => toggleSave(item),
         })),
-    // orderTick reshuffles whenever Home gains focus
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listings, orderTick]
+    [listings, userCoords]
   );
 
   const resolvedRecent = useMemo(
     () =>
-      shuffleArray(listings)
+      recentViews
         .slice(0, 16)
+        .map((item) => attachDistanceToCard(item, userCoords))
         .map((item) => ({
           ...item,
           onToggleSave: () => toggleSave(item),
         })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listings, orderTick]
+    [recentViews, userCoords]
   );
 
   return (
@@ -336,6 +352,11 @@ export default function HomeScreen({ navigation }) {
               <Animated.View style={{ transform: [{ scale: headerScaleAnim }] }}>
                 <Ionicons name="notifications-outline" size={22} color={colors.onGradient} />
               </Animated.View>
+              {unreadCount > 0 ? (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                </View>
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -374,6 +395,7 @@ export default function HomeScreen({ navigation }) {
         ) : null}
 
         {listings.length === 0 ? (
+          settled ? (
           <EmptyState
             compact
             icon="storefront-outline"
@@ -382,6 +404,7 @@ export default function HomeScreen({ navigation }) {
             buttonLabel="Post your first item"
             onButtonPress={() => navigateToTab(navigation, TABS.POST)}
           />
+          ) : null
         ) : (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             <Section
@@ -426,13 +449,15 @@ export default function HomeScreen({ navigation }) {
               </Pressable>
             </Animated.View>
 
-            <Section
-              title="Recently Viewed"
-              onViewAll={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}
-              items={resolvedRecent}
-              onPressItem={openItem}
-              styles={styles}
-            />
+            {resolvedRecent.length > 0 ? (
+              <Section
+                title="Recently Viewed"
+                onViewAll={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}
+                items={resolvedRecent}
+                onPressItem={openItem}
+                styles={styles}
+              />
+            ) : null}
           </Animated.View>
         )}
       </ScrollView>
@@ -450,8 +475,23 @@ export default function HomeScreen({ navigation }) {
           });
         }}
       />
+      {listings.length === 0 && !settled ? <ScreenLoader overlay label="Loading" /> : null}
     </View>
   );
+}
+
+function compareTrendingNear(a, b) {
+  const aKm = Number.isFinite(a.distanceKm) ? a.distanceKm : null;
+  const bKm = Number.isFinite(b.distanceKm) ? b.distanceKm : null;
+  const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
+  if (aKm != null && bKm != null) {
+    if (Math.abs(aKm - bKm) > 2) return aKm - bKm;
+    if (viewDiff !== 0) return viewDiff;
+    return aKm - bKm;
+  }
+  if (aKm != null) return -1;
+  if (bKm != null) return 1;
+  return viewDiff;
 }
 
 function Section({ title, onViewAll, items, onPressItem, styles }) {

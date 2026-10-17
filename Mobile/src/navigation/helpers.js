@@ -14,6 +14,7 @@ export const ROUTES = {
   MY_LISTINGS: 'MyListings',
   LISTING_SUCCESS: 'ListingSuccess',
   CHAT: 'Chat',
+  CALL: 'Call',
   SETTINGS: 'Settings',
   WISHLIST: 'Wishlist',
   NOTIFICATIONS: 'Notifications',

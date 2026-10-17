@@ -1,6 +1,6 @@
 import { STOREFRONT_BASE_URL } from '../config/storefront';
 import { BRAND_TAGLINE } from '../content/brand';
-import { formatPrice } from './listing';
+import { formatPrice, resolveMediaUrl } from './listing';
 
 export const SHARE_CARD_WIDTH = 1080;
 export const SHARE_CARD_HEIGHT = 1920;
@@ -39,7 +39,9 @@ export function normalizeListingForShare(listing) {
     id: listing.id || listing._id,
     title: listing.title || 'Listing',
     price: listing.price,
-    imageUrl: listing.imageUrl || listing.photos?.[0] || listing.photo || '',
+    imageUrl: resolveMediaUrl(
+      listing.imageUrl || listing.photos?.[0] || listing.photo || ''
+    ),
     location: listing.location || '',
     condition: listing.condition || 'Good',
     category: listing.category || '',

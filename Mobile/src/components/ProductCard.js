@@ -115,15 +115,28 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.text,
   },
-  price: {
+  priceRow: {
     marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  price: {
+    flexShrink: 1,
     fontSize: 14,
     fontWeight: '800',
     color: colors.price,
   },
+  away: {
+    flexShrink: 0,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
   metaStack: {
-    marginTop: 8,
-    gap: 6,
+    marginTop: 6,
+    gap: 4,
   },
   metaRow: {
     flexDirection: 'row',
@@ -169,6 +182,13 @@ const createStyles = (colors) => ({
   },
 });
 
+function cityOnly(location) {
+  const text = String(location || '').trim();
+  if (!text) return 'Location';
+  const city = text.split(',')[0].trim();
+  return city || 'Location';
+}
+
 const ProductCard = memo(function ProductCard({
   title,
   price,
@@ -187,7 +207,6 @@ const ProductCard = memo(function ProductCard({
   sellerType,
   shopId,
   sellerName,
-  verified,
   verificationKind,
   verificationLabel,
   isFeatured,
@@ -200,7 +219,8 @@ const ProductCard = memo(function ProductCard({
   const saved = savedProp ?? savedLocal;
   const bgColor = resolveColor(imageColor, colors) ?? colors.iconBackground;
   const cardWidth = width ?? (compact ? peekCardWidth(screenWidth) : undefined);
-  const imageHeight = compact ? Math.round((cardWidth || peekCardWidth(screenWidth)) * 0.78) : 110;
+  const frameWidth = cardWidth || (compact ? peekCardWidth(screenWidth) : 0);
+  const imageHeight = compact && frameWidth ? Math.round(frameWidth * 0.78) : 110;
   const iconSize = compact ? 28 : 42;
 
   // Micro-animations
@@ -312,9 +332,22 @@ const ProductCard = memo(function ProductCard({
           <Text numberOfLines={1} style={styles.title} sharedTransitionTag={titleTag}>
             {title}
           </Text>
-          <Text style={styles.price} sharedTransitionTag={priceTag}>{price}</Text>
+          <View style={styles.priceRow}>
+            <Text numberOfLines={1} style={styles.price} sharedTransitionTag={priceTag}>{price}</Text>
+            {distanceLabel ? (
+              <Text style={styles.away} numberOfLines={1}>{distanceLabel}</Text>
+            ) : null}
+          </View>
 
           <View style={styles.metaStack}>
+            <View style={styles.metaRow}>
+              <View style={styles.metaIcon}>
+                <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
+              </View>
+              <Text style={styles.metaText} numberOfLines={1}>
+                {cityOnly(location)}
+              </Text>
+            </View>
             {sellerName ? (
               <View style={styles.metaRow}>
                 <View style={styles.metaIcon}>
@@ -327,50 +360,16 @@ const ProductCard = memo(function ProductCard({
                 <Text style={styles.metaText} numberOfLines={1}>{sellerName}</Text>
               </View>
             ) : null}
-            {(verificationLabel || verified) ? (
+            {verificationKind === 'business' ? (
               <View style={styles.metaRow}>
-                <View
-                  style={[
-                    styles.verifyChip,
-                    verificationKind === 'business' ? styles.verifyChipBusiness : styles.verifyChipPhone,
-                  ]}
-                >
-                  <Ionicons
-                    name={verificationKind === 'business' ? 'shield-checkmark' : 'call'}
-                    size={9}
-                    color={verificationKind === 'business' ? colors.primary : colors.success || colors.primary}
-                  />
-                  <Text
-                    style={[
-                      styles.verifyChipText,
-                      verificationKind === 'business' ? styles.verifyChipTextBusiness : null,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {verificationLabel ||
-                      (verificationKind === 'business' ? 'Business Verified' : 'Phone Verified')}
+                <View style={[styles.verifyChip, styles.verifyChipBusiness]}>
+                  <Ionicons name="shield-checkmark" size={9} color={colors.primary} />
+                  <Text style={[styles.verifyChipText, styles.verifyChipTextBusiness]} numberOfLines={1}>
+                    {verificationLabel || 'Business Verified'}
                   </Text>
                 </View>
               </View>
             ) : null}
-            {distanceLabel ? (
-              <View style={styles.metaRow}>
-                <View style={styles.metaIcon}>
-                  <Ionicons name="navigate-outline" size={11} color={colors.textSecondary} />
-                </View>
-                <Text style={styles.metaText} numberOfLines={1}>
-                  {distanceLabel} away
-                </Text>
-              </View>
-            ) : null}
-            <View style={styles.metaRow}>
-              <View style={styles.metaIcon}>
-                <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
-              </View>
-              <Text style={styles.metaText} numberOfLines={1}>
-                {location || 'Location'}
-              </Text>
-            </View>
           </View>
         </View>
       </Pressable>

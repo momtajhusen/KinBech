@@ -134,3 +134,28 @@ export function formatDistanceKm(km) {
   if (km < 50) return `${km.toFixed(1)} km away`;
   return '';
 }
+
+function placeKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Exact city match for a saved location string.
+ * "Lalitpur, Bagmati" and "Lalitpur" both resolve to Lalitpur.
+ * A loose token match is not used, because that was pinning items to the wrong city.
+ */
+export function coordsForPlaceName(name) {
+  const raw = placeKey(name);
+  if (!raw) return null;
+  const exact = NEPAL_LOCATIONS.find((loc) => placeKey(loc.name) === raw);
+  if (exact) return { lat: exact.lat, lng: exact.lng };
+
+  const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+  const matches = NEPAL_LOCATIONS.filter((loc) => {
+    const known = placeKey(loc.name).split(',')[0].trim();
+    return parts.some((part) => part === known) || raw.startsWith(`${known} `);
+  });
+  if (!matches.length) return null;
+  matches.sort((a, b) => placeKey(b.name).length - placeKey(a.name).length);
+  return { lat: matches[0].lat, lng: matches[0].lng };
+}

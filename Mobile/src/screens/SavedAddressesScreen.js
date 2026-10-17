@@ -1,11 +1,9 @@
 import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ScreenLoader from '../components/ScreenLoader';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -13,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardOverlap } from '../components/FormScroll';
 import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
@@ -144,6 +143,7 @@ export default function SavedAddressesScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const keyboardOverlap = useKeyboardOverlap();
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -281,9 +281,7 @@ export default function SavedAddressesScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
-        {loading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
-        ) : addresses.length === 0 ? (
+        {loading && addresses.length === 0 ? null : addresses.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Ionicons name="location-outline" size={42} color={colors.textTertiary} />
             <Text style={styles.emptyTitle}>No saved addresses</Text>
@@ -336,14 +334,12 @@ export default function SavedAddressesScreen({ navigation }) {
           KinBech is a meetup marketplace. Use public places for exchanges and keep exact home details private until you trust the other person.
         </Text>
       </ScrollView>
+      {loading && addresses.length === 0 ? <ScreenLoader overlay label="Loading addresses" /> : null}
 
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <View style={styles.modalBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setSheetOpen(false)} />
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 + keyboardOverlap }]}>
             <Text style={styles.sheetTitle}>{editingId ? 'Edit address' : 'New address'}</Text>
             <Text style={styles.label}>Label</Text>
             <View style={styles.chips}>
@@ -388,7 +384,7 @@ export default function SavedAddressesScreen({ navigation }) {
               onPress={save}
             />
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       <AlertModal

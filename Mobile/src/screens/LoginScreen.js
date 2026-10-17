@@ -4,10 +4,7 @@ import {
   View,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Keyboard,
-  Platform,
-  ScrollView,
   Dimensions,
   StyleSheet,
   ActivityIndicator,
@@ -16,8 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import BrandLogo from '../components/BrandLogo';
+import { FormScroll } from '../components/FormScroll';
 import { BRAND_TAGLINE } from '../content/brand';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal } from '../components/AlertModal';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { fullPhone } from '../utils/listing';
@@ -51,16 +49,10 @@ const createStyles = (colors) => ({
   logoCircle: {
     width: 112,
     height: 112,
-    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    overflow: 'hidden',
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    backgroundColor: 'transparent',
   },
   brand: {
     fontSize: 30,
@@ -133,6 +125,12 @@ const createStyles = (colors) => ({
     fontSize: 16,
     color: colors.text,
     backgroundColor: colors.inputBackground,
+  },
+  errorText: {
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.error,
   },
   hintRow: {
     flexDirection: 'row',
@@ -230,27 +228,21 @@ export default function LoginScreen({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [alertConfig, setAlertConfig] = useState(null);
 
   const sendOtp = async () => {
     const local = phone.replace(/\D/g, '');
     if (local.length !== 10) {
-      setAlertConfig(showErrorAlert({
-        title: 'Invalid Phone Number',
-        message: 'Please enter a valid 10-digit Nepal phone number.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      setError('Please enter a valid 10-digit Nepal phone number.');
       return;
     }
+    setError('');
     setLoading(true);
-    const { data, error } = await api.login({ phone: fullPhone(local) });
+    const { data, error: apiError } = await api.login({ phone: fullPhone(local) });
     setLoading(false);
-    if (error) {
-      setAlertConfig(showErrorAlert({
-        title: 'Unable to Send Code',
-        message: error,
-        onConfirm: () => setAlertConfig(null),
-      }));
+    if (apiError) {
+      setError(apiError);
       return;
     }
     if (data?.otp) {
@@ -282,15 +274,7 @@ export default function LoginScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <ThemeStatusBar variant="header" />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
+      <FormScroll contentContainerStyle={styles.scrollContent} bounces={false}>
           {/* Header with solid color */}
           <View style={styles.headerWrapper}>
             <View style={[styles.header, { backgroundColor: colors.primary }]}>
@@ -342,6 +326,9 @@ export default function LoginScreen({ navigation }) {
                 onChangeText={(value) => {
                   const digits = value.replace(/\D/g, '').slice(0, 10);
                   setPhone(digits);
+                  if (error) {
+                    setError('');
+                  }
                   if (digits.length === 10) {
                     Keyboard.dismiss();
                   }
@@ -349,6 +336,8 @@ export default function LoginScreen({ navigation }) {
                 maxLength={10}
               />
             </View>
+
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <View style={styles.hintRow}>
               <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
@@ -418,8 +407,7 @@ export default function LoginScreen({ navigation }) {
               .
             </Text>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

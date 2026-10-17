@@ -1,18 +1,12 @@
 import { lazy, Suspense } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import ScreenLoader from '../components/ScreenLoader';
 
 export function lazyScreen(importFn) {
   const LazyComponent = lazy(importFn);
 
   return function LazyScreen(props) {
     return (
-      <Suspense
-        fallback={
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" />
-          </View>
-        }
-      >
+      <Suspense fallback={<ScreenLoader label="Opening" />}>
         <LazyComponent {...props} />
       </Suspense>
     );

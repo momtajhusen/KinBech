@@ -7,7 +7,7 @@ export const LEGAL_COMPANY = {
   privacyEmail: 'privacy@kinbech.app',
   legalEmail: 'legal@kinbech.app',
   website: 'https://kinbech.app',
-  appPackage: 'com.codersalpha1.kinbech',
+  appPackage: 'com.codersalpha.kinbech',
   minAge: 16,
 };
 

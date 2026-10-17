@@ -18,6 +18,8 @@ const listingSchema = new mongoose.Schema(
     },
     title: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
+    // Alternate buyer phrases. Used only for search, never shown on listing screens.
+    searchWords: [{ type: String, trim: true }],
     price: { type: Number, required: true, min: 0 },
     currency: { type: String, default: 'NPR' },
     category: { type: String, required: true, index: true },

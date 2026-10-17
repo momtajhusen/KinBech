@@ -1,12 +1,52 @@
-import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer, useNavigation } from '@react-navigation/native';
+import { navigationRef, flushPendingCallNavigation } from './navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import BottomTabBar from '../components/BottomTabBar';
 import { lazyScreen } from './lazyScreen';
+import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
+import { getApiBaseUrl } from '../config/apiUrl';
+import {
+  consumeNativePendingCall,
+  isCallWatchRunning,
+  setCallWatchForeground,
+  startCallWatch,
+  stopCallWatch,
+} from '../services/callWatch';
+import { resolveMediaUrl } from '../utils/listing';
+import {
+  consumeInitialCallNotification,
+  dismissIncomingCallNotification,
+  isCallDeclined,
+  subscribeCallNotificationEvents,
+  subscribeIncomingCall,
+} from '../services/callNotifications';
+import {
+  dismissNativeIncomingCall,
+  ensureCallKeep,
+  hideIncomingCallBanner,
+  markCallUiMounted,
+  presentIncomingCall,
+  releaseIncomingCall,
+} from '../services/CallKeepManager';
+import { getActiveChatId, playNewMessageSound, stopCallSounds } from '../services/sounds';
+import {
+  consumeInitialAlert,
+  consumePendingChatAlert,
+  displayAlert,
+  ensureAlertChannel,
+  subscribeAlertPress,
+  subscribeNativeChatAlert,
+} from '../services/pushAlerts';
+import { requestNotificationPermissions } from '../services/notifications';
 import { useTheme } from '../theme';
 import AllCategoriesScreen from '../screens/AllCategoriesScreen';
+import CallScreen from '../screens/CallScreen';
 import ChatListScreen from '../screens/ChatListScreen';
 import ChatScreen from '../screens/ChatScreen';
 import CreateShopScreen from '../screens/CreateShopScreen';
@@ -53,13 +93,248 @@ import SavedAddressesScreen from '../screens/SavedAddressesScreen';
 import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
 import WalletScreen from '../screens/WalletScreen';
 import ContactUsScreen from '../screens/ContactUsScreen';
+import ListingSuccessScreen from '../screens/ListingSuccessScreen';
+import MapExploreScreen from '../screens/MapExploreScreen';
 
-const ListingSuccessScreen = lazyScreen(() => import('../screens/ListingSuccessScreen'));
 const ShopStorefrontQrScreen = lazyScreen(() => import('../screens/ShopStorefrontQrScreen'));
-const MapExploreScreen = lazyScreen(() => import('../screens/MapExploreScreen'));
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+function IncomingCallBridge() {
+  const navigation = useNavigation();
+  const { ready, isLoggedIn } = useAuth();
+  const ringingChatRef = useRef('');
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return undefined;
+
+    const open = (call) => {
+      if (!call?.chatId || isCallDeclined(call.chatId)) return;
+      const state = navigation.getState?.();
+      const current = state?.routes?.[state.index];
+      if (current?.name === 'Call' && String(current.params?.chatId) === String(call.chatId)) {
+        return;
+      }
+      if (call.autoAnswer) {
+        navigation.navigate('Call', {
+          chatId: call.chatId,
+          name: call.callerName,
+          image: call.callerImage || undefined,
+          incoming: true,
+          autoAnswer: true,
+          listing: call.listing,
+        });
+        return;
+      }
+      presentIncomingCall({
+        chatId: call.chatId,
+        callerName: call.callerName,
+        callerImage: call.callerImage || '',
+        listing: call.listing,
+      });
+    };
+
+    const readInitial = async () => {
+      const pending = await consumeNativePendingCall();
+      if (pending?.chatId && !isCallDeclined(pending.chatId)) {
+        const { data } = await api.getIncomingCall();
+        if (String(data?.call?.chatId) === String(pending.chatId)) open(pending);
+      }
+      const call = await consumeInitialCallNotification();
+      if (call) open(call);
+    };
+
+    const checkNow = async () => {
+      if (AppState.currentState !== 'active' && isCallWatchRunning()) return;
+      const { data, error } = await api.getIncomingCall();
+      if (error) return;
+      if (!data?.call?.chatId) {
+        if (ringingChatRef.current) {
+          const endedChatId = ringingChatRef.current;
+          ringingChatRef.current = '';
+          releaseIncomingCall(endedChatId);
+          dismissIncomingCallNotification(endedChatId);
+          dismissNativeIncomingCall(endedChatId);
+          stopCallSounds();
+        }
+        hideIncomingCallBanner();
+        return;
+      }
+      if (isCallDeclined(data.call.chatId)) return;
+      ringingChatRef.current = String(data.call.chatId);
+      open({
+        chatId: data.call.chatId,
+        callerName: data.call.callerName,
+        callerImage: resolveMediaUrl(data.call.callerImage),
+        listing: data.call.listing,
+      });
+    };
+
+    markCallUiMounted();
+    ensureCallKeep().catch(() => {});
+    setCallWatchForeground(AppState.currentState === 'active');
+    requestNotificationPermissions()
+      .catch(() => {})
+      .finally(async () => {
+        const token = await AsyncStorage.getItem('kinbech_token');
+        if (token) startCallWatch(getApiBaseUrl(), token);
+      });
+    readInitial();
+    const poll = setInterval(checkNow, 2000);
+    const unsubscribeCalls = subscribeIncomingCall(open);
+    const unsubscribeEvents = subscribeCallNotificationEvents(open);
+    const appState = AppState.addEventListener('change', (state) => {
+      const active = state === 'active';
+      setCallWatchForeground(active);
+      if (active) {
+        readInitial();
+        checkNow();
+        return;
+      }
+      if (ringingChatRef.current) stopCallSounds();
+    });
+
+    return () => {
+      clearInterval(poll);
+      unsubscribeCalls();
+      unsubscribeEvents();
+      appState.remove();
+      stopCallWatch();
+    };
+  }, [ready, isLoggedIn, navigation]);
+
+  return null;
+}
+
+function PushAlertBridge() {
+  const navigation = useNavigation();
+  const { ready, isLoggedIn } = useAuth();
+  const seenRef = useRef(new Set());
+  const primedRef = useRef(false);
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return undefined;
+
+    const openAlert = (data) => {
+      if (!data) return;
+      if (data.chatId) {
+        navigation.navigate('Chat', {
+          chatId: String(data.chatId),
+          name: data.name || undefined,
+        });
+        return;
+      }
+      navigation.navigate('Notifications');
+    };
+
+    consumeInitialAlert().then(openAlert);
+    consumePendingChatAlert().then((pending) => {
+      if (pending?.chatId) openAlert(pending);
+    });
+    const unsubscribe = subscribeAlertPress(openAlert);
+    const unsubscribeNative = subscribeNativeChatAlert(openAlert);
+    requestNotificationPermissions()
+      .then(() => ensureAlertChannel())
+      .catch(() => {});
+
+    const tick = async () => {
+      const { data, error } = await api.getNotifications();
+      if (error || !data?.notifications) return;
+      const fresh = [];
+      data.notifications.forEach((item) => {
+        const id = String(item.id);
+        if (!item.unread || seenRef.current.has(id)) return;
+        seenRef.current.add(id);
+        if (primedRef.current) fresh.push(item);
+      });
+      primedRef.current = true;
+      for (const item of fresh) {
+        const chatId = item.params?.chatId ? String(item.params.chatId) : '';
+        if (item.type === 'chat' && chatId && chatId === getActiveChatId()) continue;
+        if (item.type === 'call' && /incoming/i.test(item.title || '') && chatId) {
+          continue;
+        }
+        await displayAlert({
+          id: item.type === 'chat' && chatId ? `msg-${chatId}` : `note-${item.id}`,
+          title: item.title,
+          body: item.body,
+          image: item.params?.image || '',
+          data: {
+            type: item.type || '',
+            notificationId: String(item.id),
+            chatId,
+            name: item.params?.name || '',
+            image: item.params?.image || '',
+            listingImage: item.params?.listingImage || '',
+            listingTitle: item.params?.listingTitle || '',
+          },
+        });
+      }
+    };
+
+    tick();
+    const timer = setInterval(tick, 8000);
+    return () => {
+      clearInterval(timer);
+      unsubscribe();
+      unsubscribeNative();
+      primedRef.current = false;
+      seenRef.current = new Set();
+    };
+  }, [ready, isLoggedIn, navigation]);
+
+  return null;
+}
+
+function MessageSoundBridge() {
+  const { ready, isLoggedIn } = useAuth();
+  const seenRef = useRef(new Map());
+  const primedRef = useRef(false);
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return undefined;
+    let cancelled = false;
+
+    const tick = async () => {
+      const { data, error } = await api.getChats();
+      if (cancelled || error) return;
+      const chats = data?.chats || [];
+      let incoming = null;
+      const next = new Map();
+      chats.forEach((chat) => {
+        const id = String(chat.id);
+        const at = chat.lastMessageAt ? new Date(chat.lastMessageAt).getTime() : 0;
+        next.set(id, at);
+        const previous = seenRef.current.get(id) || 0;
+        if (
+          primedRef.current &&
+          at > previous &&
+          chat.lastMessageMine === false &&
+          chat.lastMessageKind !== 'call' &&
+          id !== getActiveChatId() &&
+          (!incoming || at > incoming.at)
+        ) {
+          incoming = { id, at };
+        }
+      });
+      seenRef.current = next;
+      primedRef.current = true;
+      if (incoming) playNewMessageSound(incoming.id, incoming.at);
+    };
+
+    tick();
+    const timer = setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      primedRef.current = false;
+      seenRef.current = new Map();
+    };
+  }, [ready, isLoggedIn]);
+
+  return null;
+}
 
 function MainTabs() {
   return (
@@ -103,7 +378,14 @@ export default function AppNavigator() {
   }, [colors, isDark]);
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navigationTheme}
+      onReady={flushPendingCallNavigation}
+    >
+      <IncomingCallBridge />
+      <PushAlertBridge />
+      <MessageSoundBridge />
       <Stack.Navigator
         initialRouteName="Splash"
         screenOptions={{
@@ -168,6 +450,7 @@ export default function AppNavigator() {
         <Stack.Screen name="MyListings" component={MyListingsScreen} />
         <Stack.Screen name="ListingSuccess" component={ListingSuccessScreen} />
         <Stack.Screen name="Chat" component={ChatScreen} />
+        <Stack.Screen name="Call" component={CallScreen} options={{ freezeOnBlur: false }} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="Wishlist" component={WishlistScreen} />
         <Stack.Screen name="Notifications" component={NotificationsScreen} />

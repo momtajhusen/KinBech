@@ -52,13 +52,14 @@ function collectMatches(listingLike, keywords) {
     sku: listingLike.sku,
     location: listingLike.location,
     category: listingLike.category,
+    searchWords: Array.isArray(listingLike.searchWords) ? listingLike.searchWords.join(' ') : '',
   };
 
   const matches = [];
   for (const rule of keywords) {
     const targets = Array.isArray(rule.matchFields) && rule.matchFields.length
       ? rule.matchFields
-      : ['title', 'description'];
+      : ['title', 'description', 'searchWords'];
     for (const field of targets) {
       if (fieldMatches(fields[field], rule.keyword, rule.matchMode || 'contains')) {
         matches.push({

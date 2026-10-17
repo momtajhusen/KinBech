@@ -127,7 +127,9 @@ async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
     },
     timeoutMs
   );
-  console.log('API Response Status:', response.status, 'via', baseUrl);
+  if (!response.ok && typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log('API Response Status:', response.status, 'via', baseUrl);
+  }
 
   let data = null;
   try {
@@ -197,12 +199,7 @@ async function request(path, options = {}) {
 
   for (let pass = 0; pass < 1; pass++) {
     const candidates = buildCandidates();
-    if (pass === 0) {
-      console.log('API Request start:', path, ' candidates:', candidates);
-    } else {
-      console.log('API retry pass:', pass + 1, '- refreshing candidates');
-      if (workingBaseUrl) resetCachedBaseUrl();
-    }
+    if (pass !== 0 && workingBaseUrl) resetCachedBaseUrl();
 
     for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
       const baseUrl = candidates[cIdx];
@@ -218,7 +215,6 @@ async function request(path, options = {}) {
             : `[P${pass + 1}] Retry(${baseUrl}) a${attempt + 1}`;
 
         try {
-          console.log(`[${label}] POST/GET ${baseUrl}${path}`);
           const result = await tryUrlOnce({
             baseUrl,
             path,
@@ -228,11 +224,7 @@ async function request(path, options = {}) {
           });
 
           if (result.ok) {
-            if (workingBaseUrl !== baseUrl) {
-              workingBaseUrl = baseUrl;
-              console.log('Cached working API base URL:', baseUrl);
-            }
-            console.log('API Success:', result.data);
+            if (workingBaseUrl !== baseUrl) workingBaseUrl = baseUrl;
             return { data: result.data, error: null };
           }
 
@@ -251,11 +243,6 @@ async function request(path, options = {}) {
           }
 
           lastNonNetworkError = result.error;
-          const isLastOfAll =
-            pass === 1 && cIdx === candidates.length - 1 && attempt === attemptsPerUrl - 1;
-          if (isLastOfAll) {
-            return { data: result.data, error: result.error };
-          }
           break;
         } catch (rawErr) {
           const msg = rawErr?.message || 'Network request failed';
@@ -275,24 +262,15 @@ async function request(path, options = {}) {
               await sleep(backoff);
               continue;
             }
-            if (pass === 0) {
-              console.log('All candidates failed in first pass; will refresh candidates and retry');
-              break;
-            }
             return {
               data: lastData,
               error:
-                'Cannot reach the server. Please check your network connection or try again in a moment.',
+                'Cannot reach the server. Check that the phone and computer are on the same Wi‑Fi, then try again.',
             };
           }
 
           lastNonNetworkError = msg;
-          const isLastOfAllNonNet =
-            pass === 1 && cIdx === candidates.length - 1 && attempt === attemptsPerUrl - 1;
-          if (isLastOfAllNonNet) {
-            return { data: lastData, error: msg };
-          }
-          break;
+          return { data: lastData, error: msg };
         }
       }
     }
@@ -314,6 +292,11 @@ export const api = {
   completeSignup: (payload) =>
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
+  saveDeviceToken: (token) =>
+    request('/auth/device-token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
   getReferral: () => request('/auth/referral'),
   applyReferral: (code) =>
     request('/auth/referral/apply', {
@@ -354,6 +337,12 @@ export const api = {
   },
   createListing: (payload) =>
     request('/listings', { method: 'POST', body: JSON.stringify(payload) }),
+  suggestListingDetails: (payload) =>
+    request('/ai/listing-suggest', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 60000,
+    }),
   updateListing: (id, payload) =>
     request(`/listings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteListing: (id) => request(`/listings/${id}`, { method: 'DELETE' }),
@@ -361,15 +350,60 @@ export const api = {
   createChat: (payload) =>
     request('/chats', { method: 'POST', body: JSON.stringify(payload) }),
   getMessages: (chatId) => request(`/chats/${chatId}/messages`),
-  sendMessage: (chatId, text) =>
+  setTyping: (chatId, active) =>
+    request(`/chats/${chatId}/typing`, {
+      method: 'POST',
+      body: JSON.stringify({ active }),
+    }),
+  sendVoiceMessage: (chatId, { audioUrl, durationSec, replyTo }) =>
     request(`/chats/${chatId}/messages`, {
       method: 'POST',
+      body: JSON.stringify({ kind: 'voice', audioUrl, durationSec, replyTo }),
+    }),
+  sendMessage: (chatId, text, extra = null) => {
+    if (extra && typeof FormData !== 'undefined' && extra instanceof FormData) {
+      return request(`/chats/${chatId}/messages`, {
+        method: 'POST',
+        body: extra,
+        timeoutMs: 60000,
+      });
+    }
+    return request(`/chats/${chatId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text, replyTo: extra?.replyTo || undefined }),
+    });
+  },
+  editMessage: (chatId, messageId, text) =>
+    request(`/chats/${chatId}/messages/${messageId}`, {
+      method: 'PATCH',
       body: JSON.stringify({ text }),
+    }),
+  deleteMessage: (chatId, messageId, scope) =>
+    request(`/chats/${chatId}/messages/${messageId}/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ scope }),
     }),
   confirmMeetup: (chatId, payload = {}) =>
     request(`/chats/${chatId}/meetup`, {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+  createCall: (chatId, { join = false } = {}) =>
+    request(`/chats/${chatId}/call`, {
+      method: 'POST',
+      body: JSON.stringify({ join }),
+    }),
+  getIncomingCall: () => request('/chats/incoming-call'),
+  getCallStatus: (chatId) => request(`/chats/${chatId}/call`),
+  markCallDelivered: (chatId) =>
+    request(`/chats/${chatId}/call/delivered`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  endCall: (chatId) =>
+    request(`/chats/${chatId}/call/end`, {
+      method: 'POST',
+      body: JSON.stringify({}),
     }),
   getWishlist: () => request('/wishlist'),
   toggleWishlist: (listingId) =>

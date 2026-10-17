@@ -3,12 +3,26 @@ const User = require('../models/User');
 
 async function getNotifications(req, res, next) {
   try {
-    const notifications = await Notification.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean();
+    const [notifications, unreadCount] = await Promise.all([
+      Notification.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50).lean(),
+      Notification.countDocuments({ user: req.user._id, unread: true }),
+    ]);
 
-    res.json({ notifications });
+    res.json({
+      unreadCount,
+      notifications: notifications.map((item) => ({
+        id: String(item._id),
+        type: item.type || 'system',
+        title: item.title,
+        body: item.body || item.message || '',
+        icon: item.icon || 'notifications-outline',
+        unread: item.unread !== false,
+        route: item.route || '',
+        params: item.params || null,
+        tab: item.tab || '',
+        createdAt: item.createdAt,
+      })),
+    });
   } catch (error) {
     next(error);
   }

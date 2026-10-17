@@ -1,4 +1,4 @@
-import { NEPAL_LOCATIONS, haversineKm } from './locations';
+import { coordsForPlaceName, haversineKm } from './locations';
 import { formatListingPrice } from './listingVariants';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
 
@@ -85,87 +85,77 @@ export function formatDistanceLabel(km) {
   return `${km.toFixed(1)} km`;
 }
 
-export function resolveListingCoords(listing) {
-  if (!listing) return null;
-  const sources = [
-    listing.coordinates,
-    listing,
-    listing.shopId,
-    listing.shopId?.coordinates,
-    listing.seller,
-    listing.seller?.coordinates,
-  ];
-  for (const source of sources) {
-    if (!source) continue;
-    const lat = Number(source.lat != null ? source.lat : source.latitude);
-    const lng = Number(source.lng != null ? source.lng : source.longitude);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return { lat, lng };
-    }
-  }
-  const locName = (listing.location || '').toString().toLowerCase().trim();
-  if (locName && NEPAL_LOCATIONS.length) {
-    let best = null;
-    let bestScore = -1;
-    for (const loc of NEPAL_LOCATIONS) {
-      const n = loc.name.toLowerCase();
-      let score = 0;
-      if (n === locName) score = 1000;
-      else if (n.startsWith(locName)) score = 500;
-      else if (locName.startsWith(n.split(',')[0])) score = 300;
-      else if (n.includes(locName)) score = 100;
-      else {
-        const tokens = locName.split(/[,\s]+/).filter(Boolean);
-        for (const t of tokens) {
-          if (t.length >= 3 && n.includes(t)) score += 20;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        best = loc;
-      }
-    }
-    if (best && bestScore > 0) {
-      return { lat: best.lat, lng: best.lng, fromFallback: true };
-    }
-  }
-  return null;
+function readPoint(source) {
+  if (!source || typeof source !== 'object') return null;
+  const c = source.coordinates && typeof source.coordinates === 'object' ? source.coordinates : source;
+  const lat = Number(c.lat != null ? c.lat : c.latitude);
+  const lng = Number(c.lng != null ? c.lng : c.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  if (lat === 0 && lng === 0) return null;
+  return { lat, lng };
 }
 
-export function attachDistanceToCard(cardItem, userCoords, currentUserId) {
+function distanceKmBetween(from, to) {
+  if (from?.lat == null || from?.lng == null || !to) return null;
+  const km = haversineKm(Number(from.lat), Number(from.lng), Number(to.lat), Number(to.lng));
+  return Number.isFinite(km) ? km : null;
+}
+
+/**
+ * Product pin is where the item was posted.
+ * Saved GPS wins, then the shop pin, then the city written on the listing.
+ * If the item has none of those, the seller's saved profile pin is used so other
+ * people's items still show a distance.
+ */
+export function resolveListingCoords(listing) {
+  if (!listing) return null;
+  const own = readPoint(listing.coordinates);
+  if (own) return own;
+  const isShop = listing.sellerType === 'shop' || listing.shopId;
+  if (isShop) {
+    const shop = readPoint(listing.shopId);
+    if (shop) return shop;
+  }
+  const named = coordsForPlaceName(listing.location);
+  if (named) return named;
+  const seller = listing.seller || null;
+  return readPoint(seller) || coordsForPlaceName(seller?.location) || coordsForPlaceName(listing.shopId?.location);
+}
+
+/** Seller pin is where the profile or shop was saved, not where one of their items is. */
+export function resolveSellerCoords(seller) {
+  if (!seller) return null;
+  return readPoint(seller.coordinates) || readPoint(seller) || coordsForPlaceName(seller.location);
+}
+
+export function attachDistanceToCard(cardItem, userCoords) {
   if (!cardItem) return cardItem;
-  
-  // Don't show distance for own items
-  if (currentUserId && cardItem.sellerId && String(cardItem.sellerId) === String(currentUserId)) {
-    return {
-      ...cardItem,
-      distanceKm: null,
-      distanceLabel: null,
-    };
-  }
-  
-  if (cardItem.distanceKm != null && Number.isFinite(Number(cardItem.distanceKm))) {
-    return {
-      ...cardItem,
-      distanceLabel: formatDistanceLabel(Number(cardItem.distanceKm)),
-    };
-  }
   const coords = resolveListingCoords(cardItem.listing || cardItem);
-  if (userCoords?.lat != null && userCoords?.lng != null && coords) {
-    const d = haversineKm(
-      Number(userCoords.lat),
-      Number(userCoords.lng),
-      Number(coords.lat),
-      Number(coords.lng)
-    );
-    return {
-      ...cardItem,
-      distanceKm: d,
-      distanceLabel: formatDistanceLabel(d),
-      coordinates: coords,
-    };
-  }
-  return cardItem;
+  const distanceKm = distanceKmBetween(userCoords, coords);
+  return {
+    ...cardItem,
+    coordinates: coords || cardItem.coordinates || null,
+    distanceKm,
+    distanceLabel: formatDistanceLabel(distanceKm),
+  };
+}
+
+export function attachDistanceToSeller(seller, userCoords) {
+  if (!seller) return seller;
+  const coords = resolveSellerCoords(seller);
+  const distanceKm = distanceKmBetween(userCoords, coords);
+  return {
+    ...seller,
+    coordinates: coords || seller.coordinates || null,
+    distance: distanceKm,
+  };
+}
+
+export function coordinatesForPlace(pin, locationText) {
+  const point = readPoint(pin);
+  if (point) return point;
+  return coordsForPlaceName(locationText);
 }
 
 export function toCardItem(listing) {
@@ -183,8 +173,8 @@ export function toCardItem(listing) {
     imageColor: 'iconBackground',
     photo: resolveMediaUrl(listing.photos?.[0] || ''),
     views: Number(listing.views) || 0,
-    distanceKm: listing.distanceKm != null ? Number(listing.distanceKm) : null,
-    distanceLabel: formatDistanceLabel(listing.distanceKm),
+    distanceKm: null,
+    distanceLabel: null,
     coordinates: coords,
     sellerId: seller.id,
     sellerType: listing.sellerType || 'individual',

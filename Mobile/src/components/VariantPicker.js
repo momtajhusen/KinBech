@@ -13,6 +13,7 @@ export default function VariantPicker({
   onChangeSelection,
   colors,
   styles,
+  trailing,
 }) {
   if (!listing?.hasVariants) return null;
 
@@ -70,7 +71,10 @@ export default function VariantPicker({
       })}
 
       <View style={styles.variantPickerSummary}>
-        <Text style={styles.variantPickerPrice}>{displayPrice}</Text>
+        <View style={styles.variantPickerPriceRow}>
+          <Text style={styles.variantPickerPrice}>{displayPrice}</Text>
+          {trailing || null}
+        </View>
         <Text style={styles.variantPickerStock}>
           {stock > 0 ? `${stock} in stock` : 'Out of stock'}
         </Text>

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useCallback, useMemo, useState, useEffect } from 'react';
-import { View } from 'react-native';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ScreenLoader from '../components/ScreenLoader';
 import { Theme, buildColors } from './colors';
 
 const ThemeContext = createContext();
@@ -80,7 +80,7 @@ export const ThemeProvider = ({ children }) => {
   );
 
   if (loading) {
-    return <View style={{ flex: 1, backgroundColor: Theme.dark.background.primary }} />;
+    return <ScreenLoader label="KinBech" />;
   }
 
   return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;

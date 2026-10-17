@@ -6,7 +6,7 @@ const { requireAuth } = require('../middleware/auth');
 const { ensureUploadDir, publicUploadPath } = require('../config/uploads');
 const { gateImageUpload } = require('../utils/imageSafetyCheck');
 
-const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'misc']);
+const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'voice', 'misc']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.m4v', '.webm']);
 const MIME_EXT = {
@@ -18,6 +18,16 @@ const MIME_EXT = {
   'video/mp4': '.mp4',
   'video/quicktime': '.mov',
   'video/webm': '.webm',
+  'audio/mp4': '.m4a',
+  'audio/m4a': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/mpeg': '.mp3',
+  'audio/mp3': '.mp3',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
+  'audio/3gpp': '.3gp',
+  'audio/amr': '.amr',
 };
 
 function makeUploader(folder) {
@@ -117,13 +127,14 @@ router.post('/upload-base64', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'File too large (max 20MB)' });
     }
 
+    const isAudio = mimeType.startsWith('audio/');
     const ext =
       MIME_EXT[mimeType] ||
-      (mimeType.startsWith('video/') ? '.mp4' : '.jpg');
+      (isAudio ? '.m4a' : mimeType.startsWith('video/') ? '.mp4' : '.jpg');
     const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
 
     // Scan images BEFORE writing to disk so NSFW never lands in /uploads
-    if (mimeType.startsWith('image/') || IMAGE_EXTS.has(ext)) {
+    if (!isAudio && (mimeType.startsWith('image/') || IMAGE_EXTS.has(ext))) {
       const gate = await gateImageUpload({
         buffer,
         mimeType,

@@ -3,6 +3,7 @@ const Shop = require('../models/Shop');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
 const { haversineDistanceKm } = require('../utils/listing');
+const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { mapShopCategory } = require('../utils/shopCategory');
 
 function readCoords(entity) {
@@ -24,9 +25,17 @@ function galleryFromListings(listings = []) {
   return photos;
 }
 
+function sellerPoint(entity, locationText) {
+  const coords = readCoords(entity);
+  if (Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) return coords;
+  return coordsForPlaceName(locationText);
+}
+
 function toShopSeller(shop, listings = [], userLat, userLng) {
-  const coords = readCoords(shop);
-  const distance = haversineDistanceKm(userLat, userLng, coords.lat, coords.lng);
+  const coords = sellerPoint(shop, shop.location || shop.address || '');
+  const distance = coords
+    ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
+    : null;
   return {
     _id: shop._id,
     id: shop._id,
@@ -54,8 +63,11 @@ function toShopSeller(shop, listings = [], userLat, userLng) {
 }
 
 function toIndividualSeller(user, listings = [], userLat, userLng) {
-  const coords = readCoords(user);
-  const distance = haversineDistanceKm(userLat, userLng, coords.lat, coords.lng);
+  const location = user.preferences?.showLocation === false ? '' : user.location || '';
+  const coords = sellerPoint(user, user.location || '');
+  const distance = coords
+    ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
+    : null;
   const primaryCategory = listings.find((l) => l.category)?.category || 'General';
   return {
     _id: user._id,
@@ -67,7 +79,7 @@ function toIndividualSeller(user, listings = [], userLat, userLng) {
     reviewsCount: 0,
     listingCount: listings.length,
     distance: distance == null ? null : Math.round(distance * 10) / 10,
-    location: user.preferences?.showLocation === false ? '' : user.location || '',
+    location,
     verified: Boolean(user.phone),
     verificationKind: user.phone ? 'phone' : null,
     verificationLabel: user.phone ? 'Phone Verified' : null,
@@ -94,11 +106,9 @@ function parseLocation(req) {
 function matchesQuery(seller, q) {
   if (!q) return true;
   const needle = String(q).toLowerCase();
-  return (
-    String(seller.name || '').toLowerCase().includes(needle) ||
-    String(seller.location || '').toLowerCase().includes(needle) ||
-    String(seller.category || '').toLowerCase().includes(needle)
-  );
+  const name = String(seller.name || '').toLowerCase();
+  const about = String(seller.description || '').toLowerCase();
+  return name.includes(needle) || about.includes(needle);
 }
 
 async function collectSellers(req) {
@@ -116,7 +126,7 @@ async function collectSellers(req) {
   if (category) listingFilter.category = category;
 
   const listings = await Listing.find(listingFilter)
-    .select('seller sellerType shopId photos category location coordinates createdAt')
+    .select('seller sellerType shopId photos category location coordinates createdAt title')
     .sort({ createdAt: -1 })
     .lean();
 
@@ -166,7 +176,7 @@ async function collectSellers(req) {
         _id: { $in: userIds },
         status: { $ne: 'suspended' },
       })
-        .select('name avatarUrl location coordinates phone')
+        .select('name avatarUrl location coordinates phone bio')
         .lean();
       for (const user of users) {
         const userListings = byUser.get(String(user._id)) || [];

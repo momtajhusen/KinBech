@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -15,10 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
 import { ROUTES } from '../navigation/helpers';
-import { api } from '../services/api';
 import { useCategories } from '../utils/categories';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const COLS = 4;
 const H_PAD = 16;
@@ -54,7 +52,6 @@ function CategoryTile({ item, colors, styles, width, onPress }) {
           <Text style={styles.cardLabel} numberOfLines={1}>
             {item.label}
           </Text>
-          <Text style={styles.cardCount}>{item.count || 0} items</Text>
         </View>
       </Pressable>
     </Animated.View>
@@ -68,20 +65,7 @@ export default function AllCategoriesScreen({ navigation }) {
   const { width: windowWidth } = useWindowDimensions();
   const [query, setQuery] = useState('');
   const catalog = useCategories('product');
-  const [counts, setCounts] = useState({});
   const intro = useRef(new Animated.Value(0)).current;
-
-  const loadCounts = useCallback(async () => {
-    const { data, error } = await api.getCategoryCounts({ status: 'active' });
-    if (error || !data?.counts) return;
-    setCounts(data.counts);
-  }, []);
-
-  const { refreshing, onRefresh } = usePullRefresh(loadCounts);
-
-  useEffect(() => {
-    loadCounts();
-  }, [loadCounts]);
 
   useEffect(() => {
     Animated.timing(intro, {
@@ -98,7 +82,6 @@ export default function AllCategoriesScreen({ navigation }) {
 
   const resolvedCategories = catalog.map((category) => ({
     ...category,
-    count: counts[category.label] || 0,
     tint: category.tint || category.color,
   }));
 
@@ -148,7 +131,6 @@ export default function AllCategoriesScreen({ navigation }) {
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
-          refreshControl={refreshControl(colors, refreshing, onRefresh)}
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.searchWrap}>
@@ -254,7 +236,7 @@ const createStyles = (colors) => ({
     borderColor: colors.border,
     borderRadius: 16,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    height: 48,
     marginBottom: 18,
     shadowColor: colors.shadow,
     shadowOpacity: 0.08,
@@ -266,6 +248,8 @@ const createStyles = (colors) => ({
     flex: 1,
     fontSize: 15,
     color: colors.text,
+    paddingVertical: 0,
+    textAlignVertical: 'center',
   },
   grid: {
     flexDirection: 'row',
@@ -306,11 +290,5 @@ const createStyles = (colors) => ({
     fontWeight: '800',
     color: colors.text,
     textAlign: 'center',
-  },
-  cardCount: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textSecondary,
   },
 });

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import ScreenLoader from '../components/ScreenLoader';
 import {
   ActivityIndicator,
   Alert,
@@ -167,16 +168,8 @@ export default function ShopStorefrontQrScreen({ navigation }) {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Preparing your shop QR…</Text>
-        </View>
-      </View>
-    );
+  if (loading && !storefront) {
+    return <ScreenLoader label="Preparing your shop QR" />;
   }
 
   if (error || !storefront) {

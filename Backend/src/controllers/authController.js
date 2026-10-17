@@ -695,12 +695,27 @@ async function updateUserStatus(req, res, next) {
   }
 }
 
+async function saveDeviceToken(req, res, next) {
+  try {
+    const token = String(req.body.token || '').trim();
+    if (!token) {
+      return res.status(400).json({ message: 'token is required' });
+    }
+    req.user.fcmToken = token;
+    await req.user.save();
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   signup,
   login,
   verifyOtp,
   me,
   updateMe,
+  saveDeviceToken,
   completeSignup,
   updatePreferences,
   getBlockedUsers,

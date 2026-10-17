@@ -2,7 +2,7 @@ import { useState, memo, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, ScrollView, Text, View, Animated, Dimensions } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
-import { resolveMediaUrl } from '../utils/listing';
+import { resolveMediaUrl, formatDistanceLabel } from '../utils/listing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(200, SCREEN_WIDTH / 2.0); // Better width for content
@@ -449,9 +449,8 @@ const SellerProfileCard = memo(function SellerProfileCard({
   const displayAvatar = resolveMediaUrl(avatar || seller?.avatarUrl || '');
   const displayCover = resolveMediaUrl(coverImage || seller?.coverImage || '');
 
-  const distanceLabel = displayDistance 
-    ? (displayDistance < 1 ? `${Math.round(displayDistance * 1000)} m` : `${displayDistance.toFixed(1)} km`)
-    : null;
+  const km = displayDistance == null || displayDistance === '' ? null : Number(displayDistance);
+  const distanceLabel = formatDistanceLabel(Number.isFinite(km) ? km : null);
 
   const galleryItems = (productGallery || [])
     .map((item) => resolveMediaUrl(item))

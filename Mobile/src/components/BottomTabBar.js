@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Animated, Pressable, Text, View } from 'react-native';
+import { Animated, BackHandler, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, useThemedStyles } from '../theme';
 
@@ -182,6 +182,21 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    const onBack = () => {
+      const parentState = navigation.getParent()?.getState?.();
+      if (parentState && parentState.index > 0) return false;
+
+      const homeIndex = state?.routes?.findIndex((route) => route.name === 'Home') ?? -1;
+      if (homeIndex >= 0 && state.index !== homeIndex) {
+        navigation.navigate('Home');
+      }
+      return true;
+    };
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => subscription.remove();
+  }, [navigation, state.index, state.routes]);
 
   if (!state?.routes) {
     return null;

@@ -1318,6 +1318,7 @@ body.explore-filter-sheet-lock {
   font-size: 15px;
   line-height: 1.7;
   color: var(--text-secondary);
+  white-space: pre-line;
 }
 
 .detail-status {

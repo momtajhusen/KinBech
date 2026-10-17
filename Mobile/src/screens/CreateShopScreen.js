@@ -6,9 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   Image,
-  Platform,
   Pressable,
   ScrollView,
   Switch,
@@ -17,11 +15,12 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll, KeyboardForm } from '../components/FormScroll';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
-import { formatCityDistrict } from '../utils/locations';
+import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 
 function FloatingField({
@@ -212,7 +211,7 @@ export default function CreateShopScreen({ navigation, route }) {
       openingHours,
       panNumber: panNumber.trim(),
       vatNumber: vatNumber.trim(),
-      coordinates: coords,
+      coordinates: (coords?.lat != null ? coords : null) || coordsForPlaceName(location),
     };
 
     const shopId = existingShop?._id || existingShop?.id;
@@ -267,18 +266,11 @@ export default function CreateShopScreen({ navigation, route }) {
         <Text style={styles.headerSubtitle}>Set up your business profile</Text>
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
-      >
-        <ScrollView
+      <KeyboardForm style={styles.flex}>
+        <FormScroll
           ref={scrollRef}
-          style={{ flex: 1 }}
+          lift={false}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
           <Text style={styles.sectionTitle}>Shop Information</Text>
 
@@ -368,7 +360,10 @@ export default function CreateShopScreen({ navigation, route }) {
           <FloatingField
             label="Location"
             value={location}
-            onChangeText={setLocation}
+            onChangeText={(text) => {
+              setLocation(text);
+              setCoords(null);
+            }}
             placeholder="City/Area"
             right={
               <Pressable onPress={getCurrentLocation} disabled={locating}>
@@ -438,7 +433,7 @@ export default function CreateShopScreen({ navigation, route }) {
               You can update these details and submit KYC documents later from Business verification.
             </Text>
           </View>
-        </ScrollView>
+        </FormScroll>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable
@@ -453,7 +448,7 @@ export default function CreateShopScreen({ navigation, route }) {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardForm>
 
       <AlertModal
         visible={!!alertConfig}

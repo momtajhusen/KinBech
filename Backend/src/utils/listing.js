@@ -1,6 +1,7 @@
 const { publicUser } = require('./token');
 const { serializeVariantsForPayload } = require('./listingVariants');
 const { isListingFeatured, featuredTrustBoost } = require('./referral');
+const { coordsForPlaceName } = require('./nepalLocations');
 
 function pickCoords(source) {
   if (!source) return null;
@@ -8,11 +9,25 @@ function pickCoords(source) {
   const lat = Number(c.lat != null ? c.lat : c.latitude);
   const lng = Number(c.lng != null ? c.lng : c.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  if (lat === 0 && lng === 0) return null;
   return { lat, lng };
 }
 
 function listingPoint(listing) {
-  return pickCoords(listing) || pickCoords(listing?.shopId) || pickCoords(listing?.seller);
+  const own = pickCoords(listing);
+  if (own) return own;
+  if (listing?.sellerType === 'shop' || listing?.shopId) {
+    const shop = pickCoords(listing.shopId);
+    if (shop) return shop;
+  }
+  const named = coordsForPlaceName(listing?.location);
+  if (named) return named;
+  const seller = pickCoords(listing?.seller);
+  if (seller) return seller;
+  const sellerCity = coordsForPlaceName(listing?.seller?.location);
+  if (sellerCity) return sellerCity;
+  return coordsForPlaceName(listing?.shopId?.location || listing?.shopId?.address);
 }
 
 /**
@@ -82,8 +97,10 @@ function listingPayload(listing, distanceKm, extras = {}) {
   const verification = resolveListingVerification(listing);
   const featured = isListingFeatured(listing);
 
+  // KinBech accounts are created via phone OTP, so the registered number is always
+  // exposed here — the item detail screen needs it to place a call.
   const seller = listing.seller && listing.seller._id
-    ? publicUser(listing.seller)
+    ? { ...publicUser(listing.seller), phone: String(listing.seller.phone || '') }
     : listing.seller;
 
   const shop = listing.shopId && listing.shopId._id
@@ -94,6 +111,8 @@ function listingPayload(listing, distanceKm, extras = {}) {
         ratingAverage: listing.shopId.ratingAverage,
         reviewCount: listing.shopId.reviewCount,
         isVerified: listing.shopId.isVerified,
+        phone: listing.shopId.phone || '',
+        location: listing.shopId.location || listing.shopId.address || '',
         coordinates: listing.shopId.coordinates,
       }
     : listing.shopId;
@@ -112,13 +131,16 @@ function listingPayload(listing, distanceKm, extras = {}) {
     condition: listing.condition,
     photos: listing.photos,
     location: listing.location,
-    coordinates: listing.coordinates?.lat != null ? listing.coordinates : point,
+    coordinates: point,
     meetupOption: listing.meetupOption,
     status: listing.status,
     moderationReason: listing.moderationReason || '',
     matchedKeywords: Array.isArray(listing.matchedKeywords) ? listing.matchedKeywords : [],
     heldAt: listing.heldAt || null,
     views: Number(listing.views) || 0,
+    searchWords: Array.isArray(listing.searchWords)
+      ? listing.searchWords.map((word) => String(word || '').trim()).filter(Boolean)
+      : [],
     seller,
     sellerType: listing.sellerType || 'individual',
     shopId: shop,

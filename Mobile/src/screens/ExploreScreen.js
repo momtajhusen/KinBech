@@ -17,10 +17,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, attachDistanceToSeller, toCardItem } from '../utils/listing';
+import ScreenLoader from '../components/ScreenLoader';
+import {
+  catalogFingerprint,
+  getExploreMemory,
+  getHomeListingsMemory,
+  loadExploreCache,
+  loadHomeListingsCache,
+  setExploreMemory,
+} from '../utils/homeListingsCache';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-import { useAuth } from '../context/AuthContext';
 import { useCategories, mergeSidebarCategories } from '../utils/categories';
 import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
@@ -543,7 +551,6 @@ export default function ExploreScreen({ navigation, route }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const { user } = useAuth();
   const initialCategory = route?.params?.category;
   const productCategories = useCategories('product');
   const shopCategories = useCategories('shop');
@@ -553,15 +560,19 @@ export default function ExploreScreen({ navigation, route }) {
   const [searchTab, setSearchTab] = useState('all');
   const [activeTab, setActiveTab] = useState('products');
   const [activeCategory, setActiveCategory] = useState(null);
-  const [itemsLoading, setItemsLoading] = useState(true);
+  const seededExplore = getExploreMemory();
+  const seededProducts = seededExplore?.products?.length
+    ? seededExplore.products
+    : (getHomeListingsMemory()?.listings || []);
+  const [itemsLoading, setItemsLoading] = useState(seededProducts.length === 0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
   const [pinnedStores, setPinnedStores] = useState([]);
-  const [featuredSellers, setFeaturedSellers] = useState([]);
-  const [popularSellers, setPopularSellers] = useState([]);
-  const [nearbySellers, setNearbySellers] = useState([]);
+  const [featuredSellers, setFeaturedSellers] = useState(seededExplore?.featured || []);
+  const [popularSellers, setPopularSellers] = useState(seededExplore?.popular || []);
+  const [nearbySellers, setNearbySellers] = useState(seededExplore?.nearby || []);
   const [searchResults, setSearchResults] = useState([]);
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState(seededProducts);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [selectedFilters, setSelectedFilters] = useState({
     verified: false,
@@ -569,9 +580,14 @@ export default function ExploreScreen({ navigation, route }) {
     topRated: false,
   });
   const [sortBy, setSortBy] = useState('newest');
-  const [orderTick, setOrderTick] = useState(0);
 
-  const hasLoadedRef = useRef(false);
+  const hasLoadedRef = useRef(seededProducts.length > 0);
+  const productsFpRef = useRef(catalogFingerprint(seededProducts));
+  const sellersFpRef = useRef(catalogFingerprint([
+    ...(seededExplore?.featured || []),
+    ...(seededExplore?.popular || []),
+    ...(seededExplore?.nearby || []),
+  ]));
   const paneAnim = useRef(new Animated.Value(1)).current;
   const sidebarItemAnims = useRef(new Map()).current;
 
@@ -596,7 +612,6 @@ export default function ExploreScreen({ navigation, route }) {
   const handleCategoryChange = useCallback((label) => {
     setActiveCategory((curr) => {
       if (curr === label) return curr;
-      setOrderTick((tick) => tick + 1);
       return label;
     });
   }, []);
@@ -609,6 +624,12 @@ export default function ExploreScreen({ navigation, route }) {
       if (last?.coords) {
         const coords = { lat: last.coords.latitude, lng: last.coords.longitude };
         setUserCoords(coords);
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+          .then((current) => {
+            if (!current?.coords) return;
+            setUserCoords({ lat: current.coords.latitude, lng: current.coords.longitude });
+          })
+          .catch(() => {});
         return coords;
       }
       return null;
@@ -618,27 +639,41 @@ export default function ExploreScreen({ navigation, route }) {
   }, []);
 
   const applyExplorePayload = useCallback((featuredRes, popularRes, nearbyRes, productsRes, coords) => {
-    setFeaturedSellers(featuredRes.data?.sellers || []);
-    setPopularSellers(popularRes.data?.sellers || []);
-    setNearbySellers(nearbyRes.data?.sellers || []);
-
-    if (!productsRes.error && productsRes.data?.listings) {
-      setProducts(
-        shuffleArray(
-          productsRes.data.listings
-            .map(toCardItem)
-            .filter(Boolean)
-            .map((it) => attachDistanceToCard(it, coords, user?.id))
-        )
-      );
-      setOrderTick((tick) => tick + 1);
-    } else {
-      setProducts([]);
+    const nextProducts = !productsRes.error && productsRes.data?.listings
+      ? productsRes.data.listings
+        .map(toCardItem)
+        .filter(Boolean)
+        .map((it) => attachDistanceToCard(it, coords))
+      : [];
+    const nextProductFp = catalogFingerprint(nextProducts);
+    if (nextProductFp !== productsFpRef.current || !hasLoadedRef.current) {
+      productsFpRef.current = nextProductFp;
+      setProducts(nextProducts);
     }
-  }, [user?.id]);
+
+    const nextSellers = [
+      ...(featuredRes.data?.sellers || []),
+      ...(popularRes.data?.sellers || []),
+      ...(nearbyRes.data?.sellers || []),
+    ];
+    const nextSellerFp = catalogFingerprint(nextSellers);
+    if (nextSellerFp !== sellersFpRef.current || !hasLoadedRef.current) {
+      sellersFpRef.current = nextSellerFp;
+      setFeaturedSellers(featuredRes.data?.sellers || []);
+      setPopularSellers(popularRes.data?.sellers || []);
+      setNearbySellers(nearbyRes.data?.sellers || []);
+    }
+
+    setExploreMemory({
+      products: nextProducts.length ? nextProducts : productsFpRef.current ? nextProducts : [],
+      featured: featuredRes.data?.sellers || [],
+      popular: popularRes.data?.sellers || [],
+      nearby: nearbyRes.data?.sellers || [],
+    });
+  }, []);
 
   const fetchSellers = useCallback(async ({ silent = false } = {}) => {
-    if (!silent) setItemsLoading(true);
+    if (!silent && !hasLoadedRef.current) setItemsLoading(true);
     try {
       const coords = await Promise.race([
         fetchQuickLocation(),
@@ -661,13 +696,46 @@ export default function ExploreScreen({ navigation, route }) {
       hasLoadedRef.current = true;
     } catch (error) {
       console.error('Failed to load explore data:', error);
-      setFeaturedSellers([]);
-      setPopularSellers([]);
-      setNearbySellers([]);
+      if (!hasLoadedRef.current) {
+        setFeaturedSellers([]);
+        setPopularSellers([]);
+        setNearbySellers([]);
+      }
     } finally {
       setItemsLoading(false);
     }
   }, [fetchQuickLocation, applyExplorePayload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (hasLoadedRef.current) return;
+      const [explore, home] = await Promise.all([loadExploreCache(), loadHomeListingsCache()]);
+      if (cancelled || hasLoadedRef.current) return;
+      const productsFromDisk = explore?.products?.length ? explore.products : home?.listings;
+      if (productsFromDisk?.length) {
+        productsFpRef.current = catalogFingerprint(productsFromDisk);
+        setProducts(productsFromDisk);
+        hasLoadedRef.current = true;
+        setItemsLoading(false);
+      }
+      if (explore?.featured?.length || explore?.popular?.length || explore?.nearby?.length) {
+        sellersFpRef.current = catalogFingerprint([
+          ...(explore.featured || []),
+          ...(explore.popular || []),
+          ...(explore.nearby || []),
+        ]);
+        setFeaturedSellers(explore.featured || []);
+        setPopularSellers(explore.popular || []);
+        setNearbySellers(explore.nearby || []);
+        hasLoadedRef.current = true;
+        setItemsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     pinnedStoresUtils.getPinnedStores().then((pinned) => {
@@ -692,7 +760,6 @@ export default function ExploreScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      setOrderTick((tick) => tick + 1);
       fetchSellers({ silent: hasLoadedRef.current });
     }, [fetchSellers])
   );
@@ -716,7 +783,7 @@ export default function ExploreScreen({ navigation, route }) {
       const incoming = data.listings
         .map(toCardItem)
         .filter(Boolean)
-        .map((it) => attachDistanceToCard(it, userCoords, user?.id));
+        .map((it) => attachDistanceToCard(it, userCoords));
 
       setProducts((prev) => {
         const byId = new Map(prev.map((item) => [String(item.id), item]));
@@ -725,13 +792,12 @@ export default function ExploreScreen({ navigation, route }) {
         }
         return [...byId.values()];
       });
-      setOrderTick((tick) => tick + 1);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, activeTab, userCoords.lat, userCoords.lng, user?.id]);
+  }, [activeCategory, activeTab, userCoords.lat, userCoords.lng]);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
@@ -888,7 +954,7 @@ export default function ExploreScreen({ navigation, route }) {
   }, [products, featuredSellers, popularSellers, nearbySellers, activeTab, productCategories, shopCategories]);
 
   const filteredProducts = useMemo(() => {
-    let filtered = [...products];
+    let filtered = products.map((item) => attachDistanceToCard(item, userCoords));
 
     if (activeCategory && activeCategory !== 'All') {
       const target = String(activeCategory).trim().toLowerCase();
@@ -906,15 +972,10 @@ export default function ExploreScreen({ navigation, route }) {
       filtered.sort((a, b) => (Number(a.listing?.price) || 0) - (Number(b.listing?.price) || 0));
     } else if (sortBy === 'priceHigh') {
       filtered.sort((a, b) => (Number(b.listing?.price) || 0) - (Number(a.listing?.price) || 0));
-    } else {
-      // Default / newest: random order within the selected category
-      filtered = shuffleArray(filtered);
     }
 
     return filtered;
-    // orderTick reshuffles on focus / category change while keeping category filter accurate
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, activeCategory, selectedFilters, sortBy, orderTick]);
+  }, [products, activeCategory, selectedFilters, sortBy, userCoords]);
 
   const filteredSellers = useMemo(() => {
     let sellers = [...featuredSellers, ...popularSellers, ...nearbySellers];
@@ -936,6 +997,8 @@ export default function ExploreScreen({ navigation, route }) {
       sellers = sellers.filter((seller) => seller.verified);
     }
 
+    sellers = sellers.map((seller) => attachDistanceToSeller(seller, userCoords));
+
     if (sortBy === 'nearby' || selectedFilters.nearby) {
       sellers.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
     } else if (sortBy === 'topRated' || selectedFilters.topRated) {
@@ -943,7 +1006,20 @@ export default function ExploreScreen({ navigation, route }) {
     }
 
     return sellers;
-  }, [featuredSellers, popularSellers, nearbySellers, activeCategory, selectedFilters, sortBy]);
+  }, [featuredSellers, popularSellers, nearbySellers, activeCategory, selectedFilters, sortBy, userCoords]);
+
+  const orderedFeatured = useMemo(
+    () => featuredSellers.map((seller) => attachDistanceToSeller(seller, userCoords)),
+    [featuredSellers, userCoords]
+  );
+  const orderedPopular = useMemo(
+    () => popularSellers.map((seller) => attachDistanceToSeller(seller, userCoords)),
+    [popularSellers, userCoords]
+  );
+  const orderedNearby = useMemo(
+    () => nearbySellers.map((seller) => attachDistanceToSeller(seller, userCoords)),
+    [nearbySellers, userCoords]
+  );
 
   // Set initial category when categories change or from navigation params
   useEffect(() => {
@@ -1081,6 +1157,7 @@ export default function ExploreScreen({ navigation, route }) {
               ) : (
                 <View style={styles.searchResults}>
                   {searchResults.map((result) => {
+                    const placed = attachDistanceToSeller(result, userCoords);
                     if (searchTab === 'products' || result.resultType === 'product') {
                       return (
                         <Pressable
@@ -1096,7 +1173,7 @@ export default function ExploreScreen({ navigation, route }) {
                     return (
                       <SellerProfileCard
                         key={result._id || result.id}
-                        seller={result}
+                        seller={placed}
                         sellerType={result.sellerType || (result.shopId ? 'shop' : 'individual')}
                         onPress={() => handleSellerPress(result)}
                         onPinToggle={() => handlePinToggle(result._id || result.id)}
@@ -1297,14 +1374,14 @@ export default function ExploreScreen({ navigation, route }) {
                         <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
                       ))}
                     </ScrollView>
-                  ) : featuredSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+                  ) : orderedFeatured.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.featuredScroll}
                       scrollEventThrottle={16}
                     >
-                      {featuredSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).map(seller => (
+                      {orderedFeatured.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).map(seller => (
                         <SellerProfileCard
                           key={seller._id}
                           seller={seller}
@@ -1347,14 +1424,14 @@ export default function ExploreScreen({ navigation, route }) {
                         <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
                       ))}
                     </ScrollView>
-                  ) : popularSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+                  ) : orderedPopular.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.popularScroll}
                       scrollEventThrottle={16}
                     >
-                      {popularSellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).map(seller => (
+                      {orderedPopular.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).map(seller => (
                         <SellerProfileCard
                           key={seller._id}
                           seller={seller}
@@ -1397,14 +1474,14 @@ export default function ExploreScreen({ navigation, route }) {
                     <SellerProfileCardSkeleton key={i} width={CARD_WIDTH} />
                   ))}
                 </ScrollView>
-              ) : nearbySellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
+              ) : orderedNearby.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).length > 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.nearbyList}
                   scrollEventThrottle={16}
                 >
-                  {nearbySellers.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).slice(0, 5).map(seller => (
+                  {orderedNearby.filter(seller => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory).slice(0, 5).map(seller => (
                     <SellerProfileCard
                       key={seller._id}
                       seller={seller}
@@ -1432,6 +1509,7 @@ export default function ExploreScreen({ navigation, route }) {
             </View>
           )}
       </View>
+      {itemsLoading && products.length === 0 ? <ScreenLoader overlay label="Loading" /> : null}
       </View>
 
   {/* Filter Modal */}

@@ -5,10 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -17,12 +14,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert, showImageSafetyAlert } from '../components/AlertModal';
+import { FormScroll } from '../components/FormScroll';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { formatCityDistrict } from '../utils/locations';
+import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 
 const createStyles = (colors) => ({
   root: { flex: 1, backgroundColor: colors.surface },
@@ -312,6 +310,9 @@ export default function EditProfileScreen({ navigation }) {
       };
       if (coordinates && coordinates.latitude != null) {
         payload.coordinates = coordinates;
+      } else {
+        const named = coordsForPlaceName(location);
+        if (named) payload.coordinates = { latitude: named.lat, longitude: named.lng };
       }
       const { data, error } = await api.updateMe(payload);
       setLoading(false);
@@ -366,16 +367,9 @@ export default function EditProfileScreen({ navigation }) {
         <View style={{ width: 24 }} />
       </LinearGradient>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      <FormScroll
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
       >
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
           <View style={styles.card}>
             <View style={styles.avatarSection}>
               <Pressable onPress={pickImage} style={styles.avatarContainer}>
@@ -434,7 +428,10 @@ export default function EditProfileScreen({ navigation }) {
               <Text style={styles.label}>Location</Text>
               <TextInput
                 value={location}
-                onChangeText={setLocation}
+                onChangeText={(text) => {
+                  setLocation(text);
+                  setCoordinates(null);
+                }}
                 placeholder="e.g. Kathmandu, Nepal"
                 placeholderTextColor={colors.textTertiary}
                 style={styles.input}
@@ -467,8 +464,7 @@ export default function EditProfileScreen({ navigation }) {
             disabled={loading}
             onPress={handleSave}
           />
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

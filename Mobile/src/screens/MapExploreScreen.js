@@ -1,20 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Platform,
   Pressable,
   ScrollView,
   Text,
   View,
 } from 'react-native';
-import MapView, { Circle, Marker, PROVIDER_DEFAULT } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { openItemDetail, ROUTES } from '../navigation/helpers';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatPrice } from '../utils/listing';
+import ScreenLoader from '../components/ScreenLoader';
 import { NEPAL_LOCATIONS } from '../utils/locations';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
@@ -38,7 +37,7 @@ export default function MapExploreScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const mapRef = useRef(null);
+  const [mapSize, setMapSize] = useState({ width: 1, height: 1 });
 
   const [center, setCenter] = useState(DEFAULT_CENTER);
   const [radiusKm, setRadiusKm] = useState(5);
@@ -50,15 +49,13 @@ export default function MapExploreScreen({ navigation }) {
   const [selected, setSelected] = useState(null);
   const [locationDenied, setLocationDenied] = useState(false);
 
-  const region = useMemo(
-    () => ({
-      latitude: center.latitude,
-      longitude: center.longitude,
-      latitudeDelta: radiusKm / 111 + 0.01,
-      longitudeDelta: radiusKm / 80 + 0.01,
-    }),
-    [center, radiusKm],
-  );
+  const placeOnMap = useCallback((lat, lng) => {
+    const latRadius = Math.max(radiusKm, 0.2) / 111;
+    const lngRadius = latRadius / Math.max(0.2, Math.cos((center.latitude * Math.PI) / 180));
+    const x = ((Number(lng) - center.longitude) / (lngRadius * 2) + 0.5) * mapSize.width;
+    const y = ((center.latitude - Number(lat)) / (latRadius * 2) + 0.5) * mapSize.height;
+    return { x, y };
+  }, [center.latitude, center.longitude, mapSize.height, mapSize.width, radiusKm]);
 
   const loadMapData = useCallback(async (coords, nextRadius = radiusKm, nextType = mapType) => {
     setLoading(true);
@@ -124,28 +121,11 @@ export default function MapExploreScreen({ navigation }) {
     const coords = await resolveUserLocation();
     setCenter(coords);
     setSelected(null);
-    mapRef.current?.animateToRegion(
-      {
-        ...coords,
-        latitudeDelta: radiusKm / 111 + 0.01,
-        longitudeDelta: radiusKm / 80 + 0.01,
-      },
-      450,
-    );
     await loadMapData(coords, radiusKm, mapType);
   };
 
   const onMarkerPress = (marker) => {
     setSelected(marker);
-    mapRef.current?.animateToRegion(
-      {
-        latitude: marker.lat,
-        longitude: marker.lng,
-        latitudeDelta: radiusKm / 111 + 0.01,
-        longitudeDelta: radiusKm / 80 + 0.01,
-      },
-      300,
-    );
   };
 
   const openSelected = () => {
@@ -164,47 +144,67 @@ export default function MapExploreScreen({ navigation }) {
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
 
-      <MapView
-        ref={mapRef}
+      <View
         style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        initialRegion={region}
-        region={region}
-        showsUserLocation
-        showsMyLocationButton={false}
-        onPress={() => setSelected(null)}
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          if (width > 0 && height > 0) setMapSize({ width, height });
+        }}
       >
-        <Circle
-          center={center}
-          radius={radiusKm * 1000}
-          fillColor="rgba(4, 120, 87, 0.10)"
-          strokeColor="rgba(4, 120, 87, 0.55)"
-          strokeWidth={2}
+        {Array.from({ length: 6 }).map((_, index) => (
+          <View
+            key={`col-${index}`}
+            style={[styles.gridCol, { left: (mapSize.width / 5) * index }]}
+          />
+        ))}
+        {Array.from({ length: 8 }).map((_, index) => (
+          <View
+            key={`row-${index}`}
+            style={[styles.gridRow, { top: (mapSize.height / 7) * index }]}
+          />
+        ))}
+        <View
+          style={[
+            styles.mapRing,
+            {
+              width: Math.min(mapSize.width, mapSize.height) * 0.72,
+              height: Math.min(mapSize.width, mapSize.height) * 0.72,
+              borderRadius: Math.min(mapSize.width, mapSize.height) * 0.36,
+              left: (mapSize.width - Math.min(mapSize.width, mapSize.height) * 0.72) / 2,
+              top: (mapSize.height - Math.min(mapSize.width, mapSize.height) * 0.72) / 2,
+            },
+          ]}
         />
-
+        <View style={styles.youPin}>
+          <View style={styles.youDot} />
+        </View>
         {markers.map((marker) => {
+          const point = placeOnMap(marker.lat, marker.lng);
+          if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+          if (point.x < 8 || point.y < 8 || point.x > mapSize.width - 8 || point.y > mapSize.height - 8) {
+            return null;
+          }
           const tint = markerColor(marker.markerType, colors);
           const active = selected?.id === marker.id;
           return (
-            <Marker
+            <Pressable
               key={marker.id}
-              coordinate={{ latitude: marker.lat, longitude: marker.lng }}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                onMarkerPress(marker);
-              }}
+              onPress={() => onMarkerPress(marker)}
+              style={[
+                styles.pin,
+                { backgroundColor: tint, left: point.x - 17, top: point.y - 17 },
+                active && styles.pinActive,
+              ]}
             >
-              <View style={[styles.pin, { backgroundColor: tint }, active && styles.pinActive]}>
-                <Ionicons
-                  name={marker.markerType === 'shop' ? 'storefront' : 'cube'}
-                  size={14}
-                  color="#fff"
-                />
-              </View>
-            </Marker>
+              <Ionicons
+                name={marker.markerType === 'shop' ? 'storefront' : 'cube'}
+                size={14}
+                color="#fff"
+              />
+            </Pressable>
           );
         })}
-      </MapView>
+      </View>
 
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
         <Pressable style={styles.roundBtn} onPress={() => navigation.goBack()} hitSlop={10}>
@@ -333,6 +333,7 @@ export default function MapExploreScreen({ navigation }) {
           </Pressable>
         </View>
       ) : null}
+      {loading && markers.length === 0 ? <ScreenLoader overlay label="Loading map" /> : null}
     </View>
   );
 }
@@ -346,6 +347,53 @@ const createStyles = (colors) => ({
     flex: 1,
     width: '100%',
     height: '100%',
+    backgroundColor: colors.background,
+    overflow: 'hidden',
+  },
+  gridCol: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: colors.border,
+    opacity: 0.55,
+  },
+  gridRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: colors.border,
+    opacity: 0.55,
+  },
+  mapRing: {
+    position: 'absolute',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.glow,
+  },
+  youPin: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: 22,
+    height: 22,
+    marginLeft: -11,
+    marginTop: -11,
+    borderRadius: 11,
+    backgroundColor: colors.glow,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  youDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primaryBright,
+    borderWidth: 2,
+    borderColor: colors.surface,
   },
   topBar: {
     position: 'absolute',
@@ -451,13 +499,14 @@ const createStyles = (colors) => ({
     color: colors.onPrimary,
   },
   pin: {
+    position: 'absolute',
     width: 34,
     height: 34,
     borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: colors.background,
     shadowColor: '#000',
     shadowOpacity: 0.18,
     shadowRadius: 4,
@@ -466,7 +515,7 @@ const createStyles = (colors) => ({
   },
   pinActive: {
     transform: [{ scale: 1.12 }],
-    borderColor: '#FDE68A',
+    borderColor: colors.warning,
   },
   banner: {
     position: 'absolute',

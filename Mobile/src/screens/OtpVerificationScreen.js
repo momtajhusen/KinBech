@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
+import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
@@ -38,9 +39,12 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
+  },
+  sheetInner: {
     alignItems: 'center',
     paddingHorizontal: 24,
     paddingTop: 40,
+    paddingBottom: 28,
   },
   iconWrap: {
     width: 180,
@@ -282,7 +286,7 @@ export default function OtpVerificationScreen({ navigation, route }) {
         </Pressable>
       </LinearGradient>
 
-      <View style={styles.sheet}>
+      <FormScroll style={styles.sheet} contentContainerStyle={styles.sheetInner}>
         <View style={styles.iconWrap}>
           <View style={styles.ringOuter} />
           <View style={styles.ringInner} />
@@ -381,7 +385,7 @@ export default function OtpVerificationScreen({ navigation, route }) {
           </View>
           <Text style={styles.secureText}>Your information is secure with us</Text>
         </View>
-      </View>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

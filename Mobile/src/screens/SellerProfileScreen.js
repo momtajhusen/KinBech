@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
+import ScreenLoader from '../components/ScreenLoader';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -883,10 +884,8 @@ export default function SellerProfileScreen({ navigation, route }) {
               </View>
             ) : null}
 
-            {loading ? (
-              <View style={styles.emptyWrap}>
-                <EmptyState compact icon="hourglass-outline" title="Loading…" body="" />
-              </View>
+            {loading && allListings.length === 0 ? (
+              <ScreenLoader compact label="Loading items" />
             ) : filteredListings.length === 0 ? (
               <View style={styles.emptyWrap}>
                 <EmptyState
@@ -1210,6 +1209,7 @@ export default function SellerProfileScreen({ navigation, route }) {
           </View>
         </View>
       </Modal>
+      {loading && !seller ? <ScreenLoader overlay label="Loading seller" /> : null}
     </View>
   );
 }

@@ -5,10 +5,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -16,6 +13,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll, KeyboardForm } from '../components/FormScroll';
+import ScreenLoader from '../components/ScreenLoader';
+import SearchWordsField from '../components/SearchWordsField';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
@@ -25,7 +25,6 @@ import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/
 import VariantEditor from '../components/VariantEditor';
 import { EXTRA_PHOTO_SLOTS, MAX_LISTING_PHOTOS, pickListingPhoto } from '../utils/listingPhotos';
 import { normalizeVariantsForApi } from '../utils/listingVariants';
-
 function resolveColor(colorRef, colors) {
   if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
     const colorKey = colorRef.replace('colors.', '');
@@ -148,6 +147,7 @@ export default function ShopPostListingScreen({ navigation }) {
   const [loadingShop, setLoadingShop] = useState(true);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [searchWords, setSearchWords] = useState([]);
   const [category, setCategory] = useState('Mobiles');
   const [condition, setCondition] = useState('New');
   const [price, setPrice] = useState('');
@@ -189,6 +189,10 @@ export default function ShopPostListingScreen({ navigation }) {
     }
     if (step > 1) {
       setStep((value) => value - 1);
+      return;
+    }
+    if (navigation.getState?.()?.type === 'tab') {
+      navigation.navigate('Home');
       return;
     }
     if (navigation.canGoBack()) navigation.goBack();
@@ -328,6 +332,7 @@ export default function ShopPostListingScreen({ navigation }) {
     const payload = {
       title: title.trim(),
       description: description.trim(),
+      searchWords,
       price,
       category,
       condition,
@@ -364,7 +369,7 @@ export default function ShopPostListingScreen({ navigation }) {
       );
       return;
     }
-    navigation.navigate(ROUTES.LISTING_SUCCESS, {
+    navigation.replace(ROUTES.LISTING_SUCCESS, {
       listing: {
         id: data.listing.id,
         title: data.listing.title,
@@ -406,15 +411,7 @@ export default function ShopPostListingScreen({ navigation }) {
   if (!colors) return null;
 
   if (loadingShop) {
-    return (
-      <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading shop…</Text>
-        </View>
-      </View>
-    );
+    return <ScreenLoader label="Loading shop" />;
   }
 
   return (
@@ -422,18 +419,11 @@ export default function ShopPostListingScreen({ navigation }) {
       <ThemeStatusBar variant="header" />
       <ProgressHeader step={step} insets={insets} onBack={handleBack} colors={colors} styles={styles} />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <ScrollView
+      <KeyboardForm style={styles.flex}>
+        <FormScroll
           ref={scrollRef}
-          style={{ flex: 1 }}
+          lift={false}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
         >
           {step === 1 && (
             <>
@@ -553,6 +543,8 @@ export default function ShopPostListingScreen({ navigation }) {
                 styles={styles}
                 inputRef={descRef}
               />
+
+              <SearchWordsField words={searchWords} onChange={setSearchWords} />
 
               <Text style={styles.fieldLabel}>Category</Text>
               <View style={styles.chipWrap}>
@@ -760,7 +752,7 @@ export default function ShopPostListingScreen({ navigation }) {
               </View>
             </>
           )}
-        </ScrollView>
+        </FormScroll>
 
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable style={styles.continueBtn} onPress={goNext} disabled={submitting}>
@@ -773,7 +765,7 @@ export default function ShopPostListingScreen({ navigation }) {
             )}
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardForm>
 
       <AlertModal
         visible={!!alertConfig}
@@ -975,6 +967,7 @@ const createStyles = (colors) => ({
   mainPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   mainBadge: {
     position: 'absolute',
@@ -1046,6 +1039,7 @@ const createStyles = (colors) => ({
   extraPhotoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
   removeBadgeSmall: {
     position: 'absolute',
@@ -1203,6 +1197,7 @@ const createStyles = (colors) => ({
   previewImage: {
     width: '100%',
     height: 180,
+    resizeMode: 'cover',
     borderRadius: 12,
     marginBottom: 12,
   },

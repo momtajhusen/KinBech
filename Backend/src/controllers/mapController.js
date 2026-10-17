@@ -9,6 +9,7 @@ const {
   boundingDelta,
   ALLOWED_RADIUS_KM,
 } = require('../utils/geo');
+const { coordsForPlaceName } = require('../utils/nepalLocations');
 
 const SELLER_POPULATE = 'name avatarUrl location coordinates';
 const SHOP_POPULATE = 'name logo ratingAverage reviewCount isVerified location coordinates category';
@@ -44,7 +45,7 @@ function mapListingMarker(doc, userLat, userLng) {
 }
 
 function mapShopMarker(shop, listingCount, userLat, userLng) {
-  const point = readCoords(shop);
+  const point = readCoords(shop) || coordsForPlaceName(shop.location || shop.address);
   if (!point) return null;
 
   const distanceKm = distanceFrom(userLat, userLng, point);

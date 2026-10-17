@@ -3,10 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
@@ -14,6 +11,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
+import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
@@ -176,14 +174,10 @@ export default function ContactUsScreen({ navigation }) {
         <View style={{ width: 24 }} />
       </LinearGradient>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        >
+      <FormScroll
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
           <View style={styles.card}>
             <View style={styles.contactRow}>
               <View style={styles.iconCircle}>
@@ -270,8 +264,7 @@ export default function ContactUsScreen({ navigation }) {
               ))}
             </View>
           ) : null}
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

@@ -18,10 +18,10 @@ const { requireAuth, requireAdmin, optionalAuth } = require('../middleware/auth'
 
 const router = Router();
 
-// Public routes
-router.get('/', getListings);
-router.get('/search', searchListings);
-router.get('/category-counts', getCategoryCounts);
+// Public routes. optionalAuth keeps the request user available for owner checks on detail.
+router.get('/', optionalAuth, getListings);
+router.get('/search', optionalAuth, searchListings);
+router.get('/category-counts', optionalAuth, getCategoryCounts);
 
 // Named routes MUST be registered before /:id
 router.get('/mine', requireAuth, getMyListings);

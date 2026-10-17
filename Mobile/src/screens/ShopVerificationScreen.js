@@ -2,18 +2,16 @@ import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import ScreenLoader from '../components/ScreenLoader';
 import {
-  ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FormScroll } from '../components/FormScroll';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { ROUTES } from '../navigation/helpers';
@@ -231,20 +229,10 @@ export default function ShopVerificationScreen({ navigation }) {
         </Text>
       </LinearGradient>
 
-      {loading ? (
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      {!shop && loading ? null : (
+        <FormScroll
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
-          <ScrollView
-            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
             <View style={[styles.statusCard, { borderColor: statusColor }]}>
               <View style={[styles.statusIcon, { backgroundColor: `${statusColor}18` }]}>
                 <Ionicons name={status.icon} size={22} color={statusColor} />
@@ -346,8 +334,7 @@ export default function ShopVerificationScreen({ navigation }) {
               onPress={handleSave}
               style={styles.submit}
             />
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </FormScroll>
       )}
 
       <AlertModal
@@ -355,6 +342,7 @@ export default function ShopVerificationScreen({ navigation }) {
         onClose={() => setAlertConfig(null)}
         {...(alertConfig || {})}
       />
+      {loading && !shop ? <ScreenLoader overlay label="Loading verification" /> : null}
     </View>
   );
 }

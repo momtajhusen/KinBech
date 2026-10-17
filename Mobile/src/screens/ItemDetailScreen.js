@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import {
   Alert,
-  Animated,
   Dimensions,
   Image,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -18,15 +19,23 @@ import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import VariantPicker from '../components/VariantPicker';
-import { categoryIcon, toDetailItem } from '../utils/listing';
+import {
+  categoryIcon,
+  attachDistanceToCard,
+  resolveListingCoords,
+  resolveMediaUrl,
+  toDetailItem,
+} from '../utils/listing';
 import { getDefaultVariantSelection } from '../utils/listingVariants';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useSharedTransition } from '../context/SharedTransitionContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import { rememberViewedListing } from '../utils/recentlyViewed';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const THUMB_SIZE = 44;
+const THUMB_BOX_WIDTH = 60;
 const IMAGE_HEIGHT = 340;
-const THUMB_SIZE = 56;
 
 function isVideoUri(uri) {
   const value = String(uri || '').toLowerCase();
@@ -70,7 +79,9 @@ export default function ItemDetailScreen({ navigation, route }) {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [ptrReady, setPtrReady] = useState(false);
   const [variantSelection, setVariantSelection] = useState({});
-  const thumbScale = useRef(new Animated.Value(1)).current;
+  const [distanceLabel, setDistanceLabel] = useState(null);
+  const pagerRef = useRef(null);
+  const viewerRef = useRef(null);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
   const sharedId = route?.params?.sharedId || listingId;
   const photoTag = isIOS && sharedId ? `item.${sharedId}.photo` : undefined;
@@ -84,6 +95,7 @@ export default function ItemDetailScreen({ navigation, route }) {
       console.error('Failed to load listing:', error);
     } else if (data?.listing) {
       setListing(data.listing);
+      rememberViewedListing(data.listing);
       if (data.listing.hasVariants) {
         setVariantSelection(getDefaultVariantSelection(data.listing));
       }
@@ -100,6 +112,33 @@ export default function ItemDetailScreen({ navigation, route }) {
   useEffect(() => {
     loadListing();
   }, [loadListing]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (perm.status !== 'granted' || cancelled) return;
+        let point = await Location.getLastKnownPositionAsync();
+        if (!point?.coords) {
+          point = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+        }
+        if (cancelled || !point?.coords) return;
+        const measured = attachDistanceToCard(
+          { listing },
+          { lat: point.coords.latitude, lng: point.coords.longitude },
+        );
+        if (!cancelled) setDistanceLabel(measured?.distanceLabel || null);
+      } catch {
+        if (!cancelled) setDistanceLabel(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [listing]);
 
   if (!listing) {
     return (
@@ -131,6 +170,27 @@ export default function ItemDetailScreen({ navigation, route }) {
     listing: null,
   };
 
+  const sellerPhone = String(item.sellerData?.phone || '').trim();
+  const shopPhone = String(listing.shopId?.phone || '').trim();
+
+  const handleOpenMap = async () => {
+    const coords = resolveListingCoords(listing);
+    const query = coords
+      ? `${coords.lat},${coords.lng}`
+      : String(listing.location || item.mapAddress || '').trim();
+    if (!query) {
+      Alert.alert('Location not available', 'This listing has no location set.');
+      return;
+    }
+    try {
+      await Linking.openURL(
+        `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
+      );
+    } catch {
+      Alert.alert('Map failed', 'Could not open a map app on this device.');
+    }
+  };
+
   const media = collectMedia(listing, item);
   const resolvedPhotos = media.length
     ? media.map((entry) => ({
@@ -138,129 +198,213 @@ export default function ItemDetailScreen({ navigation, route }) {
         icon: categoryIcon(listing?.category),
       }))
     : [{ icon: categoryIcon(listing?.category), bg: colors.photoDark1, type: 'image' }];
-  const activeMedia = resolvedPhotos[Math.min(activeIndex, resolvedPhotos.length - 1)] || resolvedPhotos[0];
+  const hasThumbs = resolvedPhotos.length > 1;
+  const heroWidth = SCREEN_WIDTH - 32 - (hasThumbs ? THUMB_BOX_WIDTH : 0);
 
   const selectMedia = (index) => {
     setActiveIndex(index);
-    thumbScale.setValue(0.92);
-    Animated.spring(thumbScale, {
-      toValue: 1,
-      tension: 320,
-      friction: 12,
-      useNativeDriver: true,
-    }).start();
+    pagerRef.current?.scrollTo({ x: index * heroWidth, animated: true });
   };
+
+  const onPagerEnd = (event) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.max(
+      0,
+      Math.min(Math.round(offsetX / heroWidth), resolvedPhotos.length - 1),
+    );
+    if (index !== activeIndex) setActiveIndex(index);
+  };
+
+  const onViewerEnd = (event) => {
+    const offsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.max(
+      0,
+      Math.min(Math.round(offsetX / SCREEN_WIDTH), resolvedPhotos.length - 1),
+    );
+    if (index !== activeIndex) setActiveIndex(index);
+  };
+
+  const showMedia = (index) => {
+    setActiveIndex(index);
+    viewerRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
+  };
+
+  const closeViewer = () => {
+    setViewerOpen(false);
+    requestAnimationFrame(() => {
+      pagerRef.current?.scrollTo({ x: activeIndex * heroWidth, animated: false });
+    });
+  };
+
+  const renderContactActions = () => (
+    <View style={styles.priceActions}>
+      <Pressable style={styles.viewMapBtn} onPress={handleOpenMap}>
+        <Ionicons name="map-outline" size={14} color={colors.link} />
+        <Text style={styles.viewMapText}>View map</Text>
+      </Pressable>
+      <Pressable
+        style={styles.chatBtnWrap}
+        onPress={async () => {
+          const sellerId = item.sellerId;
+          if (!sellerId) {
+            navigation.navigate(ROUTES.CHAT, { name: item.seller });
+            return;
+          }
+          if (user?.id && String(user.id) === String(sellerId)) {
+            Alert.alert('Your listing', 'You cannot chat with yourself on this item.');
+            return;
+          }
+          const { data, error } = await api.createChat({
+            listingId,
+            userId: sellerId,
+          });
+          if (error) {
+            Alert.alert('Chat failed', error);
+            return;
+          }
+          navigation.navigate(ROUTES.CHAT, {
+            chatId: data.chat.id,
+            name: data.chat.otherUser?.name || item.seller,
+            listing: listing,
+            otherUserId: data.chat.otherUser?.id || sellerId,
+            image: resolveMediaUrl(data.chat.otherUser?.avatarUrl || ''),
+          });
+        }}
+      >
+        <LinearGradient
+          colors={colors.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.chatBtn}
+        >
+          <Ionicons name="chatbubble-ellipses" size={15} color={colors.onGradient} />
+          <Text style={styles.chatText}>Chat Now</Text>
+        </LinearGradient>
+      </Pressable>
+    </View>
+  );
 
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: insets.top }}
         refreshControl={ptrReady ? refreshControl(colors, refreshing, onRefresh) : undefined}
       >
         <View style={styles.imageWrap}>
-          <Animated.View style={[styles.hero, { transform: [{ scale: thumbScale }] }]}>
-            <Pressable style={styles.heroPress} onPress={() => setViewerOpen(true)}>
-              {activeMedia?.uri && activeMedia.type !== 'video' ? (
-                <Image
-                  source={{ uri: activeMedia.uri }}
-                  style={styles.heroImage}
-                  resizeMode="cover"
-                  sharedTransitionTag={photoTag}
-                />
-              ) : (
-                <View style={[styles.heroFallback, { backgroundColor: activeMedia?.bg || colors.photoDark1 }]}>
-                  <Ionicons
-                    name={activeMedia?.type === 'video' ? 'videocam' : activeMedia?.icon || 'cube-outline'}
-                    size={64}
-                    color="rgba(255,255,255,0.9)"
-                    sharedTransitionTag={photoTag}
-                  />
-                  {activeMedia?.type === 'video' ? (
-                    <Text style={styles.heroHint}>Tap to view video</Text>
+          {hasThumbs ? (
+            <View style={styles.thumbRailBox}>
+              <ScrollView
+                nestedScrollEnabled
+                contentContainerStyle={styles.thumbRailContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {resolvedPhotos.map((photo, index) => {
+                  const selected = index === activeIndex;
+                  return (
+                    <Pressable
+                      key={`${photo.uri || 'empty'}-${index}`}
+                      onPress={() => selectMedia(index)}
+                      style={[styles.thumb, selected && styles.thumbActive]}
+                    >
+                      {photo.uri && photo.type !== 'video' ? (
+                        <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
+                      ) : (
+                        <View style={[styles.thumbFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
+                          <Ionicons
+                            name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
+                            size={15}
+                            color="#fff"
+                          />
+                        </View>
+                      )}
+                      {photo.type === 'video' ? (
+                        <View style={styles.thumbPlay}>
+                          <Ionicons name="play" size={10} color="#fff" />
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
+
+          <View style={styles.heroArea}>
+            <ScrollView
+              ref={pagerRef}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              onMomentumScrollEnd={onPagerEnd}
+              style={styles.heroPager}
+            >
+              {resolvedPhotos.map((photo, index) => (
+                <Pressable
+                  key={`hero-${photo.uri || 'empty'}-${index}`}
+                  style={[styles.heroPress, { width: heroWidth }]}
+                  onPress={() => setViewerOpen(true)}
+                >
+                  {photo.uri && photo.type !== 'video' ? (
+                    <Image
+                      source={{ uri: photo.uri }}
+                      style={styles.heroImage}
+                      resizeMode="cover"
+                      sharedTransitionTag={index === 0 ? photoTag : undefined}
+                    />
+                  ) : (
+                    <View style={[styles.heroFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
+                      <Ionicons
+                        name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
+                        size={64}
+                        color="rgba(255,255,255,0.9)"
+                        sharedTransitionTag={index === 0 ? photoTag : undefined}
+                      />
+                      {photo.type === 'video' ? (
+                        <Text style={styles.heroHint}>Tap to view video</Text>
+                      ) : null}
+                    </View>
+                  )}
+                  {photo.type === 'video' && photo.uri ? (
+                    <View style={styles.heroPlay} pointerEvents="none">
+                      <View style={styles.heroPlayBtn}>
+                        <Ionicons name="play" size={22} color="#fff" />
+                      </View>
+                    </View>
                   ) : null}
-                </View>
-              )}
-              {activeMedia?.type === 'video' && activeMedia?.uri ? (
-                <View style={styles.heroPlay} pointerEvents="none">
-                  <View style={styles.heroPlayBtn}>
-                    <Ionicons name="play" size={22} color="#fff" />
-                  </View>
-                </View>
-              ) : null}
-            </Pressable>
+                </Pressable>
+              ))}
+            </ScrollView>
+
             <View style={styles.counterPill}>
               <Text style={styles.counterText}>
                 {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
               </Text>
             </View>
-          </Animated.View>
 
-          <View style={[styles.galleryTop, { paddingTop: insets.top + 8 }]}>
-            <Pressable
-              style={styles.roundBtn}
-              onPress={() => navigation.goBack()}
-              hitSlop={10}
-            >
-              <Ionicons name="chevron-back" size={24} color={colors.text} />
-            </Pressable>
-            <Pressable
-              style={styles.roundBtn}
-              onPress={async () => {
-                if (!listingId) return;
-                const { error } = await api.toggleWishlist(listingId);
-                if (!error) setFavorited((v) => !v);
-              }}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={favorited ? 'heart' : 'heart-outline'}
-                size={22}
-                color={colors.danger}
-              />
-            </Pressable>
+            <View style={styles.imageActions} pointerEvents="box-none">
+              <Pressable style={styles.headerBtn} onPress={() => navigation.goBack()} hitSlop={10}>
+                <Ionicons name="chevron-back" size={22} color="#fff" />
+              </Pressable>
+              <Pressable
+                style={styles.headerBtn}
+                onPress={async () => {
+                  if (!listingId) return;
+                  const { error } = await api.toggleWishlist(listingId);
+                  if (!error) setFavorited((v) => !v);
+                }}
+                hitSlop={10}
+              >
+                <Ionicons
+                  name={favorited ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={favorited ? colors.danger : '#fff'}
+                />
+              </Pressable>
+            </View>
           </View>
-
-          {resolvedPhotos.length > 1 ? (
-            <ScrollView
-              nestedScrollEnabled
-              style={[styles.thumbRail, { top: insets.top + 56 }]}
-              contentContainerStyle={styles.thumbRailContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {resolvedPhotos.map((photo, index) => {
-                const selected = index === activeIndex;
-                return (
-                  <Pressable
-                    key={`${photo.uri || 'empty'}-${index}`}
-                    onPress={() => selectMedia(index)}
-                    style={[
-                      styles.thumb,
-                      selected && styles.thumbActive,
-                      { borderColor: selected ? colors.primary : 'rgba(255,255,255,0.45)' },
-                    ]}
-                  >
-                    {photo.uri && photo.type !== 'video' ? (
-                      <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
-                    ) : (
-                      <View style={[styles.thumbFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
-                        <Ionicons
-                          name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
-                          size={18}
-                          color="#fff"
-                        />
-                      </View>
-                    )}
-                    {photo.type === 'video' ? (
-                      <View style={styles.thumbPlay}>
-                        <Ionicons name="play" size={10} color="#fff" />
-                      </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          ) : null}
         </View>
 
         <View style={styles.content}>
@@ -275,12 +419,16 @@ export default function ItemDetailScreen({ navigation, route }) {
           </View>
 
           {!listing.hasVariants ? (
-            <Text
-              style={styles.price}
-              sharedTransitionTag={priceTag}
-            >
-              {item.price}
-            </Text>
+            <View style={styles.priceRow}>
+              <Text
+                style={styles.price}
+                sharedTransitionTag={priceTag}
+                numberOfLines={1}
+              >
+                {item.price}
+              </Text>
+              {renderContactActions()}
+            </View>
           ) : null}
 
           {listing.hasVariants ? (
@@ -290,18 +438,21 @@ export default function ItemDetailScreen({ navigation, route }) {
               onChangeSelection={setVariantSelection}
               colors={colors}
               styles={styles}
+              trailing={renderContactActions()}
             />
           ) : null}
 
-          <View
-            style={styles.metaRow}
-
-          >
-            <Ionicons name="location-outline" size={15} color={colors.textSecondary} />
-            <Text style={styles.metaText}>{item.location}</Text>
-            <View style={styles.metaDivider} />
-            <Ionicons name="time-outline" size={15} color={colors.textSecondary} />
-            <Text style={styles.metaText}>{item.posted}</Text>
+          <View style={styles.metaRow}>
+            <View style={styles.metaPlace}>
+              <Ionicons name="location" size={15} color={colors.primary} />
+              <Text style={styles.metaText} numberOfLines={1}>
+                {String(item.location || '').split(',')[0].trim() || 'Location'}
+              </Text>
+              {distanceLabel ? (
+                <Text style={styles.metaDistance}>{distanceLabel}</Text>
+              ) : null}
+            </View>
+            <Text style={styles.metaTime}>{item.posted}</Text>
           </View>
 
           <View
@@ -324,8 +475,8 @@ export default function ItemDetailScreen({ navigation, route }) {
                   <Text style={styles.sellerName}>{item.seller}</Text>
                   <View style={styles.sellerMetaRow}>
                     <Ionicons name="call" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText}>
-                      {listing.verificationLabel || 'Phone Verified'}
+                    <Text style={styles.sellerMetaText} numberOfLines={1}>
+                      {sellerPhone || listing.verificationLabel || 'Phone Verified'}
                     </Text>
                   </View>
                 </View>
@@ -356,6 +507,14 @@ export default function ItemDetailScreen({ navigation, route }) {
                     <Text style={styles.sellerRating}>{listing.shopId?.ratingAverage?.toFixed(1) || '0.0'}</Text>
                     <Text style={styles.sellerReviewCount}>({listing.shopId?.reviewCount || 0})</Text>
                   </View>
+                  {shopPhone ? (
+                    <View style={styles.sellerMetaRow}>
+                      <Ionicons name="call" size={13} color={colors.success} />
+                      <Text style={styles.sellerMetaText} numberOfLines={1}>
+                        {shopPhone}
+                      </Text>
+                    </View>
+                  ) : null}
                   {(listing.shopId?.isVerified || listing.verificationKind === 'business') && (
                     <View style={styles.sellerMetaRow}>
                       <Ionicons name="shield-checkmark" size={12} color={colors.primary} />
@@ -389,8 +548,8 @@ export default function ItemDetailScreen({ navigation, route }) {
                   <Text style={styles.sellerName}>{item.seller}</Text>
                   <View style={styles.sellerMetaRow}>
                     <Ionicons name="call" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText}>
-                      {listing.verificationLabel || 'Phone Verified'}
+                    <Text style={styles.sellerMetaText} numberOfLines={1}>
+                      {sellerPhone || listing.verificationLabel || 'Phone Verified'}
                     </Text>
                   </View>
                 </View>
@@ -427,25 +586,6 @@ export default function ItemDetailScreen({ navigation, route }) {
           <View
 
           >
-            <View style={styles.mapCard}>
-              <View style={styles.mapPreview}>
-                <View style={styles.mapGridLine1} />
-                <View style={styles.mapGridLine2} />
-                <Ionicons name="location" size={30} color={colors.primary} />
-              </View>
-              <View style={styles.mapInfo}>
-                <Text style={styles.mapLabel}>Location</Text>
-                <Text style={styles.mapAddress}>{item.mapAddress}</Text>
-                <Pressable onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.MapView)}>
-                  <Text style={styles.viewOnMap}>View on Map</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-
-          <View
-
-          >
             <Pressable style={styles.safetyBanner} onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.SafetyTips)}>
               <View style={styles.safetyIcon}>
                 <Ionicons name="shield-checkmark" size={22} color={colors.onGradient} />
@@ -462,75 +602,51 @@ export default function ItemDetailScreen({ navigation, route }) {
         </View>
       </ScrollView>
 
-      <View
-        style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, 16) }]}
-
+      <Modal
+        visible={viewerOpen}
+        animationType="fade"
+        onRequestClose={closeViewer}
+        onShow={() => viewerRef.current?.scrollTo({ x: activeIndex * SCREEN_WIDTH, animated: false })}
       >
-        <Pressable style={styles.callBtn} onPress={() => {}}>
-          <Ionicons name="call" size={18} color={colors.link} />
-          <Text style={styles.callText}>Call</Text>
-        </Pressable>
-        <Pressable
-          style={styles.chatBtnWrap}
-          onPress={async () => {
-            const sellerId = item.sellerId;
-            if (!sellerId) {
-              navigation.navigate(ROUTES.CHAT, { name: item.seller });
-              return;
-            }
-            if (user?.id && String(user.id) === String(sellerId)) {
-              Alert.alert('Your listing', 'You cannot chat with yourself on this item.');
-              return;
-            }
-            const { data, error } = await api.createChat({
-              listingId,
-              userId: sellerId,
-            });
-            if (error) {
-              Alert.alert('Chat failed', error);
-              return;
-            }
-            navigation.navigate(ROUTES.CHAT, {
-              chatId: data.chat.id,
-              name: data.chat.otherUser?.name || item.seller,
-              listing: listing,
-              otherUserId: data.chat.otherUser?.id || sellerId,
-            });
-          }}
-        >
-          <LinearGradient
-            colors={colors.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.chatBtn}
-          >
-            <Ionicons name="chatbubble-ellipses" size={18} color={colors.onGradient} />
-            <Text style={styles.chatText}>Chat Now</Text>
-          </LinearGradient>
-        </Pressable>
-      </View>
-
-      <Modal visible={viewerOpen} animationType="fade" onRequestClose={() => setViewerOpen(false)}>
         <View style={styles.viewer}>
-          <Pressable style={[styles.viewerClose, { top: insets.top + 8 }]} onPress={() => setViewerOpen(false)}>
+          <Pressable style={[styles.viewerClose, { top: insets.top + 8 }]} onPress={closeViewer}>
             <Ionicons name="close" size={24} color="#fff" />
           </Pressable>
-          <Pressable style={styles.viewerBody} onPress={() => setViewerOpen(false)}>
-            {activeMedia?.uri && activeMedia.type !== 'video' ? (
-              <Image source={{ uri: activeMedia.uri }} style={styles.viewerImage} resizeMode="contain" />
-            ) : (
-              <View style={styles.viewerFallback}>
-                <Ionicons name={activeMedia?.type === 'video' ? 'videocam' : 'image-outline'} size={64} color="#fff" />
-                <Text style={styles.heroHint}>
-                  {activeMedia?.type === 'video' ? 'Video preview' : 'No preview'}
-                </Text>
-              </View>
-            )}
-          </Pressable>
+          <ScrollView
+            ref={viewerRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={onViewerEnd}
+            style={styles.viewerBody}
+          >
+            {resolvedPhotos.map((photo, index) => (
+              <Pressable
+                key={`viewer-${photo.uri || 'empty'}-${index}`}
+                style={styles.viewerSlide}
+                onPress={closeViewer}
+              >
+                {photo.uri && photo.type !== 'video' ? (
+                  <Image source={{ uri: photo.uri }} style={styles.viewerImage} resizeMode="contain" />
+                ) : (
+                  <View style={styles.viewerFallback}>
+                    <Ionicons
+                      name={photo.type === 'video' ? 'videocam' : 'image-outline'}
+                      size={64}
+                      color="#fff"
+                    />
+                    <Text style={styles.heroHint}>
+                      {photo.type === 'video' ? 'Video preview' : 'No preview'}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </ScrollView>
           <View style={[styles.viewerBar, { paddingBottom: insets.bottom + 16 }]}>
             <Pressable
               style={styles.viewerNav}
-              onPress={() => selectMedia(activeIndex === 0 ? resolvedPhotos.length - 1 : activeIndex - 1)}
+              onPress={() => showMedia(activeIndex === 0 ? resolvedPhotos.length - 1 : activeIndex - 1)}
             >
               <Ionicons name="chevron-back" size={22} color="#fff" />
             </Pressable>
@@ -539,7 +655,7 @@ export default function ItemDetailScreen({ navigation, route }) {
             </Text>
             <Pressable
               style={styles.viewerNav}
-              onPress={() => selectMedia((activeIndex + 1) % resolvedPhotos.length)}
+              onPress={() => showMedia((activeIndex + 1) % resolvedPhotos.length)}
             >
               <Ionicons name="chevron-forward" size={22} color="#fff" />
             </Pressable>
@@ -555,44 +671,64 @@ const createStyles = (colors) => ({
     flex: 1,
     backgroundColor: colors.background,
   },
-  imageWrap: {
-    height: IMAGE_HEIGHT,
-    backgroundColor: colors.photoDark1,
-    position: 'relative',
+  headerBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
-  galleryTop: {
+  imageActions: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    top: 12,
+    left: 12,
+    right: 12,
     zIndex: 3,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingBottom: 8,
   },
-  thumbRail: {
-    position: 'absolute',
-    left: 12,
-    bottom: 16,
-    zIndex: 2,
-    width: THUMB_SIZE + 4,
+  imageWrap: {
+    height: IMAGE_HEIGHT,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginHorizontal: 16,
+  },
+  thumbRailBox: {
+    width: THUMB_BOX_WIDTH,
+    backgroundColor: colors.surface,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
   },
   thumbRailContent: {
+    alignItems: 'center',
     gap: 8,
-    paddingBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 7,
+  },
+  heroArea: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: colors.photoDark1,
+  },
+  heroPager: {
+    flex: 1,
   },
   thumb: {
     width: THUMB_SIZE,
     height: THUMB_SIZE,
-    borderRadius: 14,
+    borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 2,
+    borderColor: 'transparent',
     backgroundColor: colors.iconBackground,
   },
   thumbActive: {
-    transform: [{ scale: 1.04 }],
+    borderColor: colors.primary,
+    transform: [{ scale: 1.08 }],
   },
   thumbImage: {
     width: '100%',
@@ -613,13 +749,6 @@ const createStyles = (colors) => ({
     backgroundColor: 'rgba(0,0,0,0.65)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  hero: {
-    width: SCREEN_WIDTH,
-    height: IMAGE_HEIGHT,
-    backgroundColor: colors.photoDark1,
-    overflow: 'hidden',
-    position: 'relative',
   },
   heroPress: {
     width: '100%',
@@ -675,6 +804,9 @@ const createStyles = (colors) => ({
   },
   viewerBody: {
     flex: 1,
+  },
+  viewerSlide: {
+    width: SCREEN_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -700,38 +832,6 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  roundBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  dotsRow: {
-    position: 'absolute',
-    bottom: 16,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(255,255,255,0.6)',
-  },
-  dotActive: {
-    width: 18,
-    backgroundColor: colors.surface,
-  },
   counterPill: {
     position: 'absolute',
     bottom: 16,
@@ -748,7 +848,7 @@ const createStyles = (colors) => ({
   },
   content: {
     padding: 16,
-    paddingBottom: 120,
+    paddingBottom: 28,
   },
   titleRow: {
     flexDirection: 'row',
@@ -774,11 +874,23 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.onPrimary,
   },
-  price: {
+  priceRow: {
     marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  price: {
+    flex: 1,
     fontSize: 26,
     fontWeight: '800',
     color: colors.price,
+  },
+  priceActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 8,
   },
   variantPickerWrap: {
     marginTop: 12,
@@ -826,7 +938,13 @@ const createStyles = (colors) => ({
   variantPickerSummary: {
     gap: 4,
   },
+  variantPickerPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
   variantPickerPrice: {
+    flex: 1,
     fontSize: 24,
     fontWeight: '800',
     color: colors.price,
@@ -842,18 +960,44 @@ const createStyles = (colors) => ({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 10,
-    gap: 6,
+    gap: 12,
   },
   metaText: {
+    flexShrink: 1,
     fontSize: 13,
     color: colors.textSecondary,
   },
-  metaDivider: {
-    width: 1,
-    height: 14,
-    backgroundColor: colors.border,
-    marginHorizontal: 6,
+  metaPlace: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewMapBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 36,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.link,
+  },
+  viewMapText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.link,
+  },
+  metaTime: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  metaDistance: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
   },
   sellerCard: {
     flexDirection: 'row',
@@ -896,6 +1040,18 @@ const createStyles = (colors) => ({
     fontSize: 13,
     color: colors.textSecondary,
   },
+  sellerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
+  },
+  sellerMetaText: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
   viewProfileRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -931,59 +1087,6 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
     lineHeight: 21,
   },
-  mapCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  mapPreview: {
-    width: 110,
-    height: 100,
-    backgroundColor: colors.photoFrame,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  mapGridLine1: {
-    position: 'absolute',
-    width: '150%',
-    height: 1,
-    backgroundColor: colors.photoLine,
-    top: '35%',
-    transform: [{ rotate: '12deg' }],
-  },
-  mapGridLine2: {
-    position: 'absolute',
-    width: '150%',
-    height: 1,
-    backgroundColor: colors.photoLine,
-    top: '65%',
-    transform: [{ rotate: '-8deg' }],
-  },
-  mapInfo: {
-    flex: 1,
-    paddingHorizontal: 14,
-  },
-  mapLabel: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  mapAddress: {
-    marginTop: 3,
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  viewOnMap: {
-    marginTop: 6,
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.link,
-  },
   safetyBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1015,53 +1118,18 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
     lineHeight: 17,
   },
-  actionBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 8,
-  },
-  callBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    borderColor: colors.link,
-  },
-  callText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.link,
-  },
-  chatBtnWrap: {
-    flex: 1.4,
-  },
+  chatBtnWrap: {},
   chatBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    height: 52,
-    borderRadius: 16,
+    gap: 4,
+    height: 36,
+    paddingHorizontal: 10,
+    borderRadius: 12,
   },
   chatText: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.onPrimary,
   },

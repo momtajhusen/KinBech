@@ -1,9 +1,11 @@
 import { Alert, Linking, Platform, Share } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import {
   SHARE_CARD_HEIGHT,
   SHARE_CARD_WIDTH,
+  buildListingShareUrl,
   buildShareMessage,
 } from './listingShare';
 
@@ -76,6 +78,41 @@ export async function shareListingLink(listing) {
     message,
     title: listing?.title || 'KinBech listing',
   });
+}
+
+async function tryOpen(url) {
+  try {
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function redirectListingPost(platform, listing) {
+  const message = buildShareMessage(listing);
+  const pageUrl = buildListingShareUrl(listing?.id);
+  await Clipboard.setStringAsync(message);
+
+  if (platform === 'facebook') {
+    const sharer = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}&quote=${encodeURIComponent(message)}`;
+    if (await tryOpen(`fb://facewebmodal/f?href=${encodeURIComponent(sharer)}`)) return;
+    await Linking.openURL(sharer);
+    return;
+  }
+
+  if (platform === 'instagram') {
+    if (await tryOpen('instagram://camera')) return;
+    if (await tryOpen('instagram://app')) return;
+    await Linking.openURL('https://www.instagram.com/');
+    return;
+  }
+
+  if (platform === 'tiktok') {
+    if (await tryOpen('snssdk1233://')) return;
+    if (await tryOpen('tiktok://')) return;
+    await Linking.openURL('https://www.tiktok.com/tiktokstudio/upload');
+  }
 }
 
 export async function saveListingShareCard(cardRef) {

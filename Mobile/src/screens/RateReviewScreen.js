@@ -7,7 +7,6 @@ import {
   View,
   Image,
   Pressable,
-  ScrollView,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../services/api';
 import { resolveMediaUrl } from '../utils/listing';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { FormScroll } from '../components/FormScroll';
 
 const TAGS = [
   { key: 'communication', label: 'Great communication', icon: 'chatbubble-outline' },
@@ -134,10 +134,7 @@ export default function RateReviewScreen({ navigation, route }) {
         </Pressable>
       </LinearGradient>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
+      <FormScroll contentContainerStyle={styles.scrollContent}>
         <View style={styles.avatarWrap}>
           <View style={styles.avatar}>
             {shop?.logo ? (
@@ -243,7 +240,7 @@ export default function RateReviewScreen({ navigation, route }) {
             )}
           </LinearGradient>
         </Pressable>
-      </ScrollView>
+      </FormScroll>
 
       <AlertModal
         visible={!!alertConfig}

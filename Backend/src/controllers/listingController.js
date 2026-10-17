@@ -10,11 +10,47 @@ const listingQueryCache = require('../utils/listingQueryCache');
 const { evaluateListingModeration } = require('../utils/listingModeration');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
+const { coordsForPlaceName } = require('../utils/nepalLocations');
 
 const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates';
-const SHOP_POPULATE = 'name logo ratingAverage reviewCount isVerified coordinates location';
+const SHOP_POPULATE = 'name logo phone ratingAverage reviewCount isVerified coordinates location';
 const LISTING_PAGE_DEFAULT = 20;
 const LISTING_PAGE_MAX = 50;
+
+function normalizeSearchWords(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const words = [];
+  value.forEach((raw) => {
+    const word = String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    const key = word.toLowerCase();
+    if (!word || seen.has(key) || words.length >= 20) return;
+    seen.add(key);
+    words.push(word);
+  });
+  return words;
+}
+
+function presentListings(payload, userLat, userLng) {
+  if (!payload?.listings) return payload;
+  let listings = payload.listings.map((listing) => {
+    const point = listingPoint(listing);
+    let distanceKm = null;
+    if (point && userLat != null && userLng != null) {
+      const km = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
+      distanceKm = Number.isFinite(km) ? Math.round(km * 10) / 10 : null;
+    }
+    return { ...listing, coordinates: point, distanceKm };
+  });
+  if (payload.appliedSort === 'distance' && userLat != null && userLng != null) {
+    listings = [...listings].sort((a, b) => {
+      const da = a.distanceKm == null ? Infinity : a.distanceKm;
+      const db = b.distanceKm == null ? Infinity : b.distanceKm;
+      return da - db;
+    });
+  }
+  return { ...payload, listings };
+}
 
 /** Pagination is mandatory: always coerce page/limit (default 20, max 50). */
 function parsePagination(req) {
@@ -97,6 +133,7 @@ function buildBaseFilter(req) {
     filter.$or = [
       { title: { $regex: escaped, $options: 'i' } },
       { description: { $regex: escaped, $options: 'i' } },
+      { searchWords: { $regex: escaped, $options: 'i' } },
       { location: { $regex: escaped, $options: 'i' } },
       { category: { $regex: escaped, $options: 'i' } },
     ];
@@ -117,14 +154,14 @@ async function getListings(req, res, next) {
     const sortMode = String(sort || 'newest').toLowerCase();
     const { page, limit, skip } = parsePagination(req);
 
-    const cacheKey = listingQueryCache.buildListingCacheKey('listings', {
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings-geo2', {
       ...req.query,
       page,
       limit,
     });
     const cached = listingQueryCache.get(cacheKey);
     if (cached) {
-      return res.json(cached);
+      return res.json(presentListings(cached, userLat, userLng));
     }
 
     const mongoSort = {};
@@ -165,7 +202,7 @@ async function getListings(req, res, next) {
       }
       const payload = buildListResponse(listings, page, limit, total, sortMode);
       listingQueryCache.set(cacheKey, payload);
-      return res.json(payload);
+      return res.json(presentListings(payload, userLat, userLng));
     }
 
     const docs = await Listing.find(filter)
@@ -226,7 +263,7 @@ async function getListings(req, res, next) {
       appliedSort: sortMode,
     };
     listingQueryCache.set(cacheKey, payload);
-    return res.json(payload);
+    return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
   }
@@ -245,14 +282,14 @@ async function searchListings(req, res, next) {
     const sortMode = String(sort || 'distance').toLowerCase();
     const { page, limit, skip } = parsePagination(req);
 
-    const cacheKey = listingQueryCache.buildListingCacheKey('listings-search', {
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings-search-geo2', {
       ...req.query,
       page,
       limit,
     });
     const cached = listingQueryCache.get(cacheKey);
     if (cached) {
-      return res.json(cached);
+      return res.json(presentListings(cached, userLat, userLng));
     }
 
     // Prefer in-memory ranking so verified sellers can be boosted in search
@@ -280,7 +317,7 @@ async function searchListings(req, res, next) {
       );
       const payload = buildListResponse(listings, page, limit, total, sortMode);
       listingQueryCache.set(cacheKey, payload);
-      return res.json(payload);
+      return res.json(presentListings(payload, userLat, userLng));
     }
 
     const docs = await Listing.find(filter)
@@ -303,12 +340,23 @@ async function searchListings(req, res, next) {
         const desc = (doc.description || '').toLowerCase();
         const loc = (doc.location || '').toLowerCase();
         const cat = (doc.category || '').toLowerCase();
-        if (title === q) relevanceScore += 50;
-        if (title.startsWith(q)) relevanceScore += 20;
-        if (title.includes(q)) relevanceScore += 10;
-        if (cat.includes(q)) relevanceScore += 15;
-        if (loc.includes(q)) relevanceScore += 8;
-        if (desc.includes(q)) relevanceScore += 4;
+        const searchWords = (Array.isArray(doc.searchWords) ? doc.searchWords : [])
+          .map((word) => String(word || '').toLowerCase());
+        const tokens = q.split(/\s+/).filter((word) => word.length > 1);
+        if (title === q) relevanceScore += 80;
+        else if (title.startsWith(q)) relevanceScore += 55;
+        else if (title.includes(q)) relevanceScore += 40;
+        if (searchWords.some((word) => word === q || word.includes(q) || q.includes(word))) {
+          relevanceScore += 48;
+        }
+        if (desc.includes(q)) relevanceScore += 28;
+        tokens.forEach((token) => {
+          if (title.includes(token)) relevanceScore += 18;
+          if (searchWords.some((word) => word.includes(token))) relevanceScore += 16;
+          if (desc.includes(token)) relevanceScore += 10;
+        });
+        if (cat.includes(q)) relevanceScore += 12;
+        if (loc.includes(q)) relevanceScore += 6;
       }
       return { doc, distance, relevance: relevanceScore, trust: listingTrustBoost(doc) };
     });
@@ -320,7 +368,18 @@ async function searchListings(req, res, next) {
     });
 
     let sorted = filtered.slice();
-    if (sortMode === 'distance' && userLat != null && userLng != null) {
+    const queryText = (req.query.q || '').toString().trim();
+    if (queryText && sortMode !== 'price-low' && sortMode !== 'price-high') {
+      sorted.sort((a, b) => {
+        const diff = b.relevance - a.relevance;
+        if (diff !== 0) return diff;
+        const trustDiff = b.trust - a.trust;
+        if (trustDiff !== 0) return trustDiff;
+        const da = a.distance == null ? Infinity : a.distance;
+        const db = b.distance == null ? Infinity : b.distance;
+        return da - db;
+      });
+    } else if (sortMode === 'distance' && userLat != null && userLng != null) {
       sorted.sort((a, b) => {
         const da = a.distance == null ? Infinity : a.distance;
         const db = b.distance == null ? Infinity : b.distance;
@@ -380,10 +439,12 @@ async function searchListings(req, res, next) {
       limit: paged.limit,
       totalPages: paged.totalPages,
       hasMore: paged.hasMore,
-      appliedSort: sortMode,
+      appliedSort: queryText && sortMode !== 'price-low' && sortMode !== 'price-high'
+        ? 'relevance'
+        : sortMode,
     };
     listingQueryCache.set(cacheKey, payload);
-    return res.json(payload);
+    return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
   }
@@ -487,7 +548,8 @@ async function getListing(req, res, next) {
       distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
     }
 
-    res.json({ listing: listingPayload(doc, distance) });
+    const presented = presentListings({ listings: [listingPayload(doc, distance)] }, userLat, userLng);
+    res.json({ listing: presented.listings[0] });
   } catch (error) {
     next(error);
   }
@@ -592,6 +654,14 @@ async function createListing(req, res, next) {
       }
     }
 
+    if (
+      (resolvedCoordinates.lat == null || resolvedCoordinates.lng == null) &&
+      resolvedLocation
+    ) {
+      const named = coordsForPlaceName(resolvedLocation);
+      if (named) resolvedCoordinates = named;
+    }
+
     const spamCheck = await assertListingNotSpam(req.user, {
       title,
       price: parsedPrice,
@@ -618,6 +688,7 @@ async function createListing(req, res, next) {
       location: resolvedLocation,
       coordinates: resolvedCoordinates,
       meetupOption: meetupOption || 'Public place',
+      searchWords: normalizeSearchWords(req.body.searchWords),
     };
 
     // Add shop-specific fields
@@ -712,6 +783,10 @@ async function updateListing(req, res, next) {
         listing[field] = req.body[field];
       }
     });
+
+    if (req.body.searchWords !== undefined) {
+      listing.searchWords = normalizeSearchWords(req.body.searchWords);
+    }
 
     // Sellers may only mark sold — not self-publish past moderation
     if (req.body.markSold || req.body.status === 'sold') {
@@ -833,7 +908,9 @@ async function deleteListing(req, res, next) {
 async function getCategoryCounts(req, res, next) {
   try {
     const filter = buildBaseFilter(req);
-    const cacheKey = listingQueryCache.buildListingCacheKey('category-counts', req.query);
+    const cacheKey = listingQueryCache.buildListingCacheKey('category-counts', {
+      ...req.query,
+    });
     const cached = listingQueryCache.get(cacheKey);
     if (cached) {
       return res.json(cached);

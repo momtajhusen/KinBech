@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -22,6 +22,7 @@ import {
   shareListingImage,
   shareListingLink,
   shareListingToWhatsApp,
+  redirectListingPost,
 } from '../utils/shareListingCard';
 
 export default function ListingSuccessScreen({ navigation, route }) {
@@ -36,6 +37,24 @@ export default function ListingSuccessScreen({ navigation, route }) {
 
   const shareListing = normalizeListingForShare(route.params?.listing);
   const shareMode = route.params?.mode === 'share';
+
+  const goHome = useCallback(() => {
+    navigation.reset({
+      index: 0,
+      routes: [{ name: ROUTES.MAIN_TABS, params: { screen: ROUTES.HOME } }],
+    });
+  }, [navigation]);
+
+  useEffect(() => {
+    if (shareMode) return undefined;
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      const type = event.data?.action?.type;
+      if (type !== 'GO_BACK' && type !== 'POP') return;
+      event.preventDefault();
+      goHome();
+    });
+    return unsubscribe;
+  }, [goHome, navigation, shareMode]);
 
   useEffect(() => {
     (async () => {
@@ -96,8 +115,8 @@ export default function ListingSuccessScreen({ navigation, route }) {
         <Text style={styles.title}>{shareMode ? 'Share your listing' : 'Listing is live!'}</Text>
         <Text style={styles.subtitle}>
           {shareMode
-            ? 'Download or share this card on WhatsApp Status, Facebook Groups, or Instagram.'
-            : 'Share your auto-generated card on WhatsApp Status, Facebook Groups, or Instagram.'}
+            ? 'Download or share this card on WhatsApp, Facebook, Instagram, or TikTok.'
+            : 'Share your card on WhatsApp, Facebook, Instagram, or TikTok.'}
         </Text>
 
         {!shareMode && featuredCredits > 0 && !isFeatured ? (
@@ -160,6 +179,54 @@ export default function ListingSuccessScreen({ navigation, route }) {
           </Pressable>
 
           <Pressable
+            style={[styles.shareTile, { backgroundColor: '#1877F2', borderColor: '#1877F2' }]}
+            onPress={() => runShare('facebook', () => redirectListingPost('facebook', shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'facebook' ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="logo-facebook" size={22} color="#fff" />
+                <Text style={styles.shareTileTitle}>Facebook</Text>
+                <Text style={styles.shareTileHint}>Post the listing</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[styles.shareTile, { backgroundColor: '#E1306C', borderColor: '#E1306C' }]}
+            onPress={() => runShare('instagram', () => redirectListingPost('instagram', shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'instagram' ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="logo-instagram" size={22} color="#fff" />
+                <Text style={styles.shareTileTitle}>Instagram</Text>
+                <Text style={styles.shareTileHint}>Open to post</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[styles.shareTile, { backgroundColor: '#111111', borderColor: '#111111' }]}
+            onPress={() => runShare('tiktok', () => redirectListingPost('tiktok', shareListing))}
+            disabled={Boolean(sharing)}
+          >
+            {sharing === 'tiktok' ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="logo-tiktok" size={22} color="#fff" />
+                <Text style={styles.shareTileTitle}>TikTok</Text>
+                <Text style={styles.shareTileHint}>Open to post</Text>
+              </>
+            )}
+          </Pressable>
+
+          <Pressable
             style={styles.shareTile}
             onPress={() => runShare('image', () => shareListingImage(cardRef, shareListing))}
             disabled={Boolean(sharing)}
@@ -170,7 +237,7 @@ export default function ListingSuccessScreen({ navigation, route }) {
               <>
                 <Ionicons name="share-social-outline" size={22} color={colors.primary} />
                 <Text style={styles.shareTileTitleDark}>Share image</Text>
-                <Text style={styles.shareTileHintDark}>Facebook · Instagram</Text>
+                <Text style={styles.shareTileHintDark}>Any other app</Text>
               </>
             )}
           </Pressable>
@@ -233,7 +300,7 @@ export default function ListingSuccessScreen({ navigation, route }) {
 
         <Pressable
           style={styles.doneBtn}
-          onPress={() => (shareMode ? navigation.goBack() : navigation.navigate(ROUTES.MAIN_TABS))}
+          onPress={() => (shareMode ? navigation.goBack() : goHome())}
         >
           <Text style={styles.doneBtnText}>{shareMode ? 'Done' : 'Back to home'}</Text>
         </Pressable>

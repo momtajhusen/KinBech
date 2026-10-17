@@ -21,6 +21,8 @@ function readCoords(source) {
   const lat = Number(c.lat != null ? c.lat : c.latitude);
   const lng = Number(c.lng != null ? c.lng : c.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  if (lat === 0 && lng === 0) return null;
   return { lat, lng };
 }
 

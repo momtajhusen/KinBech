@@ -1,11 +1,9 @@
 import { useCallback, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ScreenLoader from '../components/ScreenLoader';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -13,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardOverlap } from '../components/FormScroll';
 import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
@@ -128,6 +127,7 @@ export default function PaymentMethodsScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const keyboardOverlap = useKeyboardOverlap();
   const [methods, setMethods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -260,9 +260,7 @@ export default function PaymentMethodsScreen({ navigation }) {
           </Text>
         </View>
 
-        {loading ? (
-          <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
-        ) : methods.length === 0 ? (
+        {loading && methods.length === 0 ? null : methods.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Ionicons name="card-outline" size={42} color={colors.textTertiary} />
             <Text style={styles.emptyTitle}>No methods saved</Text>
@@ -300,12 +298,9 @@ export default function PaymentMethodsScreen({ navigation }) {
       </ScrollView>
 
       <Modal visible={sheetOpen} transparent animationType="slide" onRequestClose={() => setSheetOpen(false)}>
-        <KeyboardAvoidingView
-          style={styles.modalBackdrop}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <View style={styles.modalBackdrop}>
           <Pressable style={{ flex: 1 }} onPress={() => setSheetOpen(false)} />
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 + keyboardOverlap }]}>
             <Text style={styles.sheetTitle}>Add payment method</Text>
             {PROVIDERS.map((item) => (
               <Pressable
@@ -342,7 +337,7 @@ export default function PaymentMethodsScreen({ navigation }) {
               onPress={save}
             />
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       <AlertModal
@@ -350,6 +345,7 @@ export default function PaymentMethodsScreen({ navigation }) {
         onClose={() => setAlertConfig(null)}
         {...(alertConfig || {})}
       />
+      {loading && methods.length === 0 ? <ScreenLoader overlay label="Loading payments" /> : null}
     </SafeAreaView>
   );
 }
