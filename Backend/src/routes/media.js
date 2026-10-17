@@ -1,14 +1,15 @@
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
 const express = require('express');
 const { requireAuth } = require('../middleware/auth');
-const { ensureUploadDir, publicUploadPath } = require('../config/uploads');
+const { publicUploadPath } = require('../config/uploads');
 const { gateImageUpload } = require('../utils/imageSafetyCheck');
+const { putUpload } = require('../utils/r2');
 
-const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'voice', 'misc']);
+const ALLOWED_FOLDERS = new Set(['avatars', 'listings', 'shops', 'categories', 'voice', 'documents', 'misc']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.m4v', '.webm']);
+const DOC_EXTS = new Set(['.pdf']);
 const MIME_EXT = {
   'image/jpeg': '.jpg',
   'image/jpg': '.jpg',
@@ -28,37 +29,61 @@ const MIME_EXT = {
   'audio/x-wav': '.wav',
   'audio/3gpp': '.3gp',
   'audio/amr': '.amr',
+  'application/pdf': '.pdf',
 };
 
-function makeUploader(folder) {
-  const uploadDir = ensureUploadDir(folder);
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, uploadDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || '').toLowerCase();
-      const mime = String(file.mimetype || '');
-      let safeExt = ext;
-      if (!IMAGE_EXTS.has(ext) && !VIDEO_EXTS.has(ext)) {
-        if (mime.startsWith('image/')) safeExt = '.jpg';
-        else if (mime.startsWith('video/')) safeExt = '.mp4';
-        else safeExt = '.bin';
-      }
-      cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExt}`);
-    },
-  });
+function safeExtension(originalName, mimeType) {
+  const ext = path.extname(originalName || '').toLowerCase();
+  const mime = String(mimeType || '').toLowerCase();
+  if (IMAGE_EXTS.has(ext) || VIDEO_EXTS.has(ext) || DOC_EXTS.has(ext) || MIME_EXT[mime] === ext) {
+    return ext;
+  }
+  if (MIME_EXT[mime]) return MIME_EXT[mime];
+  if (mime.startsWith('image/')) return '.jpg';
+  if (mime.startsWith('video/')) return '.mp4';
+  if (mime.startsWith('audio/')) return '.m4a';
+  return '.bin';
+}
 
-  return multer({
-    storage,
-    limits: { fileSize: 25 * 1024 * 1024 },
-    fileFilter: (_req, file, cb) => {
-      const mime = String(file.mimetype || '');
-      if (mime.startsWith('image/') || mime.startsWith('video/')) {
-        cb(null, true);
-        return;
-      }
-      cb(new Error('Only image or video files are allowed'));
-    },
-  });
+function makeFilename(originalName, mimeType) {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExtension(originalName, mimeType)}`;
+}
+
+function allowedMime(mimeType) {
+  const mime = String(mimeType || '').toLowerCase();
+  return mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/') || mime === 'application/pdf';
+}
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (allowedMime(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only image, video, audio, or PDF files are allowed'));
+  },
+});
+
+async function saveCheckedFile({ buffer, mimeType, filename, folder }) {
+  const isAudio = String(mimeType || '').startsWith('audio/');
+  const ext = path.extname(filename || '').toLowerCase();
+  if (!isAudio && (String(mimeType || '').startsWith('image/') || IMAGE_EXTS.has(ext))) {
+    const gate = await gateImageUpload({
+      buffer,
+      mimeType,
+      filename,
+      folder,
+    });
+    if (!gate.ok) {
+      const error = new Error(gate.body?.message || 'Image blocked');
+      error.status = gate.status || 422;
+      error.body = gate.body;
+      throw error;
+    }
+  }
+  await putUpload({ folder, filename, body: buffer, contentType: mimeType });
 }
 
 const router = express.Router();
@@ -66,35 +91,32 @@ const router = express.Router();
 router.post('/upload', requireAuth, (req, res) => {
   const folderRaw = String(req.query.folder || 'misc').toLowerCase();
   const folder = ALLOWED_FOLDERS.has(folderRaw) ? folderRaw : 'misc';
-  const upload = makeUploader(folder);
 
   upload.single('file')(req, res, async (err) => {
     if (err) {
       return res.status(400).json({ message: err.message || 'Upload failed' });
     }
-    if (!req.file) {
+    if (!req.file?.buffer) {
       return res.status(400).json({ message: 'Please choose a file to upload' });
     }
 
-    const absolutePath = path.join(ensureUploadDir(folder), req.file.filename);
+    const filename = makeFilename(req.file.originalname, req.file.mimetype);
     try {
-      const gate = await gateImageUpload({
-        filePath: absolutePath,
+      await saveCheckedFile({
+        buffer: req.file.buffer,
         mimeType: req.file.mimetype,
-        filename: req.file.filename,
+        filename,
         folder,
       });
-      if (!gate.ok) {
-        return res.status(gate.status || 422).json(gate.body);
-      }
-    } catch (scanErr) {
-      console.error('[media] nsfw gate error:', scanErr.message || scanErr);
+    } catch (error) {
+      if (error.body) return res.status(error.status || 422).json(error.body);
+      console.error('[media] upload failed:', error.message || error);
+      return res.status(500).json({ message: error.message || 'Upload failed' });
     }
 
-    const url = publicUploadPath(folder, req.file.filename);
     return res.status(201).json({
-      url,
-      filename: req.file.filename,
+      url: publicUploadPath(folder, filename),
+      filename,
       folder,
       mimeType: req.file.mimetype,
       size: req.file.size,
@@ -113,6 +135,9 @@ router.post('/upload-base64', requireAuth, async (req, res) => {
     if (!data) {
       return res.status(400).json({ message: 'Missing image data' });
     }
+    if (!allowedMime(mimeType)) {
+      return res.status(400).json({ message: 'Only image, video, audio, or PDF files are allowed' });
+    }
 
     const dataUrlMatch = data.match(/^data:([^;]+);base64,(.+)$/i);
     if (dataUrlMatch) {
@@ -127,37 +152,18 @@ router.post('/upload-base64', requireAuth, async (req, res) => {
       return res.status(400).json({ message: 'File too large (max 20MB)' });
     }
 
-    const isAudio = mimeType.startsWith('audio/');
-    const ext =
-      MIME_EXT[mimeType] ||
-      (isAudio ? '.m4a' : mimeType.startsWith('video/') ? '.mp4' : '.jpg');
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+    const filename = makeFilename('', mimeType);
+    await saveCheckedFile({ buffer, mimeType, filename, folder });
 
-    // Scan images BEFORE writing to disk so NSFW never lands in /uploads
-    if (!isAudio && (mimeType.startsWith('image/') || IMAGE_EXTS.has(ext))) {
-      const gate = await gateImageUpload({
-        buffer,
-        mimeType,
-        filename,
-        folder,
-      });
-      if (!gate.ok) {
-        return res.status(gate.status || 422).json(gate.body);
-      }
-    }
-
-    const dir = ensureUploadDir(folder);
-    fs.writeFileSync(path.join(dir, filename), buffer);
-
-    const url = publicUploadPath(folder, filename);
     return res.status(201).json({
-      url,
+      url: publicUploadPath(folder, filename),
       filename,
       folder,
       mimeType,
       size: buffer.length,
     });
   } catch (error) {
+    if (error.body) return res.status(error.status || 422).json(error.body);
     return res.status(500).json({ message: error.message || 'Upload failed' });
   }
 });

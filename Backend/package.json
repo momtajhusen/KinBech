@@ -9,6 +9,7 @@
     "seed:admin": "node src/seedAdmin.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
     "@sentry/node": "^9.47.1",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-wasm": "^4.22.0",

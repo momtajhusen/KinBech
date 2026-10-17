@@ -2,8 +2,8 @@ const path = require('path');
 const multer = require('multer');
 const express = require('express');
 const { requireAdmin } = require('../middleware/auth');
-const { ensureUploadDir } = require('../config/uploads');
 const { gateImageUpload } = require('../utils/imageSafetyCheck');
+const { putUpload } = require('../utils/r2');
 const {
   listCategories,
   listCategoriesAdmin,
@@ -13,19 +13,8 @@ const {
   uploadCategoryImage,
 } = require('../controllers/categoryController');
 
-const uploadDir = ensureUploadDir('categories');
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadDir),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname || '').toLowerCase();
-    const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
-    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`);
-  },
-});
-
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 4 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!String(file.mimetype || '').startsWith('image/')) {
@@ -51,10 +40,12 @@ router.post(
       if (!req.file) {
         return res.status(400).json({ message: 'Please choose an image to upload' });
       }
+      const ext = path.extname(req.file.originalname || '').toLowerCase();
+      const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
+      req.file.filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`;
       try {
-        const filePath = path.join(uploadDir, req.file.filename);
         const gate = await gateImageUpload({
-          filePath,
+          buffer: req.file.buffer,
           mimeType: req.file.mimetype,
           filename: req.file.filename,
           folder: 'categories',
@@ -62,8 +53,15 @@ router.post(
         if (!gate.ok) {
           return res.status(gate.status || 422).json(gate.body);
         }
+        await putUpload({
+          folder: 'categories',
+          filename: req.file.filename,
+          body: req.file.buffer,
+          contentType: req.file.mimetype,
+        });
       } catch (scanErr) {
-        console.error('[categories] nsfw gate error:', scanErr.message || scanErr);
+        console.error('[categories] upload error:', scanErr.message || scanErr);
+        return res.status(500).json({ message: 'Image upload failed' });
       }
       next();
     });

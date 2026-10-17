@@ -17,7 +17,7 @@ const mediaRoutes = require('./routes/media');
 const aiRoutes = require('./routes/ai');
 const errorRoutes = require('./routes/errors');
 const { notFound, errorHandler } = require('./middleware/error');
-const { getUploadsRoot } = require('./config/uploads');
+const { serveUploads } = require('./utils/serveUploads');
 const { initSentry } = require('./utils/monitoring');
 
 initSentry();
@@ -33,7 +33,7 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: '25mb' }));
-app.use('/uploads', express.static(getUploadsRoot()));
+app.use('/uploads', serveUploads);
 
 // Log all requests for debugging
 app.use((req, res, next) => {

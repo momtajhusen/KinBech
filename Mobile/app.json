@@ -24,6 +24,7 @@
       },
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.codersalpha.kinbech",
+      "googleServicesFile": "./google-services.json",
       "newArchEnabled": false,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
@@ -60,6 +61,8 @@
       "reactCompiler": true
     },
     "plugins": [
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       [
         "expo-image-picker",
         {
