@@ -18,7 +18,7 @@ import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { resolveMediaUrl } from '../utils/listing';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle, formLabelStyle } from '../theme';
 
 const DOC_LABELS = [
   { key: 'PAN certificate', icon: 'card-outline' },
@@ -409,25 +409,9 @@ const createStyles = (colors) => ({
     lineHeight: 18,
     marginBottom: 4,
   },
-  fieldCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textSecondary,
-    marginBottom: 4,
-  },
-  input: {
-    fontSize: 16,
-    color: colors.text,
-    paddingVertical: 4,
-  },
+  fieldCard: {},
+  fieldLabel: formLabelStyle(colors),
+  input: { ...formInputStyle(colors), height: 40, paddingVertical: 0 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     flexDirection: 'row',

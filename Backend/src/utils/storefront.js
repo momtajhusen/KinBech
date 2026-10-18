@@ -17,6 +17,10 @@ function buildStorefrontPayload(shop) {
   return {
     shopId: String(shopId),
     shopName: shop.name || 'Shop',
+    category: shop.category || '',
+    location: shop.location || shop.address || '',
+    isVerified: Boolean(shop.isVerified),
+    logo: shop.logo || '',
     url,
     followHint: 'Scan to view and follow this shop on KinBech',
   };

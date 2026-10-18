@@ -35,9 +35,14 @@ app.use(cors({
 app.use(express.json({ limit: '25mb' }));
 app.use('/uploads', serveUploads);
 
+// The mobile app polls these every few seconds; logging them buries everything else.
+const QUIET_POLL_PATHS = new Set(['/chats', '/chats/incoming-call', '/notifications']);
+
 // Log all requests for debugging
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+  if (!(req.method === 'GET' && QUIET_POLL_PATHS.has(req.path))) {
+    console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+  }
   next();
 });
 

@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useState } from 'react';
 import {
   Dimensions,
+  findNodeHandle,
   Keyboard,
   Platform,
   ScrollView,
@@ -35,6 +36,39 @@ export function useKeyboardOverlap() {
   return overlap;
 }
 
+export function useKeyboardHeight() {
+  const [height, setHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      const next = Math.round(event?.endCoordinates?.height || 0);
+      setHeight(next > 24 ? next : 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  return height;
+}
+
+export function scrollFieldToTop(scrollRef, anchorRef) {
+  const scroll = scrollRef?.current;
+  const anchor = anchorRef?.current;
+  if (!scroll?.scrollTo || !anchor?.measureLayout) return;
+  const relative = findNodeHandle(scroll);
+  if (!relative) return;
+  anchor.measureLayout(
+    relative,
+    (_x, y) => scroll.scrollTo({ y: Math.max(0, y - 12), animated: true }),
+    () => {}
+  );
+}
+
 export function KeyboardForm({ children, style }) {
   const overlap = useKeyboardOverlap();
   return <View style={[{ flex: 1, paddingBottom: overlap }, style]}>{children}</View>;
@@ -47,6 +81,7 @@ export const FormScroll = forwardRef(function FormScroll(
     contentContainerStyle,
     extraOffset = 36,
     lift = true,
+    autoScroll = true,
     ...rest
   },
   ref
@@ -74,6 +109,7 @@ export const FormScroll = forwardRef(function FormScroll(
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const onShow = (event) => {
       setKeyboardPad(lift ? keyboardOverlap(event) : 0);
+      if (!autoScroll) return;
       setTimeout(scrollFocused, 40);
       setTimeout(scrollFocused, 260);
     };
@@ -83,7 +119,7 @@ export const FormScroll = forwardRef(function FormScroll(
       showSub.remove();
       hideSub.remove();
     };
-  }, [lift, scrollFocused]);
+  }, [autoScroll, lift, scrollFocused]);
 
   const flat = StyleSheet.flatten(contentContainerStyle) || {};
   const baseBottom = Number(flat.paddingBottom) || 0;

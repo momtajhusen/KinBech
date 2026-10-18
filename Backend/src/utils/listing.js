@@ -108,6 +108,8 @@ function listingPayload(listing, distanceKm, extras = {}) {
         id: listing.shopId._id,
         name: listing.shopId.name,
         logo: listing.shopId.logo,
+        coverImage: listing.shopId.coverImage || '',
+        tagline: listing.shopId.tagline || '',
         ratingAverage: listing.shopId.ratingAverage,
         reviewCount: listing.shopId.reviewCount,
         isVerified: listing.shopId.isVerified,

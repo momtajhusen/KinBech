@@ -39,6 +39,7 @@ const Layout = () => {
       title: 'System',
       items: [
         { path: adminPath('notifications'), label: 'Notifications', icon: '🔔' },
+        { path: adminPath('ai-models'), label: 'AI Models', icon: '🤖' },
         { path: adminPath('settings'), label: 'Settings & Roles', icon: '⚙️' },
       ],
     },
@@ -179,6 +180,7 @@ const pageTitleMap = {
   [adminPath('reports')]: 'Reports',
   [adminPath('reviews')]: 'Reviews',
   [adminPath('notifications')]: 'Notifications',
+  [adminPath('ai-models')]: 'AI Models',
   [adminPath('settings')]: 'Settings & Roles',
 };
 
@@ -193,6 +195,7 @@ const pageDescriptionMap = {
   [adminPath('reports')]: 'Review and resolve user reports',
   [adminPath('reviews')]: 'Moderate ratings and written reviews',
   [adminPath('notifications')]: 'Send platform-wide announcements',
+  [adminPath('ai-models')]: 'Track Gemini usage, choose models, and auto switch when a limit is reached',
   [adminPath('settings')]: 'Configure system settings and admin roles',
 };
 

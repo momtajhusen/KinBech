@@ -87,4 +87,39 @@ async function serveUploads(req, res, next) {
   }
 }
 
-module.exports = { serveUploads };
+function uploadRelPath(url) {
+  const raw = String(url || '').trim();
+  let pathname = '';
+  if (raw.startsWith('/uploads/')) pathname = raw;
+  else {
+    try {
+      pathname = new URL(raw).pathname;
+    } catch {
+      return '';
+    }
+  }
+  if (!pathname.startsWith('/uploads/')) return '';
+  let rel = '';
+  try {
+    rel = decodeURIComponent(pathname.slice('/uploads/'.length));
+  } catch {
+    return '';
+  }
+  return !rel || rel.includes('..') || rel.includes('\\') ? '' : rel;
+}
+
+/** Bytes of a stored `/uploads/...` file from disk or R2, or null. */
+async function readUploadBuffer(url) {
+  const rel = uploadRelPath(url);
+  if (!rel) return null;
+  const local = localFile(rel);
+  if (local) return fs.promises.readFile(local);
+  if (!isEnabled()) return null;
+  const parts = rel.split('/');
+  const filename = parts.pop();
+  const object = await getUpload(objectKey(parts.join('/') || 'misc', filename));
+  if (!object?.Body) return null;
+  return Buffer.from(await object.Body.transformToByteArray());
+}
+
+module.exports = { serveUploads, readUploadBuffer };

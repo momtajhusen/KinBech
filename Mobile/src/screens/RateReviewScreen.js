@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formTextareaStyle } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Text,
@@ -389,20 +389,8 @@ const createStyles = (colors) => ({
   star: {
     marginHorizontal: 2,
   },
-  inputWrap: {
-    width: '100%',
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-  },
-  input: {
-    minHeight: 120,
-    fontSize: 15,
-    color: colors.text,
-    textAlignVertical: 'top',
-  },
+  inputWrap: { width: '100%' },
+  input: { ...formTextareaStyle(colors), minHeight: 96 },
   charCount: {
     alignSelf: 'flex-end',
     fontSize: 12,

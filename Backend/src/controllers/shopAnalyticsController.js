@@ -24,10 +24,11 @@ async function getMyShopAnalytics(req, res, next) {
     const shopId = shop._id;
     const chartDays = period.chartDays;
     const metricDays = period.metricDays;
+    const fetchDays = Math.max(chartDays, metricDays * 2);
 
-    const [summaryData, salesSeries, listings, inquiryAgg] = await Promise.all([
-      getShopAnalyticsSummary(shopId, chartDays),
-      getShopSalesSeries(shopId, chartDays),
+    const [summaryFull, salesFull, listings, inquiryAgg] = await Promise.all([
+      getShopAnalyticsSummary(shopId, fetchDays),
+      getShopSalesSeries(shopId, fetchDays),
       Listing.find({ shopId, sellerType: 'shop' })
         .select('title photos price currency status views category location createdAt updatedAt soldAt')
         .sort({ views: -1, updatedAt: -1 })
@@ -59,6 +60,24 @@ async function getMyShopAnalytics(req, res, next) {
     const metricSince = new Date();
     metricSince.setUTCHours(0, 0, 0, 0);
     metricSince.setUTCDate(metricSince.getUTCDate() - (metricDays - 1));
+    const prevSince = new Date(metricSince);
+    prevSince.setUTCDate(prevSince.getUTCDate() - metricDays);
+    const metricKey = metricSince.toISOString().slice(0, 10);
+    const prevKey = prevSince.toISOString().slice(0, 10);
+
+    const summaryData = { ...summaryFull, chart: summaryFull.chart.slice(-chartDays) };
+    const salesSeries = { ...salesFull, chart: salesFull.chart.slice(-chartDays) };
+
+    const sumRange = (rows, from, to, fields) => rows
+      .filter((row) => row.date >= from && (!to || row.date < to))
+      .reduce((acc, row) => {
+        fields.forEach((field) => {
+          acc[field] += Number(row[field]) || 0;
+        });
+        return acc;
+      }, Object.fromEntries(fields.map((field) => [field, 0])));
+    const prevActivity = sumRange(summaryFull.chart, prevKey, metricKey, ['profileViews', 'listingViews', 'inquiries']);
+    const prevSales = sumRange(salesFull.chart, prevKey, metricKey, ['salesCount', 'salesRevenue']);
 
     let periodInquiries = summaryData.chart
       .filter((row) => row.date >= metricSince.toISOString().slice(0, 10))
@@ -125,6 +144,39 @@ async function getMyShopAnalytics(req, res, next) {
 
     const topProducts = bestItems.slice(0, 8);
 
+    const trend = (current, previous) => ({
+      current,
+      previous,
+      changePct: previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null,
+    });
+    const listingViewsNow = periodViews.listingViews;
+    const trends = {
+      revenue: trend(periodSales.salesRevenue, prevSales.salesRevenue),
+      units: trend(periodSales.salesCount, prevSales.salesCount),
+      listingViews: trend(listingViewsNow, prevActivity.listingViews),
+      profileViews: trend(periodViews.profileViews, prevActivity.profileViews),
+      inquiries: trend(periodInquiries, prevActivity.inquiries),
+    };
+
+    const staleBefore = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const activeRows = listings.filter((l) => l.status === 'active');
+    const inventory = {
+      active: activeListings,
+      sold: soldListings,
+      noViews: activeRows.filter((l) => !(Number(l.views) > 0)).length,
+      noInquiries: activeRows.filter((l) => !inquiryByListing[String(l._id)]).length,
+      stale: activeRows.filter((l) => new Date(l.updatedAt || l.createdAt).getTime() < staleBefore).length,
+      noPhotos: activeRows.filter((l) => !(l.photos || []).length).length,
+      stockValue: activeRows.reduce((sum, l) => sum + (Number(l.price) || 0), 0),
+    };
+
+    const funnel = [
+      { key: 'profileViews', label: 'Store visits', value: periodViews.profileViews },
+      { key: 'listingViews', label: 'Item views', value: listingViewsNow },
+      { key: 'inquiries', label: 'Chats', value: periodInquiries },
+      { key: 'sales', label: 'Sales', value: periodSales.salesCount },
+    ];
+
     // Merge activity + sales into one chart for the UI
     const salesByDate = new Map(salesSeries.chart.map((r) => [r.date, r]));
     const chart = summaryData.chart.map((row) => {
@@ -144,6 +196,7 @@ async function getMyShopAnalytics(req, res, next) {
         id: shop._id,
         name: shop.name,
         logo: shop.logo,
+        coverImage: shop.coverImage || '',
         category: shop.category,
         isVerified: shop.isVerified,
         ratingAverage: shop.ratingAverage,
@@ -173,6 +226,9 @@ async function getMyShopAnalytics(req, res, next) {
         avgOrderValue,
         currency: 'NPR',
       },
+      trends,
+      inventory,
+      funnel,
       chart,
       salesChart: salesSeries.chart,
       topProducts,

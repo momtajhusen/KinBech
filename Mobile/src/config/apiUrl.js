@@ -70,21 +70,40 @@ function readMetroHost() {
   return null;
 }
 
-function resolveDevMachineHostPort() {
-  const metroHost = readMetroHost();
-  if (metroHost) {
-    return { host: metroHost, port: API_PORT };
-  }
+function isAndroidEmulator() {
+  if (Platform.OS !== 'android') return false;
+  const constants = Platform.constants || {};
+  const blob = [
+    constants.Fingerprint,
+    constants.Model,
+    constants.Brand,
+    constants.Manufacturer,
+    constants.Product,
+    constants.Hardware,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return /generic|emulator|sdk_gphone|google_sdk|goldfish|ranchu|Android SDK built for/i.test(blob);
+}
 
+function resolveDevMachineHostPort() {
+  // Explicit LAN IP wins. Auto-detect often picks localhost, which this file
+  // ignores, and then a real phone falls through to the emulator-only host.
   const envHost = normalizeHost(process.env.EXPO_PUBLIC_DEV_API_HOST);
   if (envHost) {
     return { host: envHost, port: API_PORT };
   }
 
-  if (Platform.OS === 'android') {
+  const metroHost = readMetroHost();
+  if (metroHost) {
+    return { host: metroHost, port: API_PORT };
+  }
+
+  if (Platform.OS === 'android' && isAndroidEmulator()) {
     return { host: '10.0.2.2', port: API_PORT };
   }
 
+  // Physical phone: adb reverse maps 127.0.0.1 on the device to this computer.
   return { host: '127.0.0.1', port: API_PORT };
 }
 
@@ -123,18 +142,17 @@ export function getApiBaseUrlCandidates() {
     return Array.from(set);
   }
 
-  if (process.env.EXPO_PUBLIC_DEV_API_HOST) {
-    return Array.from(set);
-  }
+  const envHost = normalizeHost(process.env.EXPO_PUBLIC_DEV_API_HOST);
+  if (envHost) set.add(`http://${envHost}:${API_PORT}`);
 
   const metro = readMetroHost();
   if (metro) set.add(`http://${metro}:${API_PORT}`);
 
-  if (Platform.OS === 'android') {
+  if (Platform.OS === 'android' && isAndroidEmulator()) {
     set.add(`http://10.0.2.2:${API_PORT}`);
   }
 
-  if (Platform.OS === 'ios') {
+  if (Platform.OS === 'android' || Platform.OS === 'ios') {
     set.add(`http://127.0.0.1:${API_PORT}`);
   }
 

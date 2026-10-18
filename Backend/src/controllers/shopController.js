@@ -11,6 +11,48 @@ const {
   shopPublicFields,
 } = require('../utils/shopVerification');
 
+const OPEN_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const PAYMENT_METHODS = ['Cash', 'eSewa', 'Khalti', 'Fonepay', 'Bank transfer', 'Card'];
+const TEXT_LIMITS = {
+  tagline: 80,
+  whatsapp: 20,
+  email: 120,
+  website: 200,
+  deliveryAreas: 200,
+  returnPolicy: 300,
+};
+const SOCIAL_KEYS = ['facebook', 'instagram', 'tiktok', 'youtube'];
+
+function cleanText(value, max) {
+  return String(value ?? '').trim().slice(0, max);
+}
+
+function applyProfileExtras(shop, body) {
+  Object.entries(TEXT_LIMITS).forEach(([field, max]) => {
+    if (body[field] !== undefined) shop[field] = cleanText(body[field], max);
+  });
+  if (body.coverImage !== undefined) shop.coverImage = cleanText(body.coverImage, 500);
+  if (body.socialLinks && typeof body.socialLinks === 'object') {
+    const next = { ...(shop.socialLinks?.toObject ? shop.socialLinks.toObject() : shop.socialLinks || {}) };
+    SOCIAL_KEYS.forEach((key) => {
+      if (body.socialLinks[key] !== undefined) next[key] = cleanText(body.socialLinks[key], 200);
+    });
+    shop.socialLinks = next;
+  }
+  if (Array.isArray(body.openDays)) {
+    shop.openDays = OPEN_DAYS.filter((day) => body.openDays.includes(day));
+  }
+  if (Array.isArray(body.paymentMethods)) {
+    shop.paymentMethods = PAYMENT_METHODS.filter((m) => body.paymentMethods.includes(m));
+  }
+  if (body.deliveryAvailable !== undefined) shop.deliveryAvailable = Boolean(body.deliveryAvailable);
+  if (body.establishedYear !== undefined) {
+    const year = Number(body.establishedYear);
+    const max = new Date().getFullYear();
+    shop.establishedYear = Number.isInteger(year) && year >= 1900 && year <= max ? year : null;
+  }
+}
+
 async function createShop(req, res, next) {
   try {
     const { name, category, description, phone, address, location, openingHours, logo } = req.body;
@@ -139,6 +181,7 @@ async function updateShop(req, res, next) {
     if (req.body.category !== undefined) {
       shop.category = mapShopCategory(req.body.category);
     }
+    applyProfileExtras(shop, req.body);
     if (req.body.coordinates) {
       shop.coordinates = {
         lat: req.body.coordinates.lat != null ? Number(req.body.coordinates.lat) : shop.coordinates?.lat,

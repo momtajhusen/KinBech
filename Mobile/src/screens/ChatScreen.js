@@ -441,8 +441,8 @@ export default function ChatScreen({ navigation, route }) {
     }
     navigation.navigate(ROUTES.CALL, {
       chatId,
-      name: peer?.name || contactName,
-      image: resolveMediaUrl(peer?.avatarUrl || '') || contactImage,
+      name: shownName,
+      image: shownImage,
       listing: shownListing
         ? {
             id: pinnedId,
@@ -679,8 +679,9 @@ export default function ChatScreen({ navigation, route }) {
   };
 
   const shownListing = chatListing || listing;
-  const shownName = peer?.name || contactName;
-  const shownImage = resolveMediaUrl(peer?.avatarUrl || '') || contactImage || '';
+  const peerShop = peer?.shop;
+  const shownName = peerShop?.name || peer?.name || contactName;
+  const shownImage = resolveMediaUrl(peerShop?.logo || peer?.avatarUrl || '') || contactImage || '';
   const pinnedTitle = shownListing?.title || '';
   const pinnedPrice = shownListing?.price != null ? formatPrice(shownListing.price) : '';
   const pinnedImage = shownListing?.photos?.[0] ? resolveMediaUrl(shownListing.photos[0]) : '';
@@ -700,10 +701,17 @@ export default function ChatScreen({ navigation, route }) {
             <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
           </Pressable>
 
-          <View style={styles.contactWrap}>
+          <Pressable
+            style={styles.contactWrap}
+            disabled={!peerShop}
+            onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: peerShop.id })}
+          >
             <Avatar size={42} styles={styles} imageUrl={shownImage} name={shownName} />
             <View style={styles.contactText}>
-              <Text style={styles.contactName} numberOfLines={1}>{shownName}</Text>
+              <View style={styles.contactNameRow}>
+                <Text style={styles.contactName} numberOfLines={1}>{shownName}</Text>
+                {peerShop ? <Ionicons name="storefront" size={12} color={colors.onGradient} /> : null}
+              </View>
               <Text
                 style={[
                   styles.contactStatus,
@@ -714,7 +722,7 @@ export default function ChatScreen({ navigation, route }) {
                 {presenceLabel(presence)}
               </Text>
             </View>
-          </View>
+          </Pressable>
 
           <View style={styles.headerActions}>
             <Pressable
@@ -1184,7 +1192,13 @@ const createStyles = (colors) => ({
     flex: 1,
     marginLeft: 8,
   },
+  contactNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   contactName: {
+    flexShrink: 1,
     fontSize: 17,
     fontWeight: '600',
     color: '#E9EDEF',

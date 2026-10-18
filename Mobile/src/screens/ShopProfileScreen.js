@@ -1,363 +1,129 @@
-import { useCallback, useState } from 'react';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
-import { Image, Modal } from 'react-native';
-import ScreenLoader from '../components/ScreenLoader';
+import { useCallback, useMemo, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import {
+  Alert,
+  Image,
+  Linking,
   Pressable,
   ScrollView,
+  Share,
   Text,
+  TextInput,
   View,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ScreenLoader from '../components/ScreenLoader';
+import EmptyState from '../components/EmptyState';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import EmptyState from '../components/EmptyState';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const COVER_HEIGHT = 120;
+const LOGO_SIZE = 76;
 
-const createStyles = (colors) => ({
-  root: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  header: {
-    backgroundColor: colors.gradientStart,
-    paddingTop: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  headerTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  moreBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-  },
-  profileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: 12,
-  },
-  avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.surface,
-    overflow: 'hidden',
-  },
-  avatarImage: {
-    width: '100%',
-    height: '100%',
-  },
-  profileInfoWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 2,
-  },
-  name: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.onPrimary,
-  },
-  verifiedBadge: {
-    width: 16,
-    height: 16,
-  },
-  tagline: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 8,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  statCol: {
-    alignItems: 'flex-start',
-  },
-  statTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  statIcon: {
-    opacity: 0.9,
-  },
-  ratingText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.onPrimary,
-  },
-  statValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.onPrimary,
-  },
-  statReviews: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  statLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.7)',
-  },
-  followBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-  },
-  followBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.gradientStart,
-  },
-  tabsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    marginTop: 20,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  tabItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 4,
-    paddingVertical: 14,
-    position: 'relative',
-    marginRight: 28,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.textSecondary,
-  },
-  tabTextActive: {
-    color: colors.gradientStart,
-  },
-  tabIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    backgroundColor: colors.gradientStart,
-    borderRadius: 2,
-  },
-  content: {
-    flex: 1,
-  },
-  productsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 8,
-  },
-  productCard: {
-    width: (SCREEN_WIDTH - 32) / 2,
-    margin: 8,
-    backgroundColor: colors.iconBackground,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  productImage: {
-    width: '100%',
-    aspectRatio: 1,
-  },
-  productInfo: {
-    padding: 10,
-  },
-  productTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  productPrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  reviewsList: {
-    padding: 16,
-  },
-  reviewCard: {
-    backgroundColor: colors.iconBackground,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 12,
-  },
-  reviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  reviewAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.border,
-    marginRight: 10,
-  },
-  reviewAvatarImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 18,
-  },
-  reviewName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  reviewRating: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 'auto',
-  },
-  reviewStars: {
-    flexDirection: 'row',
-    marginRight: 4,
-  },
-  reviewDate: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-  reviewText: {
-    fontSize: 13,
-    color: colors.text,
-    lineHeight: 18,
-  },
-  aboutSection: {
-    padding: 16,
-  },
-  aboutText: {
-    fontSize: 14,
-    color: colors.text,
-    lineHeight: 22,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-  },
-  infoIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.iconBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  infoValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    color: colors.textSecondary,
-  },
-});
+const SORTS = [
+  { key: 'newest', label: 'Newest' },
+  { key: 'price_low', label: 'Price ↑' },
+  { key: 'price_high', label: 'Price ↓' },
+];
+
+function parseClock(text) {
+  const m = String(text || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!m) return null;
+  let h = Number(m[1]) % 24;
+  const min = Number(m[2] || 0);
+  const ampm = (m[3] || '').toUpperCase();
+  if (ampm === 'PM' && h < 12) h += 12;
+  if (ampm === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function openStatus(hours, openDays) {
+  if (Array.isArray(openDays) && openDays.length && !openDays.includes(WEEK_DAYS[new Date().getDay()])) {
+    return false;
+  }
+  const [from, to] = String(hours || '').split(/\s*[-–]\s*/);
+  const start = parseClock(from);
+  const end = parseClock(to);
+  if (start == null || end == null) return null;
+  const now = new Date();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  return end > start ? mins >= start && mins < end : mins >= start || mins < end;
+}
+
+const SOCIAL_LINKS = [
+  { key: 'facebook', icon: 'logo-facebook', color: '#1877F2', base: 'https://facebook.com/' },
+  { key: 'instagram', icon: 'logo-instagram', color: '#E1306C', base: 'https://instagram.com/' },
+  { key: 'tiktok', icon: 'logo-tiktok', color: '#111111', base: 'https://www.tiktok.com/@' },
+  { key: 'youtube', icon: 'logo-youtube', color: '#FF0000', base: 'https://youtube.com/@' },
+];
+
+function toUrl(value, base = 'https://') {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^https?:\/\//i.test(text)) return text;
+  if (/\.[a-z]{2,}(\/|$)/i.test(text) && base !== 'https://') return `https://${text}`;
+  return `${base}${text.replace(/^@/, '')}`;
+}
+
+function whatsappUrl(number) {
+  let digits = String(number || '').replace(/\D/g, '');
+  if (digits.length === 10 && digits.startsWith('9')) digits = `977${digits}`;
+  return digits ? `https://wa.me/${digits}` : '';
+}
+
+function timeAgo(value) {
+  if (!value) return '';
+  const diff = Date.now() - new Date(value).getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days < 1) return 'Today';
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
 
 export default function ShopProfileScreen({ route, navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const { user } = useAuth();
   const { shopId: rawShopId } = route.params || {};
   const shopId = rawShopId?._id || rawShopId?.id || rawShopId;
-  const { user } = useAuth();
 
   const [shop, setShop] = useState(null);
   const [listings, setListings] = useState([]);
   const [reviews, setReviews] = useState([]);
-  const [activeTab, setActiveTab] = useState('products');
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('products');
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('All');
+  const [sortKey, setSortKey] = useState('newest');
+  const [chatBusy, setChatBusy] = useState(false);
 
-  const tabs = [
-    { id: 'products', label: 'Products', icon: 'grid-outline' },
-    { id: 'reviews', label: 'Reviews', icon: 'star-outline' },
-    { id: 'about', label: 'About', icon: 'information-circle-outline' },
-  ];
-
-  const loadShopData = useCallback(async ({ silent } = {}) => {
-    try {
+  const loadShopData = useCallback(
+    async ({ silent } = {}) => {
       if (!silent) setLoading(true);
-      
       const [shopRes, listingsRes, reviewsRes] = await Promise.all([
         api.getShopById(shopId),
         api.getShopListings(shopId),
         api.getShopReviews(shopId),
       ]);
-
-      if (shopRes.data?.shop) {
-        setShop(shopRes.data.shop);
-      }
-      if (listingsRes.data?.listings) {
-        setListings(listingsRes.data.listings);
-      }
-      if (reviewsRes.data?.reviews) {
-        setReviews(reviewsRes.data.reviews);
-      }
-    } catch (error) {
-      console.error('Error loading shop data:', error);
-    } finally {
+      if (shopRes.data?.shop) setShop(shopRes.data.shop);
+      setListings(listingsRes.data?.listings || []);
+      setReviews(reviewsRes.data?.reviews || []);
       if (!silent) setLoading(false);
-    }
-  }, [shopId]);
+    },
+    [shopId]
+  );
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadShopData({ silent: true }));
 
@@ -367,26 +133,31 @@ export default function ShopProfileScreen({ route, navigation }) {
     }, [loadShopData])
   );
 
-  const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-    }
-  };
+  const categories = useMemo(() => {
+    const set = new Set(listings.map((l) => l.category).filter(Boolean));
+    return ['All', ...Array.from(set).sort()];
+  }, [listings]);
 
-  const renderStars = (rating) => {
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      stars.push(
-        <Ionicons
-          key={i}
-          name={i <= rating ? 'star' : 'star-outline'}
-          size={12}
-          color={colors.warningYellow}
-        />
-      );
-    }
-    return stars;
-  };
+  const visibleListings = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    let list = listings.filter(
+      (l) =>
+        (category === 'All' || l.category === category) &&
+        (!needle || String(l.title || '').toLowerCase().includes(needle))
+    );
+    if (sortKey === 'price_low') list = [...list].sort((a, b) => (a.price || 0) - (b.price || 0));
+    else if (sortKey === 'price_high') list = [...list].sort((a, b) => (b.price || 0) - (a.price || 0));
+    return list;
+  }, [listings, query, category, sortKey]);
+
+  const ratingBars = useMemo(() => {
+    const counts = [0, 0, 0, 0, 0];
+    reviews.forEach((r) => {
+      const star = Math.min(5, Math.max(1, Math.round(Number(r.rating) || 0)));
+      counts[star - 1] += 1;
+    });
+    return counts;
+  }, [reviews]);
 
   if (loading && !shop) {
     return <ScreenLoader label="Loading shop" />;
@@ -397,226 +168,1078 @@ export default function ShopProfileScreen({ route, navigation }) {
       <View style={styles.root}>
         <ThemeStatusBar variant="header" />
         <EmptyState
+          compact
           icon="storefront-outline"
-          title="Shop Not Found"
-          message="This shop may have been removed or is no longer available."
+          title="Shop not found"
+          body="This shop may have been removed or is no longer available."
         />
       </View>
     );
   }
 
-  return (
-    <View style={styles.root}>
-      <ThemeStatusBar variant="header" />
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View style={styles.headerTop}>
-          <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={22} color={colors.onGradient} />
-          </Pressable>
-          <Pressable
-            style={styles.moreBtn}
-            onPress={() => {
-              const ownerId = shop.owner?._id || shop.owner;
-              if (user?.id && String(ownerId) === String(user.id)) {
-                navigation.navigate(ROUTES.CREATE_SHOP, { shopId: shop._id || shop.id });
-                return;
-              }
-            }}
-          >
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.onGradient} />
-          </Pressable>
+  const ownerId = String(shop.owner?._id || shop.owner || '');
+  const isOwner = Boolean(user?.id) && ownerId === String(user.id);
+  const rating = Number(shop.ratingAverage) || 0;
+  const reviewCount = Number(shop.reviewCount) || reviews.length;
+  const isOpen = openStatus(shop.openingHours, shop.openDays);
+  const coverHeight = shop.coverImage ? Math.round((width * 7) / 16) : COVER_HEIGHT;
+  const social = shop.socialLinks || {};
+  const sinceYear = shop.createdAt ? new Date(shop.createdAt).getFullYear() : null;
+  const coords = shop.coordinates || {};
+  const hasCoords =
+    coords.lat != null && coords.lng != null && Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng));
+  const placeText = shop.address || shop.location || '';
+  const cardWidth = (width - 32 - 10) / 2;
+
+  const startChat = async () => {
+    if (chatBusy || !ownerId) return;
+    setChatBusy(true);
+    const { data, error } = await api.createChat({ userId: ownerId });
+    setChatBusy(false);
+    if (error) {
+      Alert.alert('Chat failed', error);
+      return;
+    }
+    navigation.navigate(ROUTES.CHAT, {
+      chatId: data.chat.id,
+      name: shop.name,
+      otherUserId: data.chat.otherUser?.id || ownerId,
+      image: resolveMediaUrl(shop.logo || ''),
+    });
+  };
+
+  const callShop = () => {
+    if (shop.phone) Linking.openURL(`tel:${shop.phone}`).catch(() => {});
+  };
+
+  const openDirections = () => {
+    const target = hasCoords ? `${coords.lat},${coords.lng}` : placeText;
+    if (!target) return;
+    Linking.openURL(
+      `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(target)}`
+    ).catch(() => Alert.alert('Map failed', 'Could not open a map app on this device.'));
+  };
+
+  const openLink = (url) => {
+    if (url) Linking.openURL(url).catch(() => Alert.alert('Could not open', url));
+  };
+
+  const shareShop = () => {
+    Share.share({
+      message: `${shop.name} on KinBech${shop.category ? ` · ${shop.category}` : ''}${
+        placeText ? `\n${placeText}` : ''
+      }`,
+    }).catch(() => {});
+  };
+
+  const actions = isOwner
+    ? [
+        { key: 'edit', icon: 'create-outline', label: 'Edit shop', primary: true, onPress: () => navigation.navigate(ROUTES.EDIT_SHOP) },
+        { key: 'stats', icon: 'analytics-outline', label: 'Stats', onPress: () => navigation.navigate(ROUTES.SHOP_DASHBOARD) },
+        { key: 'qr', icon: 'qr-code-outline', label: 'QR', onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR) },
+        { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
+      ]
+    : [
+        { key: 'chat', icon: 'chatbubble-ellipses-outline', label: chatBusy ? 'Opening…' : 'Chat', primary: true, onPress: startChat },
+        ...(shop.phone ? [{ key: 'call', icon: 'call-outline', label: 'Call', onPress: callShop }] : []),
+        ...(hasCoords || placeText ? [{ key: 'dir', icon: 'navigate-outline', label: 'Directions', onPress: openDirections }] : []),
+        { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
+      ];
+
+  const stats = [
+    { label: reviewCount ? `${reviewCount} reviews` : 'No reviews', value: reviewCount ? rating.toFixed(1) : '–', icon: 'star', tint: colors.warning },
+    { label: 'Products', value: listings.length, icon: 'cube-outline', tint: colors.primary },
+    { label: 'Since', value: sinceYear || '–', icon: 'calendar-outline', tint: colors.menuBlue },
+  ];
+
+  const renderProducts = () => (
+    <View>
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={15} color={colors.textMuted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={`Search in ${shop.name}`}
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          {query ? (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
         </View>
+        <Pressable
+          style={styles.sortBtn}
+          onPress={() => {
+            const i = SORTS.findIndex((s) => s.key === sortKey);
+            setSortKey(SORTS[(i + 1) % SORTS.length].key);
+          }}
+        >
+          <Ionicons name="swap-vertical" size={14} color={colors.primary} />
+          <Text style={styles.sortText}>{SORTS.find((s) => s.key === sortKey)?.label}</Text>
+        </Pressable>
+      </View>
 
-        <View style={styles.profileRow}>
-          <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              {shop.logo ? (
-                <Image source={{ uri: shop.logo }} style={styles.avatarImage} />
-              ) : (
-                <View style={[styles.avatar, { alignItems: 'center', justifyContent: 'center' }]}>
-                  <Ionicons name="storefront" size={28} color={colors.textSecondary} />
-                </View>
-              )}
-            </View>
-          </View>
+      {categories.length > 2 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+        >
+          {categories.map((cat) => (
+            <Pressable
+              key={cat}
+              style={[styles.chip, category === cat && styles.chipActive]}
+              onPress={() => setCategory(cat)}
+            >
+              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
 
-          <View style={styles.profileInfoWrap}>
-            <View style={styles.profileInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {shop.name}
-                </Text>
-                {shop.isVerified && (
-                  <Ionicons name="checkmark-circle" size={16} color={colors.warningYellow} />
-                )}
-              </View>
-              <Text style={styles.tagline}>{shop.category}</Text>
-              <View style={styles.statsRow}>
-                <View style={styles.statCol}>
-                  <View style={styles.statTop}>
-                    <Ionicons name="star" size={12} color={colors.warningYellow} style={styles.statIcon} />
-                    <Text style={styles.ratingText}>{shop.ratingAverage.toFixed(1)}</Text>
-                  </View>
-                  <Text style={styles.statReviews}>{shop.reviewCount} reviews</Text>
+      {visibleListings.length === 0 ? (
+        <View style={[styles.emptyBox, styles.emptyBoxInset]}>
+          <Ionicons name="cube-outline" size={22} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>
+            {listings.length ? 'No products match' : 'No products yet'}
+          </Text>
+          <Text style={styles.emptyBody}>
+            {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.grid}>
+          {visibleListings.map((listing) => {
+            const id = listing._id || listing.id;
+            return (
+              <Pressable
+                key={id}
+                style={[styles.productCard, { width: cardWidth }]}
+                onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+              >
+                <View style={styles.productImageWrap}>
+                  {listing.photos?.[0] ? (
+                    <Image
+                      source={{ uri: resolveMediaUrl(listing.photos[0]) }}
+                      style={styles.fillImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Ionicons name="image-outline" size={24} color={colors.textMuted} />
+                  )}
+                  {listing.isOnSale ? (
+                    <View style={styles.saleTag}>
+                      <Text style={styles.saleTagText}>SALE</Text>
+                    </View>
+                  ) : null}
                 </View>
-                <View style={styles.statCol}>
-                  <View style={styles.statTop}>
-                    <Ionicons name="cube-outline" size={12} color={colors.onGradient} style={styles.statIcon} />
-                    <Text style={styles.statValue}>{listings.length}</Text>
+                <View style={styles.productInfo}>
+                  <Text style={styles.productTitle} numberOfLines={1}>
+                    {listing.title}
+                  </Text>
+                  <View style={styles.priceRow}>
+                    <Text style={styles.productPrice}>{formatPrice(listing.price)}</Text>
+                    {listing.originalPrice && Number(listing.originalPrice) > Number(listing.price) ? (
+                      <Text style={styles.oldPrice}>{formatPrice(listing.originalPrice)}</Text>
+                    ) : null}
                   </View>
-                  <Text style={styles.statLabel}>Products</Text>
+                  {listing.condition ? (
+                    <Text style={styles.productMeta} numberOfLines={1}>
+                      {listing.condition}
+                    </Text>
+                  ) : null}
                 </View>
-              </View>
-            </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderReviews = () => (
+    <View style={styles.section}>
+      <View style={styles.ratingCard}>
+        <View style={styles.ratingBig}>
+          <Text style={styles.ratingBigValue}>{reviewCount ? rating.toFixed(1) : '–'}</Text>
+          <View style={styles.starsRow}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Ionicons
+                key={i}
+                name={i <= Math.round(rating) ? 'star' : 'star-outline'}
+                size={12}
+                color={colors.warning}
+              />
+            ))}
           </View>
+          <Text style={styles.ratingBigLabel}>{reviewCount} reviews</Text>
+        </View>
+        <View style={styles.bars}>
+          {[5, 4, 3, 2, 1].map((star) => {
+            const count = ratingBars[star - 1];
+            const pct = reviews.length ? count / reviews.length : 0;
+            return (
+              <View key={star} style={styles.barRow}>
+                <Text style={styles.barLabel}>{star}</Text>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+                </View>
+                <Text style={styles.barCount}>{count}</Text>
+              </View>
+            );
+          })}
         </View>
       </View>
 
-      <View style={styles.tabsRow}>
-        {tabs.map((tab) => (
+      {reviews.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Ionicons name="star-outline" size={22} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>No reviews yet</Text>
+          <Text style={styles.emptyBody}>Reviews from buyers will appear here.</Text>
+        </View>
+      ) : (
+        reviews.map((review) => (
+          <View key={review._id} style={styles.reviewCard}>
+            <View style={styles.reviewHeader}>
+              <View style={styles.reviewAvatar}>
+                {review.reviewer?.avatarUrl ? (
+                  <Image source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }} style={styles.fillImage} />
+                ) : (
+                  <Ionicons name="person" size={14} color={colors.textMuted} />
+                )}
+              </View>
+              <View style={styles.flex1}>
+                <Text style={styles.reviewName} numberOfLines={1}>
+                  {review.reviewer?.name || 'Buyer'}
+                </Text>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Ionicons
+                      key={i}
+                      name={i <= review.rating ? 'star' : 'star-outline'}
+                      size={10}
+                      color={colors.warning}
+                    />
+                  ))}
+                </View>
+              </View>
+              <Text style={styles.reviewDate}>{timeAgo(review.createdAt)}</Text>
+            </View>
+            {review.review ? <Text style={styles.reviewText}>{review.review}</Text> : null}
+            {review.listing?.title ? (
+              <Text style={styles.reviewItem} numberOfLines={1}>
+                Bought: {review.listing.title}
+              </Text>
+            ) : null}
+          </View>
+        ))
+      )}
+    </View>
+  );
+
+  const infoRows = [
+    {
+      icon: 'time-outline',
+      label: 'Opening hours',
+      value: shop.openingHours || 'Not set',
+      extra: isOpen == null ? null : isOpen ? 'Open now' : 'Closed',
+      extraColor: isOpen ? colors.success : colors.danger,
+    },
+    shop.openDays?.length && shop.openDays.length < 7
+      ? { icon: 'calendar-number-outline', label: 'Open on', value: shop.openDays.join(', ') }
+      : null,
+    shop.phone ? { icon: 'call-outline', label: 'Phone', value: shop.phone, onPress: isOwner ? null : callShop } : null,
+    shop.whatsapp
+      ? { icon: 'logo-whatsapp', label: 'WhatsApp', value: shop.whatsapp, onPress: () => openLink(whatsappUrl(shop.whatsapp)) }
+      : null,
+    shop.email ? { icon: 'mail-outline', label: 'Email', value: shop.email, onPress: () => openLink(`mailto:${shop.email}`) } : null,
+    shop.website
+      ? { icon: 'globe-outline', label: 'Website', value: shop.website, onPress: () => openLink(toUrl(shop.website)) }
+      : null,
+    placeText ? { icon: 'location-outline', label: 'Address', value: placeText, onPress: openDirections } : null,
+    shop.category ? { icon: 'pricetag-outline', label: 'Category', value: shop.category } : null,
+    {
+      icon: 'bicycle-outline',
+      label: 'Delivery',
+      value: shop.deliveryAvailable ? shop.deliveryAreas || 'Home delivery available' : 'Pickup / meetup only',
+    },
+    shop.paymentMethods?.length
+      ? { icon: 'wallet-outline', label: 'Payments accepted', value: shop.paymentMethods.join(' · ') }
+      : null,
+    shop.returnPolicy ? { icon: 'refresh-outline', label: 'Return / exchange', value: shop.returnPolicy } : null,
+    shop.establishedYear ? { icon: 'ribbon-outline', label: 'Established', value: String(shop.establishedYear) } : null,
+    {
+      icon: shop.isVerified ? 'shield-checkmark' : 'shield-outline',
+      label: 'Verification',
+      value: shop.isVerified ? 'Business verified' : 'Not verified yet',
+      valueColor: shop.isVerified ? colors.success : colors.textMuted,
+    },
+    sinceYear ? { icon: 'calendar-outline', label: 'On KinBech since', value: String(sinceYear) } : null,
+  ].filter(Boolean);
+
+  const renderAbout = () => (
+    <View style={styles.section}>
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>About</Text>
+        <Text style={styles.aboutText}>{shop.description?.trim() || 'No description provided.'}</Text>
+        {SOCIAL_LINKS.some((s) => social[s.key]) ? (
+          <View style={styles.socialRow}>
+            {SOCIAL_LINKS.filter((s) => social[s.key]).map((s) => (
+              <Pressable
+                key={s.key}
+                onPress={() => openLink(toUrl(social[s.key], s.base))}
+                style={[styles.socialBtn, { backgroundColor: `${s.color}14` }]}
+              >
+                <Ionicons name={s.icon} size={18} color={s.color} />
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </View>
+      <View style={styles.card}>
+        {infoRows.map((row, index) => (
           <Pressable
-            key={tab.id}
-            style={styles.tabItem}
-            onPress={() => setActiveTab(tab.id)}
+            key={row.label}
+            style={[styles.infoRow, index < infoRows.length - 1 && styles.infoRowBorder]}
+            onPress={row.onPress || undefined}
+            disabled={!row.onPress}
           >
-            <Ionicons
-              name={tab.icon}
-              size={18}
-              color={activeTab === tab.id ? colors.gradientStart : colors.textSecondary}
-            />
-            <Text style={[styles.tabText, activeTab === tab.id && styles.tabTextActive]}>
-              {tab.label}
-            </Text>
-            {activeTab === tab.id && <View style={styles.tabIndicator} />}
+            <View style={styles.infoIcon}>
+              <Ionicons name={row.icon} size={15} color={colors.primary} />
+            </View>
+            <View style={styles.flex1}>
+              <Text style={styles.infoLabel}>{row.label}</Text>
+              <Text style={[styles.infoValue, row.valueColor && { color: row.valueColor }]}>{row.value}</Text>
+            </View>
+            {row.extra ? (
+              <Text style={[styles.infoExtra, { color: row.extraColor }]}>{row.extra}</Text>
+            ) : null}
+            {row.onPress ? <Ionicons name="chevron-forward" size={15} color={colors.textMuted} /> : null}
           </Pressable>
         ))}
       </View>
+    </View>
+  );
 
-      <ScrollView style={styles.content} refreshControl={refreshControl(colors, refreshing, onRefresh)}>
-        {activeTab === 'products' && (
-          <View style={styles.productsGrid}>
-            {listings.length > 0 ? (
-              listings.map((listing) => (
-                <Pressable
-                  key={listing._id}
-                  style={styles.productCard}
-                  onPress={() => navigation.navigate(ROUTES.ITEM_DETAIL, { listingId: listing._id })}
-                >
-                  <Image
-                    source={{ uri: resolveMediaUrl(listing.photos?.[0] || '') }}
-                    style={styles.productImage}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.productInfo}>
-                    <Text style={styles.productTitle} numberOfLines={2}>
-                      {listing.title}
-                    </Text>
-                    <Text style={styles.productPrice}>{formatPrice(listing.price)}</Text>
-                  </View>
-                </Pressable>
-              ))
-            ) : (
-              <View style={{ width: SCREEN_WIDTH - 32, padding: 40 }}>
-                <EmptyState
-                  icon="grid-outline"
-                  title="No Products Yet"
-                  message="This shop hasn't added any products yet."
-                />
-              </View>
-            )}
-          </View>
-        )}
-
-        {activeTab === 'reviews' && (
-          <View style={styles.reviewsList}>
-            {reviews.length > 0 ? (
-              reviews.map((review) => (
-                <View key={review._id} style={styles.reviewCard}>
-                  <View style={styles.reviewHeader}>
-                    <View style={styles.reviewAvatar}>
-                      {review.reviewer?.avatarUrl ? (
-                        <Image
-                          source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }}
-                          style={styles.reviewAvatarImage}
-                        />
-                      ) : (
-                        <View style={[styles.reviewAvatar, { alignItems: 'center', justifyContent: 'center' }]}>
-                          <Ionicons name="person" size={18} color={colors.textSecondary} />
-                        </View>
-                      )}
-                    </View>
-                    <View>
-                      <Text style={styles.reviewName}>{review.reviewer?.name || 'Anonymous'}</Text>
-                      <View style={styles.reviewRating}>
-                        <View style={styles.reviewStars}>
-                          {renderStars(review.rating)}
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                  <Text style={styles.reviewText}>{review.review}</Text>
-                </View>
-              ))
-            ) : (
-              <EmptyState
-                icon="star-outline"
-                title="No Reviews Yet"
-                message="Be the first to review this shop!"
+  return (
+    <View style={styles.root}>
+      <ThemeStatusBar variant="header" />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={[styles.cover, { height: coverHeight + insets.top }]}>
+          {shop.coverImage ? (
+            <>
+              <Image source={{ uri: resolveMediaUrl(shop.coverImage) }} style={styles.fillImage} resizeMode="cover" />
+              <LinearGradient
+                colors={['rgba(0,0,0,0.45)', 'transparent']}
+                style={[styles.coverShade, { height: insets.top + 56 }]}
+                pointerEvents="none"
               />
-            )}
-          </View>
-        )}
-
-        {activeTab === 'about' && (
-          <View style={styles.aboutSection}>
-            <Text style={styles.aboutText}>{shop.description || 'No description provided.'}</Text>
-            
-            <View style={styles.infoRow}>
-              <View style={styles.infoIcon}>
-                <Ionicons name="location" size={16} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.infoLabel}>Location</Text>
-                <Text style={styles.infoValue}>{shop.location || 'Not specified'}</Text>
-              </View>
+            </>
+          ) : (
+            <LinearGradient
+              colors={colors.gradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.fillImage}
+            >
+              <Ionicons name="storefront" size={150} color="rgba(255,255,255,0.08)" style={styles.coverWatermark} />
+            </LinearGradient>
+          )}
+          <View style={[styles.coverBar, { top: insets.top + 8 }]}>
+            <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.coverBtn}>
+              <Ionicons name="chevron-back" size={20} color="#fff" />
+            </Pressable>
+            <View style={styles.coverBarRight}>
+              <Pressable onPress={shareShop} hitSlop={10} style={styles.coverBtn}>
+                <Ionicons name="share-social-outline" size={17} color="#fff" />
+              </Pressable>
+              {!isOwner ? (
+                <Pressable
+                  onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId })}
+                  hitSlop={10}
+                  style={styles.coverBtn}
+                >
+                  <Ionicons name="ellipsis-horizontal" size={17} color="#fff" />
+                </Pressable>
+              ) : null}
             </View>
-
-            {shop.phone && (
-              <View style={styles.infoRow}>
-                <View style={styles.infoIcon}>
-                  <Ionicons name="call" size={16} color={colors.primary} />
-                </View>
-                <View>
-                  <Text style={styles.infoLabel}>Phone</Text>
-                  <Text style={styles.infoValue}>{shop.phone}</Text>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.infoRow}>
-              <View style={styles.infoIcon}>
-                <Ionicons name="time" size={16} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.infoLabel}>Opening Hours</Text>
-                <Text style={styles.infoValue}>{shop.openingHours}</Text>
-              </View>
-            </View>
-
-            {shop.address && (
-              <View style={styles.infoRow}>
-                <View style={styles.infoIcon}>
-                  <Ionicons name="home" size={16} color={colors.primary} />
-                </View>
-                <View>
-                  <Text style={styles.infoLabel}>Address</Text>
-                  <Text style={styles.infoValue}>{shop.address}</Text>
-                </View>
-              </View>
-            )}
           </View>
-        )}
+        </View>
+
+        <View style={styles.identity}>
+          <View style={styles.logoRow}>
+            <View style={styles.logo}>
+              {shop.logo ? (
+                <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fillImage} />
+              ) : (
+                <Ionicons name="storefront" size={32} color={colors.primary} />
+              )}
+            </View>
+            {isOpen != null ? (
+              <View style={[styles.openPill, { backgroundColor: isOpen ? colors.pastelGreen : colors.pastelRed }]}>
+                <View style={[styles.openDot, { backgroundColor: isOpen ? colors.success : colors.danger }]} />
+                <Text style={[styles.openText, { color: isOpen ? colors.success : colors.danger }]}>
+                  {isOpen ? 'Open now' : 'Closed'}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.nameRow}>
+            <Text style={styles.name} numberOfLines={1}>
+              {shop.name}
+            </Text>
+            {shop.isVerified ? <Ionicons name="shield-checkmark" size={16} color={colors.primary} /> : null}
+          </View>
+          {shop.tagline ? (
+            <Text style={styles.tagline} numberOfLines={2}>
+              {shop.tagline}
+            </Text>
+          ) : null}
+          <View style={styles.metaRow}>
+            <View style={styles.storeTag}>
+              <Ionicons name="storefront" size={10} color={colors.onPrimary} />
+              <Text style={styles.storeTagText}>STORE</Text>
+            </View>
+            {shop.category ? <Text style={styles.metaText}>{shop.category}</Text> : null}
+            {shop.isVerified ? <Text style={styles.verifiedText}>· Business verified</Text> : null}
+            {shop.deliveryAvailable ? (
+              <View style={styles.deliveryTag}>
+                <Ionicons name="bicycle" size={10} color={colors.menuBlue} />
+                <Text style={styles.deliveryTagText}>Delivery</Text>
+              </View>
+            ) : null}
+          </View>
+          {placeText ? (
+            <View style={styles.locationRow}>
+              <Ionicons name="location-outline" size={13} color={colors.textMuted} />
+              <Text style={styles.locationText} numberOfLines={1}>
+                {placeText}
+              </Text>
+            </View>
+          ) : null}
+
+          <View style={styles.statsCard}>
+            {stats.map((s, i) => (
+              <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
+                <View style={styles.statTop}>
+                  <Ionicons name={s.icon} size={13} color={s.tint} />
+                  <Text style={styles.statValue}>{s.value}</Text>
+                </View>
+                <Text style={styles.statLabel}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.actionsRow}>
+            {actions.map((a) => (
+              <Pressable
+                key={a.key}
+                style={[styles.actionBtn, a.primary && styles.actionBtnPrimary]}
+                onPress={a.onPress}
+              >
+                <Ionicons name={a.icon} size={16} color={a.primary ? colors.onPrimary : colors.primary} />
+                <Text style={[styles.actionText, a.primary && styles.actionTextPrimary]} numberOfLines={1}>
+                  {a.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.tabsTrack}>
+          {[
+            { key: 'products', label: `Products · ${listings.length}` },
+            { key: 'reviews', label: `Reviews · ${reviews.length}` },
+            { key: 'about', label: 'About' },
+          ].map((t) => (
+            <Pressable
+              key={t.key}
+              style={[styles.tabBtn, tab === t.key && styles.tabBtnActive]}
+              onPress={() => setTab(t.key)}
+            >
+              <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {tab === 'products' ? renderProducts() : tab === 'reviews' ? renderReviews() : renderAbout()}
       </ScrollView>
     </View>
   );
 }
+
+const createStyles = (colors) => ({
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  flex1: {
+    flex: 1,
+  },
+  fillImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cover: {
+    overflow: 'hidden',
+  },
+  coverWatermark: {
+    position: 'absolute',
+    right: -20,
+    bottom: -30,
+  },
+  coverShade: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  socialBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  coverBar: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  coverBarRight: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  coverBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+  },
+  identity: {
+    paddingHorizontal: 16,
+    marginTop: -LOGO_SIZE / 2,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  logo: {
+    width: LOGO_SIZE,
+    height: LOGO_SIZE,
+    borderRadius: 20,
+    borderWidth: 4,
+    borderColor: colors.background,
+    backgroundColor: colors.pastelGreen,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  openPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 6,
+  },
+  openDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  openText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  name: {
+    flexShrink: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  tagline: {
+    marginTop: 2,
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  deliveryTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.pastelBlue,
+  },
+  deliveryTagText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.menuBlue,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  storeTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.primary,
+  },
+  storeTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    color: colors.onPrimary,
+  },
+  metaText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  verifiedText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  locationText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  statsCard: {
+    flexDirection: 'row',
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  stat: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+  },
+  statDivider: {
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  statTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  statLabel: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  actionBtnPrimary: {
+    flex: 1.4,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  actionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  actionTextPrimary: {
+    color: colors.onPrimary,
+  },
+  tabsTrack: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 14,
+    padding: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.iconBackground,
+  },
+  tabBtn: {
+    flex: 1,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  tabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  tabTextActive: {
+    color: colors.onPrimary,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  searchBox: {
+    flex: 1,
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    fontSize: 13,
+    color: colors.text,
+  },
+  sortBtn: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  sortText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  chipRow: {
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  chipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  chipTextActive: {
+    color: colors.onPrimary,
+    fontWeight: '700',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  productCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  productImageWrap: {
+    aspectRatio: 1.15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.iconBackground,
+  },
+  saleTag: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.danger,
+  },
+  saleTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  productInfo: {
+    paddingHorizontal: 9,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  productTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  productPrice: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.price,
+  },
+  oldPrice: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
+  },
+  productMeta: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  section: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    gap: 10,
+  },
+  ratingCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  ratingBig: {
+    alignItems: 'center',
+    gap: 3,
+  },
+  ratingBigValue: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  ratingBigLabel: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    gap: 1,
+  },
+  bars: {
+    flex: 1,
+    gap: 4,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  barLabel: {
+    width: 10,
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  barTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    backgroundColor: colors.iconBackground,
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: colors.warning,
+  },
+  barCount: {
+    width: 18,
+    textAlign: 'right',
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  reviewCard: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 6,
+  },
+  reviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  reviewAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.iconBackground,
+  },
+  reviewName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  reviewDate: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  reviewText: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: colors.text,
+  },
+  reviewItem: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  card: {
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  cardTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 6,
+  },
+  aboutText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textSecondary,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 9,
+  },
+  infoRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  infoIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.pastelGreen,
+  },
+  infoLabel: {
+    fontSize: 10.5,
+    color: colors.textMuted,
+  },
+  infoValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  infoExtra: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  emptyBox: {
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 24,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  emptyBoxInset: {
+    marginHorizontal: 16,
+    marginTop: 12,
+  },
+  emptyTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  emptyBody: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+});

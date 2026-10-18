@@ -22,6 +22,12 @@ export async function loadRecentlyViewed() {
   return memory;
 }
 
+export function clearRecentlyViewed() {
+  memory = [];
+  AsyncStorage.removeItem(KEY).catch(() => {});
+  return memory;
+}
+
 export function rememberViewedListing(source) {
   if (!source) return memory;
   const card = source.photo && source.id && !source.photos

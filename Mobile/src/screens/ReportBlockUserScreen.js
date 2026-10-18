@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formTextareaStyle } from '../theme';
 import {
   Text,
   TextInput,
@@ -385,20 +385,8 @@ const createStyles = (colors) => ({
     borderRadius: 6,
     backgroundColor: colors.gradientStart,
   },
-  textAreaWrap: {
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    marginBottom: 20,
-  },
-  textArea: {
-    minHeight: 100,
-    fontSize: 15,
-    color: colors.text,
-    textAlignVertical: 'top',
-  },
+  textAreaWrap: { marginBottom: 20 },
+  textArea: { ...formTextareaStyle(colors), minHeight: 96 },
   charCount: {
     alignSelf: 'flex-end',
     fontSize: 12,

@@ -16,7 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSharedTransition } from '../context/SharedTransitionContext';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, shuffleArray, toCardItem } from '../utils/listing';
+import { LinearGradient } from 'expo-linear-gradient';
+import { attachDistanceToCard, resolveMediaUrl, shuffleArray, toCardItem } from '../utils/listing';
 import ScreenLoader from '../components/ScreenLoader';
 import {
   catalogFingerprint,
@@ -594,12 +595,28 @@ export default function CategoryScreen({ navigation, route }) {
                                 })
                               }
                             >
+                              <View style={styles.storeBanner}>
+                                {store.coverImage ? (
+                                  <Image
+                                    source={{ uri: resolveMediaUrl(store.coverImage) }}
+                                    style={styles.storeFill}
+                                    resizeMode="cover"
+                                  />
+                                ) : (
+                                  <LinearGradient
+                                    colors={colors.gradient}
+                                    start={{ x: 0, y: 0 }}
+                                    end={{ x: 1, y: 1 }}
+                                    style={styles.storeFill}
+                                  />
+                                )}
+                              </View>
                               <View style={styles.storeHeader}>
                                 <View style={styles.storeAvatar}>
                                   {store.logo || store.avatarUrl ? (
                                     <Image
-                                      source={{ uri: store.logo || store.avatarUrl }}
-                                      style={{ width: '100%', height: '100%' }}
+                                      source={{ uri: resolveMediaUrl(store.logo || store.avatarUrl) }}
+                                      style={styles.storeFill}
                                       resizeMode="cover"
                                     />
                                   ) : (
@@ -624,13 +641,13 @@ export default function CategoryScreen({ navigation, route }) {
                                     )}
                                   </View>
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} style={styles.storeChevron} />
                               </View>
-                              {store.description && (
+                              {store.tagline || store.description ? (
                                 <Text style={styles.storeDescription} numberOfLines={2}>
-                                  {store.description}
+                                  {store.tagline || store.description}
                                 </Text>
-                              )}
+                              ) : null}
                             </Pressable>
                           </Animated.View>
                         );
@@ -816,27 +833,44 @@ const createStyles = (colors) => ({
   },
   storeCard: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    paddingBottom: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  storeBanner: {
+    height: 64,
+  },
+  storeFill: {
+    width: '100%',
+    height: '100%',
   },
   storeHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    paddingHorizontal: 12,
+    marginTop: -22,
+    marginBottom: 6,
   },
   storeAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.iconBackground,
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    borderWidth: 3,
+    borderColor: colors.surface,
+    backgroundColor: colors.pastelGreen,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    overflow: 'hidden',
+    marginRight: 10,
   },
   storeInfo: {
     flex: 1,
+    marginTop: 26,
+  },
+  storeChevron: {
+    marginTop: 32,
   },
   storeName: {
     fontSize: 16,
@@ -864,6 +898,7 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
   },
   storeDescription: {
+    paddingHorizontal: 12,
     fontSize: 13,
     color: colors.textSecondary,
     lineHeight: 18,

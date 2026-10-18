@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react';
 import { ScrollView, useWindowDimensions } from 'react-native';
 import ProductCard, {
   CARD_GAP,
@@ -5,7 +6,21 @@ import ProductCard, {
   peekCardWidth,
 } from './ProductCard';
 
-export default function ProductCardCarousel({ items, onPressItem, contentWidth }) {
+const CarouselCard = memo(function CarouselCard({ item, width, onPressItem }) {
+  const handlePress = useCallback(() => onPressItem?.(item), [item, onPressItem]);
+  return (
+    <ProductCard
+      compact
+      {...item}
+      width={width}
+      sharedId={item.id}
+      onPress={handlePress}
+      onToggleSave={item.onToggleSave}
+    />
+  );
+});
+
+function ProductCardCarousel({ items, onPressItem, contentWidth }) {
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = peekCardWidth(contentWidth || screenWidth);
   const safeItems = items || [];
@@ -19,22 +34,18 @@ export default function ProductCardCarousel({ items, onPressItem, contentWidth }
         paddingRight: CARD_ROW_PADDING,
         gap: CARD_GAP,
       }}
-      decelerationRate="fast"
-      snapToInterval={cardWidth + CARD_GAP}
-      snapToAlignment="start"
-      disableIntervalMomentum
+      overScrollMode="never"
     >
       {safeItems.map((item, index) => (
-        <ProductCard
+        <CarouselCard
           key={item.id || `${item.title}-${index}`}
-          compact
-          {...item}
+          item={item}
           width={cardWidth}
-          sharedId={item.id}
-          onPress={() => onPressItem?.(item)}
-          onToggleSave={item.onToggleSave}
+          onPressItem={onPressItem}
         />
       ))}
     </ScrollView>
   );
 }
+
+export default memo(ProductCardCarousel);

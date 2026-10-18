@@ -5,6 +5,7 @@ const Listing = require('../models/Listing');
 const { haversineDistanceKm } = require('../utils/listing');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { mapShopCategory } = require('../utils/shopCategory');
+const { scoreSeller, sellerMatches } = require('../utils/searchMatch');
 
 function readCoords(entity) {
   const c = entity?.coordinates || {};
@@ -25,6 +26,10 @@ function galleryFromListings(listings = []) {
   return photos;
 }
 
+function hasUserPoint(lat, lng) {
+  return lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+}
+
 function sellerPoint(entity, locationText) {
   const coords = readCoords(entity);
   if (Number.isFinite(coords.lat) && Number.isFinite(coords.lng)) return coords;
@@ -33,7 +38,7 @@ function sellerPoint(entity, locationText) {
 
 function toShopSeller(shop, listings = [], userLat, userLng) {
   const coords = sellerPoint(shop, shop.location || shop.address || '');
-  const distance = coords
+  const distance = coords && hasUserPoint(userLat, userLng)
     ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
     : null;
   return {
@@ -41,7 +46,8 @@ function toShopSeller(shop, listings = [], userLat, userLng) {
     id: shop._id,
     name: shop.name,
     avatarUrl: shop.logo || '',
-    coverImage: shop.logo || '',
+    coverImage: shop.coverImage || '',
+    tagline: shop.tagline || '',
     rating: Number(shop.ratingAverage) || 0,
     reviewsCount: Number(shop.reviewCount) || 0,
     listingCount: listings.length,
@@ -65,7 +71,7 @@ function toShopSeller(shop, listings = [], userLat, userLng) {
 function toIndividualSeller(user, listings = [], userLat, userLng) {
   const location = user.preferences?.showLocation === false ? '' : user.location || '';
   const coords = sellerPoint(user, user.location || '');
-  const distance = coords
+  const distance = coords && hasUserPoint(userLat, userLng)
     ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
     : null;
   const primaryCategory = listings.find((l) => l.category)?.category || 'General';
@@ -105,10 +111,7 @@ function parseLocation(req) {
 
 function matchesQuery(seller, q) {
   if (!q) return true;
-  const needle = String(q).toLowerCase();
-  const name = String(seller.name || '').toLowerCase();
-  const about = String(seller.description || '').toLowerCase();
-  return name.includes(needle) || about.includes(needle);
+  return sellerMatches(seller, q);
 }
 
 async function collectSellers(req) {
@@ -188,12 +191,17 @@ async function collectSellers(req) {
     }
   }
 
-  if (nearbyFirst && userLat != null && userLng != null) {
-    sellers.sort((a, b) => {
-      const da = a.distance == null ? 9999 : a.distance;
-      const db = b.distance == null ? 9999 : b.distance;
-      return da - db;
-    });
+  const byDistance = (a, b) => {
+    const da = a.distance == null ? 9999 : a.distance;
+    const db = b.distance == null ? 9999 : b.distance;
+    return da - db;
+  };
+
+  if (q) {
+    const scores = new Map(sellers.map((seller) => [seller, scoreSeller(seller, q)]));
+    sellers.sort((a, b) => (scores.get(b) - scores.get(a)) || byDistance(a, b));
+  } else if (nearbyFirst && userLat != null && userLng != null) {
+    sellers.sort(byDistance);
   }
 
   return sellers;

@@ -18,12 +18,14 @@ import { useAuth } from '../context/AuthContext';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
+import ProductCard from '../components/ProductCard';
 import VariantPicker from '../components/VariantPicker';
 import {
   categoryIcon,
   attachDistanceToCard,
   resolveListingCoords,
   resolveMediaUrl,
+  toCardItem,
   toDetailItem,
 } from '../utils/listing';
 import { getDefaultVariantSelection } from '../utils/listingVariants';
@@ -33,6 +35,8 @@ import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { rememberViewedListing } from '../utils/recentlyViewed';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const RELATED_GUTTER = 8;
+const RELATED_CARD_WIDTH = (SCREEN_WIDTH - 32 - RELATED_GUTTER) / 2;
 const THUMB_SIZE = 44;
 const THUMB_BOX_WIDTH = 60;
 const IMAGE_HEIGHT = 340;
@@ -80,6 +84,7 @@ export default function ItemDetailScreen({ navigation, route }) {
   const [ptrReady, setPtrReady] = useState(false);
   const [variantSelection, setVariantSelection] = useState({});
   const [distanceLabel, setDistanceLabel] = useState(null);
+  const [relatedItems, setRelatedItems] = useState([]);
   const pagerRef = useRef(null);
   const viewerRef = useRef(null);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
@@ -139,6 +144,44 @@ export default function ItemDetailScreen({ navigation, route }) {
       cancelled = true;
     };
   }, [listing]);
+
+  useEffect(() => {
+    const title = listing?.title;
+    if (!title || !listingId) {
+      setRelatedItems([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      let coords = null;
+      try {
+        const perm = await Location.getForegroundPermissionsAsync();
+        if (perm.status === 'granted') {
+          const point = await Location.getLastKnownPositionAsync();
+          if (point?.coords) {
+            coords = { lat: point.coords.latitude, lng: point.coords.longitude };
+          }
+        }
+      } catch {
+        coords = null;
+      }
+      const { data, error } = await api.getRelatedListings({
+        title,
+        exclude: listingId,
+        category: listing?.category || '',
+        limit: 8,
+      });
+      if (cancelled || error || !data?.listings) return;
+      const cards = data.listings
+        .map(toCardItem)
+        .filter((card) => card && String(card.id) !== String(listingId))
+        .map((card) => (coords ? attachDistanceToCard(card, coords) : card));
+      if (!cancelled) setRelatedItems(cards);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [listing?.title, listing?.category, listingId]);
 
   if (!listing) {
     return (
@@ -264,10 +307,10 @@ export default function ItemDetailScreen({ navigation, route }) {
           }
           navigation.navigate(ROUTES.CHAT, {
             chatId: data.chat.id,
-            name: data.chat.otherUser?.name || item.seller,
+            name: data.chat.otherUser?.shop?.name || data.chat.otherUser?.name || item.seller,
             listing: listing,
             otherUserId: data.chat.otherUser?.id || sellerId,
-            image: resolveMediaUrl(data.chat.otherUser?.avatarUrl || ''),
+            image: resolveMediaUrl(data.chat.otherUser?.shop?.logo || data.chat.otherUser?.avatarUrl || ''),
           });
         }}
       >
@@ -490,18 +533,44 @@ export default function ItemDetailScreen({ navigation, route }) {
             {/* Shop Seller Card */}
             {listing.sellerType === 'shop' && listing.shopId && (
               <Pressable
-                style={styles.sellerCard}
+                style={styles.shopCard}
                 onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: listing.shopId._id || listing.shopId.id || listing.shopId })}
               >
-                <View style={styles.sellerAvatar}>
-                  {listing.shopId?.logo ? (
-                    <Image source={{ uri: listing.shopId.logo }} style={styles.sellerAvatarImage} />
+                <View style={styles.shopBanner}>
+                  {listing.shopId?.coverImage ? (
+                    <Image
+                      source={{ uri: resolveMediaUrl(listing.shopId.coverImage) }}
+                      style={styles.sellerAvatarImage}
+                      resizeMode="cover"
+                    />
                   ) : (
-                    <Ionicons name="storefront" size={26} color={colors.onGradient} />
+                    <LinearGradient
+                      colors={colors.gradient}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.sellerAvatarImage}
+                    />
+                  )}
+                  <View style={styles.shopBannerTag}>
+                    <Ionicons name="storefront" size={10} color="#fff" />
+                    <Text style={styles.shopBannerTagText}>STORE</Text>
+                  </View>
+                </View>
+                <View style={styles.shopCardBody}>
+                <View style={styles.shopLogo}>
+                  {listing.shopId?.logo ? (
+                    <Image source={{ uri: resolveMediaUrl(listing.shopId.logo) }} style={styles.sellerAvatarImage} />
+                  ) : (
+                    <Ionicons name="storefront" size={24} color={colors.primary} />
                   )}
                 </View>
                 <View style={styles.sellerInfo}>
-                  <Text style={styles.sellerName}>{listing.shopId?.name || 'Shop'}</Text>
+                  <Text style={styles.sellerName} numberOfLines={1}>{listing.shopId?.name || 'Shop'}</Text>
+                  {listing.shopId?.tagline ? (
+                    <Text style={styles.shopTagline} numberOfLines={1}>
+                      {listing.shopId.tagline}
+                    </Text>
+                  ) : null}
                   <View style={styles.sellerRatingRow}>
                     <Ionicons name="star" size={14} color={colors.rating} />
                     <Text style={styles.sellerRating}>{listing.shopId?.ratingAverage?.toFixed(1) || '0.0'}</Text>
@@ -527,6 +596,7 @@ export default function ItemDetailScreen({ navigation, route }) {
                 <View style={styles.viewProfileRow}>
                   <Text style={styles.viewProfile}>View Shop</Text>
                   <Ionicons name="chevron-forward" size={16} color={colors.link} />
+                </View>
                 </View>
               </Pressable>
             )}
@@ -599,6 +669,33 @@ export default function ItemDetailScreen({ navigation, route }) {
               <Ionicons name="chevron-forward" size={18} color={colors.link} />
             </Pressable>
           </View>
+
+          {relatedItems.length > 0 ? (
+            <View style={styles.relatedSection}>
+              <Text style={styles.sectionTitle}>Related items</Text>
+              <View style={styles.relatedGrid}>
+                {relatedItems.map((card) => (
+                  <ProductCard
+                    key={card.id}
+                    {...card}
+                    compact
+                    width={RELATED_CARD_WIDTH}
+                    sharedId={card.id}
+                    onPress={() =>
+                      navigation.push(ROUTES.ITEM_DETAIL, {
+                        listingId: card.id,
+                        item: card.listing || card,
+                        sharedId: card.id,
+                      })
+                    }
+                    onToggleSave={async () => {
+                      await api.toggleWishlist(card.id);
+                    }}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
@@ -1021,6 +1118,60 @@ const createStyles = (colors) => ({
     width: '100%',
     height: '100%',
   },
+  shopCard: {
+    marginTop: 18,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  shopBanner: {
+    height: 72,
+  },
+  shopBannerTag: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  shopBannerTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    color: '#fff',
+  },
+  shopCardBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  shopLogo: {
+    alignSelf: 'flex-start',
+    width: 58,
+    height: 58,
+    marginTop: -34,
+    borderRadius: 14,
+    borderWidth: 3,
+    borderColor: colors.surface,
+    backgroundColor: colors.pastelGreen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  shopTagline: {
+    marginTop: 1,
+    fontSize: 12,
+    color: colors.textMuted,
+  },
   sellerInfo: {
     flex: 1,
     marginLeft: 12,
@@ -1039,6 +1190,10 @@ const createStyles = (colors) => ({
   sellerRating: {
     fontSize: 13,
     color: colors.textSecondary,
+  },
+  sellerReviewCount: {
+    fontSize: 12,
+    color: colors.textMuted,
   },
   sellerMetaRow: {
     flexDirection: 'row',
@@ -1086,6 +1241,20 @@ const createStyles = (colors) => ({
     fontSize: 14,
     color: colors.textSecondary,
     lineHeight: 21,
+  },
+  relatedSection: {
+    marginTop: 22,
+  },
+  relatedHint: {
+    marginTop: 2,
+    marginBottom: 12,
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  relatedGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: RELATED_GUTTER,
   },
   safetyBanner: {
     flexDirection: 'row',

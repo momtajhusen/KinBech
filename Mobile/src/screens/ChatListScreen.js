@@ -131,11 +131,12 @@ export default function ChatListScreen({ navigation }) {
         ) : (
           <Animated.View style={{ opacity: fadeAnim }}>
             {chats.map((chat, index) => {
-              const name = chat.otherUser?.name || 'Seller';
+              const peerShop = chat.otherUser?.shop;
+              const name = peerShop?.name || chat.otherUser?.name || 'Seller';
               const listingTitle = chat.listing?.title;
               const listingPrice =
                 chat.listing?.price != null ? formatPrice(chat.listing.price) : '';
-              const avatarUri = resolveMediaUrl(chat.otherUser?.avatarUrl || '');
+              const avatarUri = resolveMediaUrl(peerShop?.logo || chat.otherUser?.avatarUrl || '');
               const listingThumb = resolveMediaUrl(chat.listing?.photos?.[0] || '');
               const timeLabel = formatChatTime(chat.lastMessageAt);
               const preview = previewMeta(chat);

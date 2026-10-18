@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme, useThemedStyles } from '../theme';
+import { formInputStyle, formLabelStyle, useTheme, useThemedStyles } from '../theme';
 
 const MAX_WORDS = 20;
 
@@ -21,7 +21,7 @@ export function mergeSearchWords(current, incoming) {
   return next;
 }
 
-export default function SearchWordsField({ words, onChange }) {
+export default function SearchWordsField({ words, onChange, onFocus }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const [draft, setDraft] = useState('');
@@ -39,9 +39,6 @@ export default function SearchWordsField({ words, onChange }) {
   return (
     <View style={styles.wrap}>
       <Text style={styles.label}>Search words</Text>
-      <Text style={styles.hint}>
-        Other names buyers might type. Used only for search, not shown on the listing.
-      </Text>
       <View style={styles.row}>
         <TextInput
           value={draft}
@@ -51,6 +48,7 @@ export default function SearchWordsField({ words, onChange }) {
           placeholderTextColor={colors.textMuted}
           style={styles.input}
           returnKeyType="done"
+          onFocus={onFocus}
         />
         <Pressable style={styles.addBtn} onPress={addDraft}>
           <Ionicons name="add" size={18} color={colors.onPrimary} />
@@ -72,51 +70,35 @@ export default function SearchWordsField({ words, onChange }) {
 
 function createStyles(colors) {
   return {
-    wrap: { marginBottom: 14 },
-    label: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: colors.text,
-      marginBottom: 4,
-    },
-    hint: {
-      fontSize: 12,
-      lineHeight: 17,
-      color: colors.textSecondary,
-      marginBottom: 8,
-    },
+    wrap: { marginBottom: 10 },
+    label: formLabelStyle(colors),
     row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     input: {
+      ...formInputStyle(colors),
       flex: 1,
-      height: 46,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      paddingHorizontal: 12,
-      color: colors.text,
-      fontSize: 14,
+      height: 40,
+      paddingVertical: 0,
     },
     addBtn: {
-      width: 46,
-      height: 46,
+      width: 40,
+      height: 40,
       borderRadius: 12,
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: colors.primary,
     },
-    pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+    pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
     pill: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
       paddingHorizontal: 10,
-      paddingVertical: 6,
+      paddingVertical: 5,
       borderRadius: 999,
       backgroundColor: colors.iconBackground,
       borderWidth: 1,
       borderColor: colors.border,
     },
-    pillText: { fontSize: 13, fontWeight: '700', color: colors.text },
+    pillText: { fontSize: 12, fontWeight: '700', color: colors.text },
   };
 }

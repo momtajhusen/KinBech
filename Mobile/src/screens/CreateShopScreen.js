@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormScroll, KeyboardForm } from '../components/FormScroll';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formFieldStyles } from '../theme';
 import { useCategories } from '../utils/categories';
 import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
@@ -532,10 +532,10 @@ const createStyles = (colors) => ({
     color: colors.primary,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     color: colors.textSecondary,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   categoryScroll: {
     paddingHorizontal: 16,
@@ -564,36 +564,7 @@ const createStyles = (colors) => ({
   categoryChipTextActive: {
     color: colors.onPrimary,
   },
-  floatingWrap: {
-    marginBottom: 16,
-  },
-  floatingLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 6,
-  },
-  floatingInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.iconBackground,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  floatingInputRowMultiline: {
-    alignItems: 'flex-start',
-    paddingTop: 14,
-  },
-  floatingInput: {
-    flex: 1,
-    fontSize: 15,
-    color: colors.text,
-  },
-  floatingTextarea: {
-    minHeight: 80,
-    textAlignVertical: 'top',
-  },
+  ...formFieldStyles(colors),
   infoCard: {
     flexDirection: 'row',
     alignItems: 'center',

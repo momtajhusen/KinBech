@@ -2558,3 +2558,130 @@ code {
   border-radius: 999px;
 }
 .bi-cat-count { text-align: right; font-weight: 700; color: var(--text-muted); }
+
+
+/* AI Models */
+.ai-stat-text {
+  font-size: 1.05rem;
+  word-break: break-all;
+}
+.ai-stat-sub {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.ai-alert,
+.ai-message {
+  padding: 0.7rem 1rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.ai-alert {
+  background: color-mix(in srgb, var(--error) 14%, transparent);
+  color: var(--error);
+}
+.ai-message {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--text);
+}
+.ai-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  margin: 0.2rem 0;
+}
+.ai-switch input {
+  display: none;
+}
+.ai-switch-track {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.2s;
+}
+.ai-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+.ai-switch input:checked + .ai-switch-track {
+  background: var(--primary);
+}
+.ai-switch input:checked + .ai-switch-track::after {
+  transform: translateX(18px);
+}
+.ai-switch-label {
+  font-weight: 800;
+  color: var(--text);
+}
+.ai-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 130px;
+}
+.ai-usage-bar {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+.ai-usage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--success);
+}
+.ai-usage-bar span.warn {
+  background: var(--warning);
+}
+.ai-usage-bar span.full {
+  background: var(--error);
+}
+.ai-usage-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ai-limit-input {
+  width: 70px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+}
+.ai-error-text {
+  color: var(--error);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-row-off {
+  opacity: 0.55;
+}
+.ai-add-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  max-width: 520px;
+}
+.ai-add-input {
+  flex: 1;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+}

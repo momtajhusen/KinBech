@@ -14,7 +14,7 @@ import GradientButton from '../components/GradientButton';
 import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle, formLabelStyle } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const SUBJECTS = ['Account help', 'Listing issue', 'Payment / meetup', 'Report a bug', 'Other'];
@@ -49,13 +49,7 @@ const createStyles = (colors) => ({
   },
   contactTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
   contactSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
+  label: formLabelStyle(colors),
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12,
@@ -67,17 +61,7 @@ const createStyles = (colors) => ({
   },
   chipActive: { backgroundColor: colors.pastelIndigo, borderColor: colors.primary },
   chipText: { fontSize: 13, fontWeight: '700', color: colors.text },
-  input: {
-    minHeight: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
-  },
+  input: formInputStyle(colors),
   ticket: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -218,7 +202,7 @@ export default function ContactUsScreen({ navigation }) {
               onChangeText={setMessage}
               placeholder="Describe the issue. Include listing title or seller name if relevant."
               placeholderTextColor={colors.textTertiary}
-              style={[styles.input, { minHeight: 120, textAlignVertical: 'top' }]}
+              style={[styles.input, { minHeight: 96, textAlignVertical: 'top' }]}
               multiline
             />
             <GradientButton

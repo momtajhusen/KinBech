@@ -246,7 +246,7 @@ async function request(path, options = {}) {
           break;
         } catch (rawErr) {
           const msg = rawErr?.message || 'Network request failed';
-          console.log(`[${label}] failed:`, msg);
+          console.log(`[${label}] failed:`, baseUrl, msg);
 
           const isNetErr = isNetworkError(msg);
 
@@ -323,8 +323,11 @@ export const api = {
     }),
   getListings: (params = {}) =>
     request(`/listings${toQuery(withListingPagination(params))}`),
+  getRelatedListings: (params = {}) =>
+    request(`/listings/related${toQuery(params)}`),
   searchListings: (params = {}) =>
     request(`/listings/search${toQuery(withListingPagination(params))}`),
+  getSearchSuggestions: (q) => request(`/listings/suggestions${toQuery({ q })}`),
   getCategoryCounts: (params = {}) =>
     request(`/listings/category-counts${toQuery(params)}`),
   getMyListings: () => request('/listings/mine'),
@@ -413,11 +416,14 @@ export const api = {
     }),
   updatePreferences: (payload) =>
     request('/auth/preferences', { method: 'PATCH', body: JSON.stringify(payload) }),
-  getNotifications: () => request('/notifications'),
+  getNotifications: (params) => request(`/notifications${toQuery(params || {})}`),
   markNotificationRead: (id) =>
     request(`/notifications/${id}/read`, { method: 'PATCH' }),
-  markAllNotificationsRead: () =>
-    request('/notifications/read-all', { method: 'PATCH' }),
+  markAllNotificationsRead: (scope) =>
+    request('/notifications/read-all', { method: 'PATCH', body: JSON.stringify(scope || {}) }),
+  deleteNotification: (id) => request(`/notifications/${id}`, { method: 'DELETE' }),
+  clearNotifications: (scope) =>
+    request('/notifications/clear', { method: 'POST', body: JSON.stringify(scope || {}) }),
   createReport: (payload) =>
     request('/reports', { method: 'POST', body: JSON.stringify(payload) }),
   blockUser: (userId) =>

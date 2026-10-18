@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Categories from './pages/Categories';
 import RestrictedKeywords from './pages/RestrictedKeywords';
 import ErrorLog from './pages/ErrorLog';
+import AiModels from './pages/AiModels';
 import { adminPath } from './routes';
 import './admin.css';
 
@@ -63,6 +64,7 @@ export default function AdminApp() {
             <Route path="error-log" element={<ErrorLog />} />
             <Route path="reviews" element={<Reviews />} />
             <Route path="notifications" element={<Notifications />} />
+            <Route path="ai-models" element={<AiModels />} />
             <Route path="settings" element={<Settings />} />
           </Route>
           <Route path="*" element={<Navigate to={adminPath('login')} replace />} />

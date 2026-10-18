@@ -42,3 +42,6 @@ Backend/uploads/
 Mobile/build-release.log
 *.local.ssh
 vps_ssh.local.*
+ R2 Storage Token value
+.env
+.env

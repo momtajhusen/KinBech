@@ -16,7 +16,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const PROVIDERS = [
@@ -111,16 +111,7 @@ const createStyles = (colors) => ({
   optionActive: { borderColor: colors.primary, backgroundColor: colors.pastelIndigo },
   optionTitle: { fontSize: 14, fontWeight: '700', color: colors.text },
   optionSub: { fontSize: 12, color: colors.textMuted },
-  input: {
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
-  },
+  input: { ...formInputStyle(colors), height: 40, paddingVertical: 0 },
 });
 
 export default function PaymentMethodsScreen({ navigation }) {

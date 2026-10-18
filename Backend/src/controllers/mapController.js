@@ -12,7 +12,7 @@ const {
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 
 const SELLER_POPULATE = 'name avatarUrl location coordinates';
-const SHOP_POPULATE = 'name logo ratingAverage reviewCount isVerified location coordinates category';
+const SHOP_POPULATE = 'name logo coverImage ratingAverage reviewCount isVerified location coordinates category';
 
 function mapListingMarker(doc, userLat, userLng) {
   const point = listingPoint(doc);
@@ -60,6 +60,7 @@ function mapShopMarker(shop, listingCount, userLat, userLng) {
     title: shop.name,
     subtitle: shop.category || 'Shop',
     photo: shop.logo || '',
+    coverImage: shop.coverImage || '',
     lat: point.lat,
     lng: point.lng,
     distanceKm,

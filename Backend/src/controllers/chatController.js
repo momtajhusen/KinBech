@@ -121,19 +121,40 @@ function otherParticipant(chat, userId) {
   );
 }
 
+/**
+ * The store a chat partner is speaking for: the listing's shop when the chat is about
+ * a shop listing, or their active shop for chats opened from a store page (no listing).
+ */
+async function shopIdentities(chats, userId) {
+  const ownerIds = chats.map((chat) => otherParticipant(chat, userId)?._id).filter(Boolean);
+  if (!ownerIds.length) return chats.map(() => null);
+  const shops = await Shop.find({ owner: { $in: ownerIds }, status: 'active' })
+    .select('name logo coverImage owner')
+    .lean();
+  const byOwner = new Map(shops.map((shop) => [String(shop.owner), shop]));
+  return chats.map((chat) => {
+    const other = otherParticipant(chat, userId);
+    const shop = other ? byOwner.get(String(other._id)) : null;
+    if (!shop) return null;
+    if (chat.listing && String(chat.listing.shopId || '') !== String(shop._id)) return null;
+    return { id: shop._id, name: shop.name, logo: shop.logo || '', coverImage: shop.coverImage || '' };
+  });
+}
+
 async function getChats(req, res, next) {
   try {
     const chats = await Chat.find({ participants: req.user._id })
       .populate('participants', 'name phone avatarUrl rating preferences location')
-      .populate('listing', 'title photos price')
+      .populate('listing', 'title photos price shopId')
       .sort({ lastMessageAt: -1 });
+    const shops = await shopIdentities(chats, req.user._id);
 
     res.json({
-      chats: chats.map((chat) => ({
+      chats: chats.map((chat, i) => ({
         id: chat._id,
         listing: chat.listing,
         otherUser: otherParticipant(chat, req.user._id)
-          ? publicUser(otherParticipant(chat, req.user._id))
+          ? { ...publicUser(otherParticipant(chat, req.user._id)), shop: shops[i] }
           : null,
         lastMessage: chat.lastMessage,
         lastMessageAt: chat.lastMessageAt,
@@ -188,13 +209,14 @@ async function createChat(req, res, next) {
     }
 
     await chat.populate('participants', 'name phone avatarUrl rating preferences location');
-    await chat.populate('listing', 'title photos price');
+    await chat.populate('listing', 'title photos price shopId');
+    const [shop] = await shopIdentities([chat], req.user._id);
 
     res.status(201).json({
       chat: {
         id: chat._id,
         listing: chat.listing,
-        otherUser: publicUser(otherParticipant(chat, req.user._id)),
+        otherUser: { ...publicUser(otherParticipant(chat, req.user._id)), shop },
         lastMessage: chat.lastMessage,
         lastMessageAt: chat.lastMessageAt,
       },
@@ -217,8 +239,9 @@ async function getMessages(req, res, next) {
 
     User.updateOne({ _id: req.user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
     await chat.populate('participants', 'name lastActiveAt avatarUrl');
-    await chat.populate('listing', 'title photos price');
+    await chat.populate('listing', 'title photos price shopId');
     const other = otherParticipant(chat, req.user._id);
+    const [peerShop] = await shopIdentities([chat], req.user._id);
     const lastSeenAt = other?.lastActiveAt || null;
     const online = Boolean(
       lastSeenAt && Date.now() - new Date(lastSeenAt).getTime() < 45 * 1000
@@ -254,6 +277,7 @@ async function getMessages(req, res, next) {
             id: other._id,
             name: other.name || '',
             avatarUrl: other.avatarUrl || '',
+            shop: peerShop,
           }
         : null,
       listing: chat.listing
@@ -361,19 +385,23 @@ async function sendMessage(req, res, next) {
     if (otherId) {
       try {
         const listingDoc = chat.listing
-          ? await Listing.findById(chat.listing).select('title photos').lean()
+          ? await Listing.findById(chat.listing).select('title photos shopId').lean()
           : null;
+        const myShop = await Shop.findOne({ owner: req.user._id, status: 'active' }).select('name logo').lean();
+        const asShop =
+          myShop && (listingDoc ? String(listingDoc.shopId || '') === String(myShop._id) : true);
+        const senderName = (asShop ? myShop.name : req.user.name) || 'KinBech user';
         const note = await Notification.create({
           user: otherId,
           type: 'chat',
-          title: req.user.name || 'New message',
+          title: senderName,
           body: text.slice(0, 140),
           icon: 'chatbubble-ellipses-outline',
           route: 'Chat',
           params: {
             chatId: String(chat._id),
-            name: req.user.name || 'KinBech user',
-            image: req.user.avatarUrl || '',
+            name: senderName,
+            image: (asShop ? myShop.logo : req.user.avatarUrl) || '',
             listingImage: listingDoc?.photos?.[0] || '',
             listingTitle: listingDoc?.title || '',
           },

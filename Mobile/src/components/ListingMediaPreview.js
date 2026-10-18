@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
+import { resolveMediaUrl } from '../utils/listing';
 
 function PreviewVideo({ uri }) {
   const player = useVideoPlayer(uri, (instance) => {
@@ -39,9 +40,9 @@ export default function ListingMediaPreview({ visible, item, onClose }) {
 
         <View style={styles.body}>
           {item?.uri && isVideo && visible ? (
-            <PreviewVideo key={item.uri} uri={item.uri} />
+            <PreviewVideo key={item.uri} uri={resolveMediaUrl(item.uri)} />
           ) : item?.uri ? (
-            <Image source={{ uri: item.uri }} style={styles.image} resizeMode="contain" />
+            <Image source={{ uri: resolveMediaUrl(item.uri) }} style={styles.image} resizeMode="contain" />
           ) : (
             <View style={styles.empty}>
               <Ionicons name="image-outline" size={48} color="rgba(255,255,255,0.6)" />

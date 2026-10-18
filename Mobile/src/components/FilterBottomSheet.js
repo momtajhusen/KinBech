@@ -32,6 +32,7 @@ const SORT_OPTIONS = [
   { label: 'Nearest First', key: 'distance' },
   { label: 'Most Relevant', key: 'relevance' },
   { label: 'Newest First', key: 'newest' },
+  { label: 'Trending', key: 'trending' },
   { label: 'Price: Low to High', key: 'price-low' },
   { label: 'Price: High to Low', key: 'price-high' },
 ];

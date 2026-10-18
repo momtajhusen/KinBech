@@ -1,214 +1,68 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  Pressable,
-  Text,
-  TextInput,
-  View,
-  ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import GradientButton from '../components/GradientButton';
+import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AlertModal, showErrorAlert, showSuccessAlert, showImageSafetyAlert } from '../components/AlertModal';
-import { FormScroll } from '../components/FormScroll';
+import { FormScroll, KeyboardForm } from '../components/FormScroll';
+import { EditField, EditSection } from '../components/ProfileEditKit';
+import ScreenLoader from '../components/ScreenLoader';
+import { INDIVIDUAL_GRADIENT } from '../components/SellerProfileCard';
 import { useAuth } from '../context/AuthContext';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 
-const createStyles = (colors) => ({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 18,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: colors.white,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 40,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 20,
-    gap: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  avatarContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: colors.iconBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  avatarImage: { width: '100%', height: '100%' },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center' },
-  cameraIcon: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  avatarHint: {
-    marginTop: 12,
-    fontSize: 13,
-    color: colors.textMuted,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textMuted,
-    marginBottom: 8,
-    letterSpacing: 0.2,
-    textTransform: 'uppercase',
-  },
-  input: {
-    height: 54,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
-  },
-  inputDisabled: {
-    backgroundColor: colors.iconBackground,
-    color: colors.textMuted,
-  },
-  phoneBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    backgroundColor: colors.iconBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  phoneText: {
-    fontSize: 15,
-    color: colors.text,
-    fontWeight: '600',
-  },
-  phoneLocked: {
-    fontSize: 12,
-    color: colors.textMuted,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
-  },
-  locationButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: colors.iconBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  locationButtonText: {
-    fontSize: 13,
-    color: colors.primary,
-    fontWeight: '700',
-  },
-  tip: {
-    marginTop: 20,
-    marginBottom: 4,
-    paddingHorizontal: 4,
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 18,
-  },
-  bioInput: {
-    minHeight: 88,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
-    textAlignVertical: 'top',
-  },
-  charCount: {
-    fontSize: 11,
-    color: colors.textTertiary,
-    textAlign: 'right',
-    marginTop: 6,
-  },
-});
+const AVATAR = 92;
 
 export default function EditProfileScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user, saveSession } = useAuth();
+  const isShopAccount =
+    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+
   const [name, setName] = useState(user?.name || '');
-  const [phone] = useState(user?.phone || '');
   const [location, setLocation] = useState(user?.location || '');
   const [bio, setBio] = useState(user?.bio || '');
-  const [coordinates, setCoordinates] = useState(() => {
-    if (user?.coordinates && user.coordinates.latitude != null) return user.coordinates;
-    return null;
-  });
+  const [coordinates, setCoordinates] = useState(() =>
+    user?.coordinates && user.coordinates.latitude != null ? user.coordinates : null
+  );
   const [avatarUri, setAvatarUri] = useState(resolveMediaUrl(user?.avatarUrl || '') || user?.avatarUrl || '');
+  const [nameError, setNameError] = useState('');
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
+  const [checkingShop, setCheckingShop] = useState(isShopAccount);
+
+  useEffect(() => {
+    if (!isShopAccount) return undefined;
+    let active = true;
+    api.getMyShop().then(({ data }) => {
+      if (!active) return;
+      if (data?.shop) navigation.replace(ROUTES.EDIT_SHOP);
+      else setCheckingShop(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [isShopAccount, navigation]);
+
+  const phone = user?.phone || '';
+  const closeAlert = () => setAlertConfig(null);
+  const fail = (title, message) => setAlertConfig(showErrorAlert({ title, message, onConfirm: closeAlert }));
 
   const pickImage = async () => {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Permission Required',
-            message: 'Please grant photo library permissions to update your profile photo.',
-            onConfirm: () => setAlertConfig(null),
-          })
-        );
+        fail('Permission Required', 'Please grant photo library permissions to update your profile photo.');
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -217,63 +71,35 @@ export default function EditProfileScreen({ navigation }) {
         aspect: [1, 1],
         quality: 0.8,
       });
-      if (!result.canceled && result.assets[0]) {
-        setAvatarUri(result.assets[0].uri);
-      }
-    } catch (error) {
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Error',
-          message: 'Failed to pick image. Please try again.',
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
+      if (!result.canceled && result.assets[0]) setAvatarUri(result.assets[0].uri);
+    } catch {
+      fail('Error', 'Failed to pick image. Please try again.');
     }
   };
 
   const getCurrentLocation = async () => {
+    setLocationLoading(true);
     try {
-      setLocationLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Permission Required',
-            message: 'Please grant location permissions to set your current location.',
-            onConfirm: () => setAlertConfig(null),
-          })
-        );
-        setLocationLoading(false);
+        fail('Permission Required', 'Please grant location permissions to set your current location.');
         return;
       }
-      const currentLocation = await Location.getCurrentPositionAsync({});
-      const { latitude, longitude } = currentLocation.coords;
-      const reverseGeocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-      const locationName = formatCityDistrict(reverseGeocode[0]) || 'Unknown Location';
-      setLocation(locationName);
+      const current = await Location.getCurrentPositionAsync({});
+      const { latitude, longitude } = current.coords;
+      const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+      setLocation(formatCityDistrict(geocode[0]) || 'Unknown Location');
       setCoordinates({ latitude, longitude });
+    } catch {
+      fail('Location Error', 'Failed to get your location. You can enter it manually.');
+    } finally {
       setLocationLoading(false);
-    } catch (error) {
-      setLocationLoading(false);
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Location Error',
-          message: 'Failed to get your location. You can enter it manually.',
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
     }
   };
 
   const handleSave = async () => {
     if (!name.trim()) {
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Name Required',
-          message: 'Please enter your name.',
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
+      setNameError('Please enter your name');
       return;
     }
     setLoading(true);
@@ -289,25 +115,16 @@ export default function EditProfileScreen({ navigation }) {
                   code: uploaded.errorCode,
                   message: uploaded.error,
                   issues: uploaded.issues,
-                  onConfirm: () => setAlertConfig(null),
+                  onConfirm: closeAlert,
                 })
-              : showErrorAlert({
-                  title: 'Photo Upload Failed',
-                  message: uploaded.error,
-                  onConfirm: () => setAlertConfig(null),
-                })
+              : showErrorAlert({ title: 'Photo Upload Failed', message: uploaded.error, onConfirm: closeAlert })
           );
           return;
         }
         avatarUrl = uploaded.url;
       }
 
-      const payload = {
-        name: name.trim(),
-        location: location.trim(),
-        avatarUrl,
-        bio: bio.trim(),
-      };
+      const payload = { name: name.trim(), location: location.trim(), avatarUrl, bio: bio.trim() };
       if (coordinates && coordinates.latitude != null) {
         payload.coordinates = coordinates;
       } else {
@@ -317,160 +134,336 @@ export default function EditProfileScreen({ navigation }) {
       const { data, error } = await api.updateMe(payload);
       setLoading(false);
       if (error || !data?.user) {
-        setAlertConfig(
-          showErrorAlert({
-            title: 'Update Failed',
-            message: error || 'Unable to save changes. Please try again.',
-            onConfirm: () => setAlertConfig(null),
-          })
-        );
+        fail('Update Failed', error || 'Unable to save changes. Please try again.');
         return;
       }
-      if (data.token) {
-        await saveSession(data.token, data.user);
-      }
+      if (data.token) await saveSession(data.token, data.user);
       setAlertConfig(
         showSuccessAlert({
           title: 'Changes Saved',
           message: 'Your profile has been updated successfully.',
           onConfirm: () => {
-            setAlertConfig(null);
+            closeAlert();
             navigation.goBack();
           },
         })
       );
-    } catch (error) {
+    } catch {
       setLoading(false);
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Error',
-          message: 'Something went wrong while saving. Please try again.',
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
+      fail('Error', 'Something went wrong while saving. Please try again.');
     }
   };
 
+  if (checkingShop) return <ScreenLoader />;
+
   return (
-    <SafeAreaView style={styles.root} edges={['left', 'right']}>
+    <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <LinearGradient
-        colors={[colors.gradientStart, colors.gradientEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.header, { paddingTop: insets.top + 8 }]}
-      >
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Edit Profile</Text>
-        <View style={{ width: 24 }} />
-      </LinearGradient>
-
-      <FormScroll
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
-      >
-          <View style={styles.card}>
-            <View style={styles.avatarSection}>
-              <Pressable onPress={pickImage} style={styles.avatarContainer}>
-                {avatarUri ? (
-                  <Image source={{ uri: resolveMediaUrl(avatarUri) || avatarUri }} style={styles.avatarImage} />
-                ) : (
-                  <View style={styles.avatarEmpty}>
-                    <Ionicons name="person" size={40} color={colors.textMuted} />
-                  </View>
-                )}
-                <View style={styles.cameraIcon}>
-                  <Ionicons name="camera" size={16} color={colors.white} />
-                </View>
+      <KeyboardForm>
+        <FormScroll contentContainerStyle={[styles.content, { paddingBottom: 24 }]}>
+          <LinearGradient
+            colors={INDIVIDUAL_GRADIENT}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.hero, { paddingTop: insets.top + 8 }]}
+          >
+            <Ionicons name="person" size={150} color="rgba(255,255,255,0.07)" style={styles.heroWatermark} />
+            <View style={styles.heroBar}>
+              <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.heroBtn}>
+                <Ionicons name="chevron-back" size={20} color="#fff" />
               </Pressable>
-              <Text style={styles.avatarHint}>Tap to change profile photo</Text>
+              <Text style={styles.heroTitle}>Edit profile</Text>
+              <View style={styles.heroBtnGhost} />
             </View>
+          </LinearGradient>
 
-            <View>
-              <Text style={styles.label}>Full Name</Text>
-              <TextInput
+          <View style={styles.identity}>
+            <Pressable onPress={pickImage} style={styles.avatarWrap}>
+              <View style={styles.avatar}>
+                {avatarUri ? (
+                  <Image source={{ uri: resolveMediaUrl(avatarUri) || avatarUri }} style={styles.fill} />
+                ) : (
+                  <Ionicons name="person" size={40} color={colors.menuBlue} />
+                )}
+              </View>
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={14} color="#fff" />
+              </View>
+            </Pressable>
+            <Text style={styles.previewName} numberOfLines={1}>
+              {name.trim() || 'Your name'}
+            </Text>
+            <View style={styles.typePill}>
+              <Ionicons name="person" size={10} color={colors.menuBlue} />
+              <Text style={styles.typePillText}>INDIVIDUAL SELLER</Text>
+            </View>
+            <Pressable onPress={pickImage} hitSlop={6}>
+              <Text style={styles.changePhoto}>Change profile photo</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.sections}>
+            <EditSection icon="person-outline" title="Personal info" subtitle="Shown on your listings and chats" tint={colors.menuBlue}>
+              <EditField
+                label="Full name"
+                icon="person-outline"
                 value={name}
-                onChangeText={setName}
+                onChangeText={(text) => {
+                  setName(text);
+                  if (nameError) setNameError('');
+                }}
                 placeholder="Enter your full name"
-                placeholderTextColor={colors.textTertiary}
-                style={styles.input}
                 autoCapitalize="words"
+                error={nameError}
               />
-            </View>
-
-            <View>
-              <Text style={styles.label}>Bio</Text>
-              <TextInput
+              <EditField
+                label="Bio"
                 value={bio}
-                onChangeText={(text) => setBio(text.slice(0, 200))}
+                onChangeText={setBio}
                 placeholder="Tell buyers a little about yourself"
-                placeholderTextColor={colors.textTertiary}
-                style={styles.bioInput}
                 multiline
                 maxLength={200}
               />
-              <Text style={styles.charCount}>{bio.length}/200</Text>
-            </View>
+            </EditSection>
 
-            <View>
-              <Text style={styles.label}>Phone Number</Text>
-              <View style={styles.phoneBadge}>
-                <Ionicons name="call-outline" size={18} color={colors.textMuted} />
-                <Text style={styles.phoneText}>{phone || '—'}</Text>
-                <View style={{ flex: 1 }} />
-                <Ionicons name="lock-closed" size={14} color={colors.textTertiary} />
-                <Text style={styles.phoneLocked}>Verified</Text>
-              </View>
-            </View>
+            <EditSection icon="call-outline" title="Contact" subtitle="Your login number can't be changed" tint={colors.primary}>
+              <EditField
+                label="Phone number"
+                icon="call-outline"
+                value={phone || '—'}
+                editable={false}
+                right={
+                  <View style={styles.verifiedTag}>
+                    <Ionicons name="shield-checkmark" size={11} color={colors.success} />
+                    <Text style={styles.verifiedText}>Verified</Text>
+                  </View>
+                }
+              />
+            </EditSection>
 
-            <View>
-              <Text style={styles.label}>Location</Text>
-              <TextInput
+            <EditSection icon="location-outline" title="Location" subtitle="Helps nearby buyers find your items" tint={colors.danger}>
+              <EditField
+                label="City / area"
+                icon="location-outline"
                 value={location}
                 onChangeText={(text) => {
                   setLocation(text);
                   setCoordinates(null);
                 }}
                 placeholder="e.g. Kathmandu, Nepal"
-                placeholderTextColor={colors.textTertiary}
-                style={styles.input}
                 autoCapitalize="words"
+                right={
+                  <Pressable onPress={getCurrentLocation} disabled={locationLoading} hitSlop={8} style={styles.gpsBtn}>
+                    {locationLoading ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <>
+                        <Ionicons name="locate" size={13} color={colors.primary} />
+                        <Text style={styles.gpsText}>GPS</Text>
+                      </>
+                    )}
+                  </Pressable>
+                }
               />
-              <View style={styles.locationRow}>
-                <Pressable onPress={getCurrentLocation} style={styles.locationButton} disabled={locationLoading}>
-                  {locationLoading ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  ) : (
-                    <>
-                      <Ionicons name="locate-outline" size={16} color={colors.primary} />
-                      <Text style={styles.locationButtonText}>Use Current Location</Text>
-                    </>
-                  )}
-                </Pressable>
-              </View>
+            </EditSection>
+
+            <View style={styles.note}>
+              <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+              <Text style={styles.noteText}>
+                Your name, photo and location are visible to other KinBech users when you buy or sell.
+              </Text>
             </View>
           </View>
+        </FormScroll>
 
-          <Text style={styles.tip}>
-            Your name, profile photo, and location are visible to other KinBech users when you buy or sell items.
-          </Text>
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
+          <Pressable style={[styles.saveBtn, loading && styles.saveBtnDisabled]} onPress={handleSave} disabled={loading}>
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Text style={styles.saveText}>Save changes</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      </KeyboardForm>
 
-          <View style={{ height: 20 }} />
-
-          <GradientButton
-            title={loading ? 'Saving...' : 'Save Changes'}
-            icon="checkmark"
-            disabled={loading}
-            onPress={handleSave}
-          />
-      </FormScroll>
-
-      <AlertModal
-        visible={!!alertConfig}
-        onClose={() => setAlertConfig(null)}
-        {...(alertConfig || {})}
-      />
-    </SafeAreaView>
+      <AlertModal visible={!!alertConfig} onClose={closeAlert} {...(alertConfig || {})} />
+    </View>
   );
 }
+
+const createStyles = (colors) => ({
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  fill: {
+    width: '100%',
+    height: '100%',
+  },
+  content: {
+    flexGrow: 1,
+  },
+  hero: {
+    height: 150,
+    paddingHorizontal: 12,
+    overflow: 'hidden',
+  },
+  heroWatermark: {
+    position: 'absolute',
+    right: -20,
+    bottom: -40,
+  },
+  heroBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  heroBtnGhost: {
+    width: 34,
+  },
+  heroTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  identity: {
+    alignItems: 'center',
+    marginTop: -AVATAR / 2 - 6,
+    paddingHorizontal: 16,
+  },
+  avatarWrap: {
+    width: AVATAR + 8,
+    height: AVATAR + 8,
+  },
+  avatar: {
+    width: AVATAR + 8,
+    height: AVATAR + 8,
+    borderRadius: (AVATAR + 8) / 2,
+    borderWidth: 4,
+    borderColor: colors.background,
+    backgroundColor: colors.pastelBlue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    right: 2,
+    bottom: 4,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.menuBlue,
+    borderWidth: 3,
+    borderColor: colors.background,
+  },
+  previewName: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  typePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: colors.pastelBlue,
+  },
+  typePillText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: colors.menuBlue,
+  },
+  changePhoto: {
+    marginTop: 8,
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.menuBlue,
+  },
+  sections: {
+    padding: 16,
+    gap: 12,
+  },
+  verifiedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: colors.pastelGreen,
+  },
+  verifiedText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.success,
+  },
+  gpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: colors.pastelGreen,
+  },
+  gpsText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  note: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 4,
+  },
+  noteText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: colors.textMuted,
+  },
+  bottomBar: {
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  saveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: colors.menuBlue,
+  },
+  saveBtnDisabled: {
+    opacity: 0.6,
+  },
+  saveText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff',
+  },
+});

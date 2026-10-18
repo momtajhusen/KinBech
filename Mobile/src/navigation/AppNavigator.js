@@ -7,7 +7,6 @@ import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import BottomTabBar from '../components/BottomTabBar';
-import { lazyScreen } from './lazyScreen';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { getApiBaseUrl } from '../config/apiUrl';
@@ -55,6 +54,7 @@ import InviteFriendsScreen from '../screens/InviteFriendsScreen';
 import CurrencySelectScreen from '../screens/CurrencySelectScreen';
 import EditListingScreen from '../screens/EditListingScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
+import EditShopScreen from '../screens/EditShopScreen';
 import EmptyStateScreen from '../screens/EmptyStateScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
@@ -66,6 +66,8 @@ import LanguageSelectScreen from '../screens/LanguageSelectScreen';
 import LoginScreen from '../screens/LoginScreen';
 import MeetupConfirmationScreen from '../screens/MeetupConfirmationScreen';
 import MyListingsScreen from '../screens/MyListingsScreen';
+import MyPurchasesScreen from '../screens/MyPurchasesScreen';
+import RecentlyViewedScreen from '../screens/RecentlyViewedScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import OtpVerificationScreen from '../screens/OtpVerificationScreen';
@@ -95,8 +97,7 @@ import WalletScreen from '../screens/WalletScreen';
 import ContactUsScreen from '../screens/ContactUsScreen';
 import ListingSuccessScreen from '../screens/ListingSuccessScreen';
 import MapExploreScreen from '../screens/MapExploreScreen';
-
-const ShopStorefrontQrScreen = lazyScreen(() => import('../screens/ShopStorefrontQrScreen'));
+import ShopStorefrontQrScreen from '../screens/ShopStorefrontQrScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -448,6 +449,8 @@ export default function AppNavigator() {
         <Stack.Screen name="InviteFriends" component={InviteFriendsScreen} />
         <Stack.Screen name="EditListing" component={EditListingScreen} />
         <Stack.Screen name="MyListings" component={MyListingsScreen} />
+        <Stack.Screen name="MyPurchases" component={MyPurchasesScreen} />
+        <Stack.Screen name="RecentlyViewed" component={RecentlyViewedScreen} />
         <Stack.Screen name="ListingSuccess" component={ListingSuccessScreen} />
         <Stack.Screen name="Chat" component={ChatScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ freezeOnBlur: false }} />
@@ -466,6 +469,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ShopStorefrontQr" component={ShopStorefrontQrScreen} />
         <Stack.Screen name="MapExplore" component={MapExploreScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+        <Stack.Screen name="EditShop" component={EditShopScreen} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} />
         <Stack.Screen name="LanguageSelect" component={LanguageSelectScreen} />
         <Stack.Screen name="CurrencySelect" component={CurrencySelectScreen} />

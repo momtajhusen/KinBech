@@ -11,9 +11,12 @@ const { evaluateListingModeration } = require('../utils/listingModeration');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
+const {
+  normalize, searchTokens, queryFilter, scoreName, scoreListing, hasWordMatch,
+} = require('../utils/searchMatch');
 
 const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates';
-const SHOP_POPULATE = 'name logo phone ratingAverage reviewCount isVerified coordinates location';
+const SHOP_POPULATE = 'name logo coverImage tagline phone ratingAverage reviewCount isVerified coordinates location';
 const LISTING_PAGE_DEFAULT = 20;
 const LISTING_PAGE_MAX = 50;
 
@@ -102,7 +105,9 @@ function attachDistances(docs, userLat, userLng) {
   });
 }
 
-function buildBaseFilter(req) {
+const LISTING_TEXT_FIELDS = ['title', 'searchWords', 'category', 'description', 'location'];
+
+function buildBaseFilter(req, { matchMode = 'all' } = {}) {
   const {
     q,
     category,
@@ -128,15 +133,8 @@ function buildBaseFilter(req) {
     if (minPrice) filter.price.$gte = Number(minPrice);
     if (maxPrice) filter.price.$lte = Number(maxPrice);
   }
-  if (q) {
-    const escaped = String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    filter.$or = [
-      { title: { $regex: escaped, $options: 'i' } },
-      { description: { $regex: escaped, $options: 'i' } },
-      { searchWords: { $regex: escaped, $options: 'i' } },
-      { location: { $regex: escaped, $options: 'i' } },
-      { category: { $regex: escaped, $options: 'i' } },
-    ];
+  if (q && String(q).trim()) {
+    Object.assign(filter, queryFilter(q, LISTING_TEXT_FIELDS, matchMode));
   }
   return filter;
 }
@@ -279,10 +277,11 @@ async function searchListings(req, res, next) {
     const userLat = lat != null && lat !== '' ? Number(lat) : null;
     const userLng = lng != null && lng !== '' ? Number(lng) : null;
     const radiusKm = radius && Number(radius) > 0 ? Number(radius) : null;
-    const sortMode = String(sort || 'distance').toLowerCase();
-    const { page, limit, skip } = parsePagination(req);
+    const queryText = (req.query.q || '').toString().trim();
+    const sortMode = String(sort || (queryText ? 'relevance' : 'distance')).toLowerCase();
+    const { page, limit } = parsePagination(req);
 
-    const cacheKey = listingQueryCache.buildListingCacheKey('listings-search-geo2', {
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings-search-geo3', {
       ...req.query,
       page,
       limit,
@@ -292,84 +291,38 @@ async function searchListings(req, res, next) {
       return res.json(presentListings(cached, userLat, userLng));
     }
 
-    // Prefer in-memory ranking so verified sellers can be boosted in search
-    const canUseDbPagination = false;
-
-    if (canUseDbPagination) {
-      const mongoSort = {};
-      if (sortMode === 'price-low') mongoSort.price = 1;
-      else if (sortMode === 'price-high') mongoSort.price = -1;
-      else mongoSort.createdAt = -1;
-
-      const [total, docs] = await Promise.all([
-        Listing.countDocuments(filter),
-        Listing.find(filter)
-          .populate('seller', SELLER_POPULATE)
-          .populate('shopId', SHOP_POPULATE)
-          .sort(mongoSort)
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-      ]);
-
-      const listings = attachDistances(docs, userLat, userLng).map(({ doc, distance }) =>
-        listingPayload(doc, distance)
-      );
-      const payload = buildListResponse(listings, page, limit, total, sortMode);
-      listingQueryCache.set(cacheKey, payload);
-      return res.json(presentListings(payload, userLat, userLng));
-    }
-
-    const docs = await Listing.find(filter)
+    const fetchDocs = (query) => Listing.find(query)
       .populate('seller', SELLER_POPULATE)
       .populate('shopId', SHOP_POPULATE)
+      .sort({ createdAt: -1 })
       .limit(250)
       .lean();
 
-    const ranked = docs.map((doc) => {
+    const tokens = searchTokens(queryText);
+    const rankDocs = (docs) => docs.map((doc) => {
       const point = listingPoint(doc);
       let distance = null;
       if (userLat != null && userLng != null && point) {
         distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
       }
-
-      let relevanceScore = listingTrustBoost(doc);
-      const q = (req.query.q || '').toString().trim().toLowerCase();
-      if (q) {
-        const title = (doc.title || '').toLowerCase();
-        const desc = (doc.description || '').toLowerCase();
-        const loc = (doc.location || '').toLowerCase();
-        const cat = (doc.category || '').toLowerCase();
-        const searchWords = (Array.isArray(doc.searchWords) ? doc.searchWords : [])
-          .map((word) => String(word || '').toLowerCase());
-        const tokens = q.split(/\s+/).filter((word) => word.length > 1);
-        if (title === q) relevanceScore += 80;
-        else if (title.startsWith(q)) relevanceScore += 55;
-        else if (title.includes(q)) relevanceScore += 40;
-        if (searchWords.some((word) => word === q || word.includes(q) || q.includes(word))) {
-          relevanceScore += 48;
-        }
-        if (desc.includes(q)) relevanceScore += 28;
-        tokens.forEach((token) => {
-          if (title.includes(token)) relevanceScore += 18;
-          if (searchWords.some((word) => word.includes(token))) relevanceScore += 16;
-          if (desc.includes(token)) relevanceScore += 10;
-        });
-        if (cat.includes(q)) relevanceScore += 12;
-        if (loc.includes(q)) relevanceScore += 6;
-      }
-      return { doc, distance, relevance: relevanceScore, trust: listingTrustBoost(doc) };
-    });
-
-    const filtered = ranked.filter(({ distance }) => {
+      const trust = listingTrustBoost(doc);
+      const relevance = queryText ? scoreListing(doc, queryText, tokens) + trust : trust;
+      return { doc, distance, relevance, trust };
+    }).filter(({ distance }) => {
       if (!radiusKm) return true;
       if (distance == null) return false;
       return distance <= radiusKm;
     });
 
-    let sorted = filtered.slice();
-    const queryText = (req.query.q || '').toString().trim();
-    if (queryText && sortMode !== 'price-low' && sortMode !== 'price-high') {
+    let matchMode = 'all';
+    let sorted = rankDocs(await fetchDocs(filter));
+    if (!sorted.length && tokens.length > 1) {
+      matchMode = 'partial';
+      const looseDocs = await fetchDocs(buildBaseFilter(req, { matchMode: 'any' }));
+      sorted = rankDocs(looseDocs.filter((doc) => hasWordMatch(doc, tokens)));
+    }
+
+    if (sortMode === 'relevance') {
       sorted.sort((a, b) => {
         const diff = b.relevance - a.relevance;
         if (diff !== 0) return diff;
@@ -388,16 +341,6 @@ async function searchListings(req, res, next) {
         const trustDiff = b.trust - a.trust;
         if (trustDiff !== 0) return trustDiff;
         return b.relevance - a.relevance;
-      });
-    } else if (sortMode === 'relevance') {
-      sorted.sort((a, b) => {
-        const diff = b.relevance - a.relevance;
-        if (diff !== 0) return diff;
-        const trustDiff = b.trust - a.trust;
-        if (trustDiff !== 0) return trustDiff;
-        const da = a.distance == null ? Infinity : a.distance;
-        const db = b.distance == null ? Infinity : b.distance;
-        return da - db;
       });
     } else if (sortMode === 'price-low') {
       sorted.sort((a, b) => {
@@ -419,6 +362,17 @@ async function searchListings(req, res, next) {
         const tb = new Date(b.doc.createdAt || 0).getTime();
         return tb - ta;
       });
+    } else if (sortMode === 'trending') {
+      sorted.sort((a, b) => {
+        const viewDiff = (Number(b.doc.views) || 0) - (Number(a.doc.views) || 0);
+        if (a.distance != null && b.distance != null && Math.abs(a.distance - b.distance) > 2) {
+          return a.distance - b.distance;
+        }
+        if (viewDiff !== 0) return viewDiff;
+        const da = a.distance == null ? Infinity : a.distance;
+        const db = b.distance == null ? Infinity : b.distance;
+        return da - db;
+      });
     } else {
       sorted.sort((a, b) => {
         const da = a.distance == null ? Infinity : a.distance;
@@ -439,14 +393,92 @@ async function searchListings(req, res, next) {
       limit: paged.limit,
       totalPages: paged.totalPages,
       hasMore: paged.hasMore,
-      appliedSort: queryText && sortMode !== 'price-low' && sortMode !== 'price-high'
-        ? 'relevance'
-        : sortMode,
+      appliedSort: sortMode,
+      matchMode,
     };
     listingQueryCache.set(cacheKey, payload);
     return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
+  }
+}
+
+const SUGGESTION_LIMIT = 8;
+
+async function getSearchSuggestions(req, res, next) {
+  try {
+    const q = String(req.query.q || '').trim().slice(0, 60);
+    const tokens = searchTokens(q);
+    if (!q) return res.json({ suggestions: [], categories: [], stores: [] });
+
+    const cacheKey = listingQueryCache.buildListingCacheKey('listings-suggest', { q: normalize(q) });
+    const cached = listingQueryCache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    const nameFilter = queryFilter(q, ['name'], 'all');
+    const [docs, shops] = await Promise.all([
+      Listing.find({ status: 'active', ...queryFilter(q, ['title', 'searchWords', 'category'], 'all') })
+        .select('title searchWords category photos')
+        .sort({ createdAt: -1 })
+        .limit(120)
+        .lean(),
+      Shop.find({ status: 'active', ...nameFilter })
+        .select('name logo category isVerified')
+        .limit(12)
+        .lean(),
+    ]);
+
+    const phrases = new Map();
+    const addPhrase = (text, type, photo) => {
+      const clean = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 70);
+      const score = scoreName(clean, q, tokens);
+      if (!clean || score <= 0) return;
+      const key = clean.toLowerCase();
+      const prev = phrases.get(key);
+      if (prev) {
+        prev.count += 1;
+        if (!prev.photo && photo) prev.photo = photo;
+        return;
+      }
+      phrases.set(key, { text: clean, type, photo: photo || '', count: 1, score });
+    };
+
+    const categoryCounts = new Map();
+    docs.forEach((doc) => {
+      addPhrase(doc.title, 'listing', doc.photos?.[0]);
+      (doc.searchWords || []).forEach((word) => addPhrase(word, 'keyword'));
+      if (doc.category && scoreName(doc.category, q, tokens) > 0) {
+        categoryCounts.set(doc.category, (categoryCounts.get(doc.category) || 0) + 1);
+      }
+    });
+
+    const suggestions = [...phrases.values()]
+      .sort((a, b) => (b.score - a.score) || (b.count - a.count) || (a.text.length - b.text.length))
+      .slice(0, SUGGESTION_LIMIT)
+      .map(({ text, type, photo, count }) => ({ text, type, photo, count }));
+
+    const categories = [...categoryCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([name, count]) => ({ name, count }));
+
+    const stores = shops
+      .map((shop) => ({ shop, score: scoreName(shop.name, q, tokens) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+      .map(({ shop }) => ({
+        id: shop._id,
+        name: shop.name,
+        logo: shop.logo || '',
+        category: shop.category || '',
+        isVerified: Boolean(shop.isVerified),
+      }));
+
+    const payload = { suggestions, categories, stores };
+    listingQueryCache.set(cacheKey, payload);
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
   }
 }
 
@@ -1050,9 +1082,111 @@ async function featureListing(req, res, next) {
   }
 }
 
+const RELATED_TITLE_STOP = new Set([
+  'a', 'an', 'the', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'at', 'by',
+  'from', 'is', 'it', 'this', 'that', 'sale', 'item',
+]);
+
+// Colours and materials are shared by unrelated products (a blue chair and a
+// blue dustbin), so they only break ties between items of the same type.
+const RELATED_COLOR_WORDS = new Set([
+  'red', 'blue', 'green', 'black', 'white', 'yellow', 'pink', 'purple', 'orange',
+  'brown', 'grey', 'gray', 'silver', 'gold', 'golden', 'navy', 'maroon', 'beige',
+  'cream', 'dark', 'light', 'multicolor', 'multicolour', 'colour', 'color', 'midnight',
+]);
+const RELATED_DESCRIPTOR_WORDS = new Set([
+  'plastic', 'wooden', 'wood', 'metal', 'steel', 'iron', 'fabric', 'leather', 'glass',
+  'cotton', 'solid', 'material', 'new', 'used', 'old', 'small', 'big', 'large', 'mini',
+  'portable', 'single', 'double', 'set', 'pack', 'piece', 'pcs', 'with', 'without',
+]);
+
+function relatedTokenWeight(token) {
+  if (RELATED_COLOR_WORDS.has(token)) return 0.25;
+  if (RELATED_DESCRIPTOR_WORDS.has(token)) return 0.5;
+  return 3;
+}
+
+function titleMatchTokens(title) {
+  const words = String(title || '')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2 && !RELATED_TITLE_STOP.has(word));
+  return [...new Set(words)].slice(0, 16);
+}
+
+async function getRelatedListings(req, res, next) {
+  try {
+    const tokens = titleMatchTokens(req.query.title);
+    const exclude = String(req.query.exclude || '');
+    const category = String(req.query.category || '');
+    const limit = Math.min(12, Math.max(1, parseInt(req.query.limit, 10) || 8));
+    if (!tokens.length) {
+      return res.json({ listings: [] });
+    }
+
+    const or = tokens.flatMap((token) => {
+      const pattern = { $regex: token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
+      return relatedTokenWeight(token) >= 3
+        ? [{ title: pattern }, { searchWords: pattern }]
+        : [{ title: pattern }];
+    });
+    const docs = await Listing.find({ status: 'active', $or: or })
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE)
+      .limit(150)
+      .lean();
+
+    const ranked = docs
+      .filter((doc) => String(doc._id) !== exclude)
+      .map((doc) => {
+        const title = String(doc.title || '').toLowerCase();
+        const titleWords = new Set(titleMatchTokens(doc.title));
+        const words = (doc.searchWords || []).map((word) => String(word || '').toLowerCase());
+        let score = 0;
+        let typeMatch = false;
+        tokens.forEach((token) => {
+          const weight = relatedTokenWeight(token);
+          const hit = weight >= 3 ? title.includes(token) : titleWords.has(token);
+          if (hit) {
+            score += weight;
+            if (weight >= 3) typeMatch = true;
+          } else if (weight >= 3 && words.some((word) => word.includes(token))) {
+            score += 1;
+            typeMatch = true;
+          }
+        });
+        return {
+          doc,
+          score,
+          typeMatch,
+          sameCategory: Boolean(category) && doc.category === category,
+        };
+      })
+      .filter((row) => row.score > 0)
+      .sort((a, b) => {
+        if (a.typeMatch !== b.typeMatch) return a.typeMatch ? -1 : 1;
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.sameCategory !== b.sameCategory) return a.sameCategory ? -1 : 1;
+        const ta = new Date(a.doc.createdAt || 0).getTime();
+        const tb = new Date(b.doc.createdAt || 0).getTime();
+        return tb - ta;
+      })
+      .slice(0, limit);
+
+    return res.json({
+      listings: ranked.map(({ doc }) => listingPayload(doc)),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getListings,
   searchListings,
+  getSearchSuggestions,
+  getRelatedListings,
   getCategoryCounts,
   getMyListings,
   getMyPurchases,

@@ -16,7 +16,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle, formLabelStyle } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const LABELS = ['Home', 'Work', 'Meetup', 'Other'];
@@ -102,13 +102,7 @@ const createStyles = (colors) => ({
     gap: 12,
   },
   sheetTitle: { fontSize: 18, fontWeight: '800', color: colors.text, marginBottom: 4 },
-  label: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
+  label: formLabelStyle(colors),
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: {
     paddingHorizontal: 12,
@@ -120,16 +114,7 @@ const createStyles = (colors) => ({
   },
   chipActive: { backgroundColor: colors.pastelIndigo, borderColor: colors.primary },
   chipText: { fontSize: 13, fontWeight: '700', color: colors.text },
-  input: {
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    fontSize: 15,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
-  },
+  input: { ...formInputStyle(colors), height: 40, paddingVertical: 0 },
   defaultRow: {
     flexDirection: 'row',
     alignItems: 'center',

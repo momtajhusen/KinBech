@@ -1,11 +1,31 @@
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// Set GEMINI_API_KEY and optionally GEMINI_MODEL in the server environment.
-const MODEL_CANDIDATES = [
-  process.env.GEMINI_MODEL,
-  'gemini-3.6-flash',
-  'gemini-3.8-flash',
-].filter((model, index, all) => model && all.indexOf(model) === index);
+const {
+  candidateModels,
+  getAiSettings,
+  markModelBlocked,
+  recordUsage,
+} = require('./aiSettings');
+
+// Set GEMINI_API_KEY in the server environment; models are managed from the admin panel.
+
+function isQuotaError(status, payload) {
+  if (status !== 429) return false;
+  const message = String(payload?.error?.message || '');
+  return /quota/i.test(message) || payload?.error?.status === 'RESOURCE_EXHAUSTED';
+}
+
+function retryDelayMs(payload) {
+  const info = (payload?.error?.details || []).find((item) => item?.retryDelay);
+  const fromDetails = info ? parseFloat(String(info.retryDelay)) : NaN;
+  if (Number.isFinite(fromDetails)) return fromDetails * 1000;
+  const match = String(payload?.error?.message || '').match(/retry in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s/i);
+  if (match) {
+    const [, h = 0, m = 0, sec = 0] = match;
+    return ((Number(h) * 60 + Number(m)) * 60 + Number(sec)) * 1000;
+  }
+  return 60 * 60 * 1000;
+}
 
 const CONDITIONS = ['New', 'Good', 'Fair'];
 
@@ -136,12 +156,23 @@ function buildBody(generationConfig, data, mimeType, categories) {
 
 async function callModel(model, body) {
   const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey())}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    recordUsage(model, { error: error.message || 'Network error' });
+    throw error;
+  }
   const payload = await res.json().catch(() => null);
+  recordUsage(model, {
+    ok: res.ok,
+    quota: isQuotaError(res.status, payload),
+    error: payload?.error?.message || `HTTP ${res.status}`,
+  });
   return { res, payload };
 }
 
@@ -156,6 +187,7 @@ async function callModelWithRetry(model, body) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     result = await callModel(model, body);
     if (result.res.ok || !RETRYABLE_STATUSES.has(result.res.status)) return result;
+    if (isQuotaError(result.res.status, result.payload)) return result;
     if (attempt === 0) await sleep(300);
   }
   return result;
@@ -171,8 +203,17 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
     GENERATION_CONFIG,
   ];
 
+  const settings = await getAiSettings();
+  if (!(settings.models || []).some((model) => model.enabled)) {
+    const error = new Error('AI is turned off right now. Please fill the details yourself.');
+    error.status = 503;
+    throw error;
+  }
+  const candidates = candidateModels(settings);
+  if (!candidates.length) throw quotaError();
+
   let lastError = null;
-  for (const model of MODEL_CANDIDATES) {
+  for (const model of candidates) {
     for (const generationConfig of configs) {
       let res;
       let payload;
@@ -191,8 +232,19 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
         '';
       if (res.ok) {
         const suggestion = parseSuggestion(text);
-        if (suggestion) return suggestion;
+        if (suggestion) return { suggestion, model };
         lastError = new Error('Gemini returned an unreadable response');
+        break;
+      }
+
+      if (isQuotaError(res.status, payload)) {
+        await markModelBlocked(model, Date.now() + retryDelayMs(payload));
+        console.warn(
+          settings.autoSwitch
+            ? `[ai] ${model} daily quota used up, switching to the next model`
+            : `[ai] ${model} daily quota used up (auto switch is off)`
+        );
+        lastError = quotaError();
         break;
       }
 
@@ -207,4 +259,40 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
   throw lastError || new Error('AI suggestion failed');
 }
 
-module.exports = { suggestListingFromImage };
+function quotaError() {
+  const error = new Error("Today's AI limit is used up. Please fill the details yourself.");
+  error.status = 429;
+  return error;
+}
+
+/** Lists models this API key can call for generateContent (used by the admin panel). */
+async function listAvailableModels() {
+  const url = `${GEMINI_BASE}?pageSize=200&key=${encodeURIComponent(apiKey())}`;
+  const res = await fetch(url);
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(payload?.error?.message || `Could not list models (${res.status})`);
+  return (payload?.models || [])
+    .filter((model) => (model.supportedGenerationMethods || []).includes('generateContent'))
+    .map((model) => String(model.name || '').replace(/^models\//, ''))
+    .filter((name) => /^gemini/i.test(name) && !/(tts|image|embedding|audio|live)/i.test(name));
+}
+
+/** Sends a one-word text prompt to check that a model answers (uses one request of its quota). */
+async function testModel(model) {
+  const started = Date.now();
+  const { res, payload } = await callModel(model, {
+    contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
+    generationConfig: { maxOutputTokens: 5, temperature: 0 },
+  });
+  if (isQuotaError(res.status, payload)) {
+    await markModelBlocked(model, Date.now() + retryDelayMs(payload));
+  }
+  return {
+    ok: res.ok,
+    status: res.status,
+    ms: Date.now() - started,
+    message: res.ok ? 'Model answered' : payload?.error?.message || `HTTP ${res.status}`,
+  };
+}
+
+module.exports = { listAvailableModels, suggestListingFromImage, testModel };

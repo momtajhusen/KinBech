@@ -3,25 +3,39 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  ActivityIndicator,
-  Image,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
 import { FormScroll } from '../components/FormScroll';
+import { EditField, EditSection, FieldRow } from '../components/ProfileEditKit';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
+import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useCategories } from '../utils/categories';
 import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
+
+const SELL_TYPES = [
+  {
+    id: 'individual',
+    icon: 'person',
+    title: 'Individual',
+    desc: 'Sell your own items',
+    perks: ['Free', 'Post in seconds', 'Chat with buyers'],
+  },
+  {
+    id: 'shop',
+    icon: 'storefront',
+    title: 'Store',
+    desc: 'Run your shop online',
+    perks: ['Store page', 'Sales analytics', 'Verified badge'],
+  },
+];
+
+const HOUR_PRESETS = ['9:00 AM - 8:00 PM', '10:00 AM - 7:00 PM', '7:00 AM - 9:00 PM', 'Open 24 hours'];
 
 const createStyles = (colors) => ({
   root: {
@@ -29,69 +43,120 @@ const createStyles = (colors) => ({
     backgroundColor: colors.background,
   },
   header: {
+    marginHorizontal: -16,
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingTop: 12,
+    paddingBottom: 56,
   },
-  headerBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(255,255,255,0.16)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 14,
   },
+  headerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 20,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+  },
   headerBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '800',
     color: colors.onGradient,
     letterSpacing: 0.3,
   },
+  headerPct: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.onGradient,
+  },
   welcome: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: '800',
     color: colors.onGradient,
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 14,
-    lineHeight: 20,
-    color: 'rgba(255,255,255,0.88)',
+    marginTop: 4,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: 'rgba(255,255,255,0.86)',
   },
-  sheet: {
+  progressTrack: {
+    flexDirection: 'row',
+    gap: 5,
+    marginTop: 16,
+  },
+  progressSeg: {
     flex: 1,
-    marginTop: -16,
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  progressSegDone: {
+    backgroundColor: colors.onGradient,
+  },
+  stepRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 9,
+  },
+  step: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  stepText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.7)',
+  },
+  stepTextDone: {
+    color: colors.onGradient,
   },
   content: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
+    paddingHorizontal: 16,
+    gap: 14,
   },
-  avatarSection: {
+  previewCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+  },
+  previewRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 22,
+    gap: 14,
   },
   avatarWrap: {
-    width: 112,
-    height: 112,
+    width: 84,
+    height: 84,
   },
   avatarRing: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     padding: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  avatarRingStore: {
+    borderRadius: 24,
   },
   avatarInner: {
-    width: 106,
-    height: 106,
-    borderRadius: 53,
-    backgroundColor: colors.surface,
+    flex: 1,
+    borderRadius: 39,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  avatarInnerStore: {
+    borderRadius: 21,
   },
   avatarImage: {
     width: '100%',
@@ -99,105 +164,172 @@ const createStyles = (colors) => ({
   },
   cameraBadge: {
     position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    right: -2,
+    bottom: -2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: colors.background,
+    borderColor: colors.surface,
   },
-  avatarHint: {
-    marginTop: 12,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  fieldCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 4,
-    marginBottom: 12,
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 56,
-    gap: 12,
-  },
-  fieldIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.iconBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  fieldCopy: {
+  previewCopy: {
     flex: 1,
   },
-  fieldLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.textMuted,
-    letterSpacing: 0.3,
+  previewEyebrow: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
     textTransform: 'uppercase',
-  },
-  input: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    paddingVertical: 2,
-  },
-  inputDisabled: {
     color: colors.textMuted,
   },
-  gpsBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.iconBackground,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionTitle: {
-    marginTop: 8,
-    marginBottom: 12,
-    fontSize: 15,
+  previewName: {
+    marginTop: 3,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.text,
   },
-  typeGrid: {
+  previewPlaceholder: {
+    color: colors.textTertiary,
+  },
+  previewMeta: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 8,
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 3,
   },
-  typeCard: {
+  previewMetaText: {
     flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: 14,
+    fontSize: 12.5,
+    color: colors.textMuted,
   },
-  typeCardActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft || `${colors.primary}12`,
+  previewPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
   },
-  typeIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: colors.iconBackground,
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  pillText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  photoActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  photoBtn: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    gap: 6,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  photoBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  photoBtnIconOnly: {
+    flex: 0,
+    width: 38,
+  },
+  verifiedTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: `${colors.success}1F`,
+  },
+  verifiedTagText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.success,
+  },
+  gpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 30,
+    paddingHorizontal: 9,
+    marginRight: -6,
+    borderRadius: 9,
+    backgroundColor: `${colors.primary}1A`,
+  },
+  gpsBtnText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  typePicker: {
+    marginTop: -56,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  typePickerLabel: {
+    marginBottom: 8,
+    marginLeft: 2,
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+  },
+  typeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  typeTile: {
+    flex: 1,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  typeTileActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}14`,
+  },
+  typeTileTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  typeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: `${colors.primary}1A`,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   typeIconActive: {
     backgroundColor: colors.primary,
@@ -206,65 +338,157 @@ const createStyles = (colors) => ({
     fontSize: 14,
     fontWeight: '800',
     color: colors.text,
-    marginBottom: 4,
   },
   typeTitleActive: {
     color: colors.primary,
   },
   typeDesc: {
-    fontSize: 12,
-    lineHeight: 17,
+    marginTop: 1,
+    fontSize: 11.5,
     color: colors.textMuted,
   },
-  shopPanel: {
-    marginTop: 16,
-    marginBottom: 4,
-    backgroundColor: colors.surface,
+  perkRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 10,
+    marginLeft: 2,
+  },
+  perk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  perkText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    marginBottom: 6,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  labelError: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.danger,
+    marginBottom: 6,
+  },
+  catGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+  catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 5,
+    paddingRight: 11,
+    paddingVertical: 5,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 14,
+    backgroundColor: colors.background,
   },
-  shopPanelTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 4,
+  catIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  shopPanelHint: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.textMuted,
-    marginBottom: 12,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: colors.iconBackground,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  chipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft || `${colors.primary}18`,
-  },
-  chipText: {
+  catText: {
     fontSize: 12,
     fontWeight: '700',
     color: colors.textSecondary,
   },
-  chipTextActive: {
+  presetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  preset: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  presetActive: {
+    borderColor: colors.primary,
+    backgroundColor: `${colors.primary}14`,
+  },
+  presetText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textMuted,
+  },
+  presetTextActive: {
     color: colors.primary,
   },
-  submit: {
-    marginTop: 16,
+  taxHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  taxTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  taxHint: {
+    marginTop: 1,
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  noteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: `${colors.info}14`,
+  },
+  noteText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textSecondary,
+  },
+  submitWrap: {
+    marginTop: 2,
+  },
+  submitHint: {
+    marginTop: 8,
+    textAlign: 'center',
+    fontSize: 11.5,
+    color: colors.textMuted,
   },
 });
 
@@ -289,35 +513,57 @@ export default function ProfileSetupScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [locationLoading, setLocationLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const isShop = sellerTypePreference === 'shop';
 
-  const pickImage = async () => {
+  const steps = [
+    { label: 'Photo', done: Boolean(avatarUri) },
+    { label: 'Name', done: Boolean(name.trim()) },
+    { label: 'Location', done: Boolean(location.trim()) },
+    ...(isShop
+      ? [
+          { label: 'Store name', done: Boolean(shopName.trim()) },
+          { label: 'Category', done: Boolean(shopCategory) },
+        ]
+      : []),
+  ];
+  const doneCount = steps.filter((step) => step.done).length;
+  const pct = Math.round((doneCount / steps.length) * 100);
+
+  const nameError = submitted && !name.trim() ? 'Please enter your name' : '';
+  const locationError = submitted && !location.trim() ? 'Please add your city or area' : '';
+  const shopNameError = submitted && isShop && !shopName.trim() ? 'Please enter your store name' : '';
+  const categoryError = submitted && isShop && !shopCategory;
+
+  const showError = (title, message) =>
+    setAlertConfig(showErrorAlert({ title, message, onConfirm: () => setAlertConfig(null) }));
+
+  const pickImage = async (source = 'library') => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const fromCamera = source === 'camera';
+      const { status } = fromCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        setAlertConfig(showErrorAlert({
-          title: 'Permission Required',
-          message: 'Please grant camera roll permissions to upload a profile photo.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        showError(
+          'Permission Required',
+          fromCamera
+            ? 'Please allow camera access to take a profile photo.'
+            : 'Please grant camera roll permissions to upload a profile photo.'
+        );
         return;
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
+      const options = { mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 };
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
 
       if (!result.canceled && result.assets[0]) {
         setAvatarUri(result.assets[0].uri);
       }
     } catch {
-      setAlertConfig(showErrorAlert({
-        title: 'Error',
-        message: 'Failed to pick image. Please try again.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      showError('Error', 'Failed to pick image. Please try again.');
     }
   };
 
@@ -328,11 +574,7 @@ export default function ProfileSetupScreen({ navigation }) {
       if (status !== 'granted') {
         setLocationLoading(false);
         if (!silent) {
-          setAlertConfig(showErrorAlert({
-            title: 'Permission Required',
-            message: 'Please grant location permissions to set your current location.',
-            onConfirm: () => setAlertConfig(null),
-          }));
+          showError('Permission Required', 'Please grant location permissions to set your current location.');
         }
         return;
       }
@@ -348,11 +590,7 @@ export default function ProfileSetupScreen({ navigation }) {
     } catch {
       setLocationLoading(false);
       if (!silent) {
-        setAlertConfig(showErrorAlert({
-          title: 'Location Error',
-          message: 'Failed to get your location. Please enter it manually.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        showError('Location Error', 'Failed to get your location. Please enter it manually.');
       }
     }
   };
@@ -363,38 +601,23 @@ export default function ProfileSetupScreen({ navigation }) {
   }, []);
 
   const completeProfile = async () => {
+    setSubmitted(true);
     if (!name.trim()) {
-      setAlertConfig(showErrorAlert({
-        title: 'Name Required',
-        message: 'Please enter your name to continue.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      showError('Name Required', 'Please enter your name to continue.');
       return;
     }
     if (!location.trim()) {
-      setAlertConfig(showErrorAlert({
-        title: 'Location Required',
-        message: 'Please enter your location to continue.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      showError('Location Required', 'Please enter your location to continue.');
       return;
     }
 
-    if (sellerTypePreference === 'shop') {
+    if (isShop) {
       if (!shopName.trim()) {
-        setAlertConfig(showErrorAlert({
-          title: 'Store name required',
-          message: 'Please enter your store name to continue as a shop owner.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        showError('Store name required', 'Please enter your store name to continue as a shop owner.');
         return;
       }
       if (!shopCategory) {
-        setAlertConfig(showErrorAlert({
-          title: 'Store category required',
-          message: 'Please choose what your store sells.',
-          onConfirm: () => setAlertConfig(null),
-        }));
+        showError('Store category required', 'Please choose what your store sells.');
         return;
       }
     }
@@ -403,7 +626,7 @@ export default function ProfileSetupScreen({ navigation }) {
     try {
       let nextAvatarUrl = avatarUri || '';
       if (nextAvatarUrl) {
-        const uploaded = await uploadMediaUri(nextAvatarUrl, 'avatars');
+        const uploaded = await uploadMediaUri(nextAvatarUrl, isShop ? 'shops' : 'avatars');
         if (uploaded.error) {
           setLoading(false);
           setAlertConfig(
@@ -442,20 +665,17 @@ export default function ProfileSetupScreen({ navigation }) {
 
       if (error) {
         setLoading(false);
-        setAlertConfig(showErrorAlert({
-          title: 'Update Failed',
-          message: error,
-          onConfirm: () => setAlertConfig(null),
-        }));
+        showError('Update Failed', error);
         return;
       }
 
       await saveSession(data.token, data.user);
 
-      if (sellerTypePreference === 'shop') {
+      if (isShop) {
         const shopRes = await api.createShop({
           name: shopName.trim(),
           category: shopCategory,
+          logo: nextAvatarUrl || undefined,
           phone,
           address: (shopAddress || location).trim(),
           location: location.trim(),
@@ -470,11 +690,7 @@ export default function ProfileSetupScreen({ navigation }) {
         });
         if (shopRes.error && !String(shopRes.error).toLowerCase().includes('already')) {
           setLoading(false);
-          setAlertConfig(showErrorAlert({
-            title: 'Store details',
-            message: shopRes.error,
-            onConfirm: () => setAlertConfig(null),
-          }));
+          showError('Store details', shopRes.error);
           return;
         }
       }
@@ -483,13 +699,12 @@ export default function ProfileSetupScreen({ navigation }) {
       navigation.replace(ROUTES.MAIN_TABS);
     } catch {
       setLoading(false);
-      setAlertConfig(showErrorAlert({
-        title: 'Error',
-        message: 'Failed to complete profile. Please try again.',
-        onConfirm: () => setAlertConfig(null),
-      }));
+      showError('Error', 'Failed to complete profile. Please try again.');
     }
   };
+
+  const previewName = isShop ? shopName.trim() : name.trim();
+  const avatarSrc = avatarUri ? resolveMediaUrl(avatarUri) || avatarUri : '';
 
   return (
     <View style={styles.root}>
@@ -498,269 +713,333 @@ export default function ProfileSetupScreen({ navigation }) {
         colors={colors.gradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
-        style={[styles.header, { paddingTop: insets.top + 12 }]}
-      >
-        <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>Almost there</Text>
-        </View>
-        <Text style={styles.welcome}>Complete your profile</Text>
-        <Text style={styles.subtitle}>Buyers and sellers nearby will see these details.</Text>
-      </LinearGradient>
+        style={{ height: insets.top }}
+      />
+      <FormScroll contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 28 }]}>
+        <LinearGradient
+          colors={colors.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.header}
+        >
+          <View style={styles.headerTop}>
+            <View style={styles.headerBadge}>
+              <Ionicons name="sparkles" size={12} color={colors.onGradient} />
+              <Text style={styles.headerBadgeText}>WELCOME TO KINBECH</Text>
+            </View>
+            <Text style={styles.headerPct}>{pct}% done</Text>
+          </View>
+          <Text style={styles.welcome}>Set up your profile</Text>
+          <Text style={styles.subtitle}>A complete profile gets more trust and faster replies from buyers nearby.</Text>
+          <View style={styles.progressTrack}>
+            {steps.map((step) => (
+              <View key={step.label} style={[styles.progressSeg, step.done && styles.progressSegDone]} />
+            ))}
+          </View>
+          <View style={styles.stepRow}>
+            {steps.map((step) => (
+              <View key={step.label} style={styles.step}>
+                <Ionicons
+                  name={step.done ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={12}
+                  color={step.done ? colors.onGradient : 'rgba(255,255,255,0.7)'}
+                />
+                <Text style={[styles.stepText, step.done && styles.stepTextDone]}>{step.label}</Text>
+              </View>
+            ))}
+          </View>
+        </LinearGradient>
 
-      <FormScroll
-        style={styles.sheet}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
-      >
-          <View style={styles.avatarSection}>
-            <Pressable onPress={pickImage} style={styles.avatarWrap}>
+        <View style={styles.typePicker}>
+          <Text style={styles.typePickerLabel}>I want to sell as</Text>
+          <View style={styles.typeRow}>
+            {SELL_TYPES.map((type) => {
+              const active = sellerTypePreference === type.id;
+              return (
+                <Pressable
+                  key={type.id}
+                  style={[styles.typeTile, active && styles.typeTileActive]}
+                  onPress={() => setSellerTypePreference(type.id)}
+                >
+                  <View style={styles.typeTileTop}>
+                    <View style={[styles.typeIcon, active && styles.typeIconActive]}>
+                      <Ionicons name={type.icon} size={18} color={active ? colors.onPrimary : colors.primary} />
+                    </View>
+                    <View style={[styles.radio, active && styles.radioActive]}>
+                      {active ? <Ionicons name="checkmark" size={11} color={colors.onPrimary} /> : null}
+                    </View>
+                  </View>
+                  <Text style={[styles.typeTitle, active && styles.typeTitleActive]}>{type.title}</Text>
+                  <Text style={styles.typeDesc} numberOfLines={1}>{type.desc}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={styles.perkRow}>
+            {(SELL_TYPES.find((type) => type.id === sellerTypePreference) || SELL_TYPES[0]).perks.map((perk) => (
+              <View key={perk} style={styles.perk}>
+                <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
+                <Text style={styles.perkText}>{perk}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.previewCard}>
+          <View style={styles.previewRow}>
+            <Pressable onPress={() => pickImage('library')} style={styles.avatarWrap}>
               <LinearGradient
                 colors={colors.gradient}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
-                style={styles.avatarRing}
+                style={[styles.avatarRing, isShop && styles.avatarRingStore]}
               >
-                <View style={styles.avatarInner}>
-                  {avatarUri ? (
-                    <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                <View style={[styles.avatarInner, isShop && styles.avatarInnerStore]}>
+                  {avatarSrc ? (
+                    <Image source={{ uri: avatarSrc }} style={styles.avatarImage} />
                   ) : (
-                    <Ionicons name="person" size={42} color={colors.textMuted} />
+                    <Ionicons name={isShop ? 'storefront' : 'person'} size={34} color={colors.textMuted} />
                   )}
                 </View>
               </LinearGradient>
               <View style={styles.cameraBadge}>
-                <Ionicons name="camera" size={15} color={colors.onGradient} />
+                <Ionicons name={avatarSrc ? 'pencil' : 'camera'} size={13} color={colors.onGradient} />
               </View>
             </Pressable>
-            <Text style={styles.avatarHint}>Add a profile photo</Text>
-          </View>
-
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldIcon}>
-                <Ionicons name="person-outline" size={18} color={colors.primary} />
-              </View>
-              <View style={styles.fieldCopy}>
-                <Text style={styles.fieldLabel}>Your name</Text>
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Enter your name"
-                  placeholderTextColor={colors.textTertiary}
-                  style={styles.input}
+            <View style={styles.previewCopy}>
+              <Text style={styles.previewEyebrow}>
+                {isShop ? 'Your store preview' : 'How others see you'}
+              </Text>
+              <Text style={[styles.previewName, !previewName && styles.previewPlaceholder]} numberOfLines={1}>
+                {previewName || (isShop ? 'Your store name' : 'Your name')}
+              </Text>
+              <View style={styles.previewMeta}>
+                <Ionicons
+                  name={isShop && shopCategory ? 'pricetag-outline' : 'location-outline'}
+                  size={12}
+                  color={colors.textMuted}
                 />
+                <Text style={styles.previewMetaText} numberOfLines={1}>
+                  {isShop && shopCategory
+                    ? `${shopCategory}${location ? ` · ${location}` : ''}`
+                    : location || 'Add your location'}
+                </Text>
+              </View>
+              <View style={styles.previewPills}>
+                <View style={[styles.pill, { backgroundColor: `${colors.success}1F` }]}>
+                  <Ionicons name="shield-checkmark" size={10} color={colors.success} />
+                  <Text style={[styles.pillText, { color: colors.success }]}>Phone verified</Text>
+                </View>
+                <View style={[styles.pill, { backgroundColor: `${colors.primary}1A` }]}>
+                  <Ionicons name={isShop ? 'storefront' : 'person'} size={10} color={colors.primary} />
+                  <Text style={[styles.pillText, { color: colors.primary }]}>{isShop ? 'Store' : 'Individual'}</Text>
+                </View>
               </View>
             </View>
           </View>
-
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldIcon}>
-                <Ionicons name="call-outline" size={18} color={colors.primary} />
-              </View>
-              <View style={styles.fieldCopy}>
-                <Text style={styles.fieldLabel}>Phone number</Text>
-                <TextInput
-                  value={phone}
-                  editable={false}
-                  style={[styles.input, styles.inputDisabled]}
-                />
-              </View>
-            </View>
+          <View style={styles.photoActions}>
+            <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}>
+              <Ionicons name="images-outline" size={16} color={colors.primary} />
+              <Text style={styles.photoBtnText}>{avatarSrc ? 'Change' : isShop ? 'Upload logo' : 'Upload photo'}</Text>
+            </Pressable>
+            <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}>
+              <Ionicons name="camera-outline" size={16} color={colors.primary} />
+              <Text style={styles.photoBtnText}>Camera</Text>
+            </Pressable>
+            {avatarSrc ? (
+              <Pressable style={[styles.photoBtn, styles.photoBtnIconOnly]} onPress={() => setAvatarUri('')} hitSlop={4}>
+                <Ionicons name="trash-outline" size={16} color={colors.danger} />
+              </Pressable>
+            ) : null}
           </View>
+        </View>
 
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldRow}>
-              <View style={styles.fieldIcon}>
-                <Ionicons name="location-outline" size={18} color={colors.primary} />
+        <EditSection
+          icon="person-circle-outline"
+          title="Personal details"
+          subtitle={isShop ? 'The owner behind the store' : 'Shown on your listings and chats'}
+        >
+          <EditField
+            label={isShop ? 'Owner name' : 'Full name'}
+            icon="person-outline"
+            value={name}
+            onChangeText={setName}
+            placeholder="Enter your name"
+            autoCapitalize="words"
+            maxLength={60}
+            error={nameError}
+            right={name.trim().length > 1 ? <Ionicons name="checkmark-circle" size={18} color={colors.success} /> : null}
+          />
+          <EditField
+            label="Phone number"
+            icon="call-outline"
+            value={phone}
+            editable={false}
+            hint="Verified by OTP and used to sign in"
+            right={
+              <View style={styles.verifiedTag}>
+                <Ionicons name="shield-checkmark" size={11} color={colors.success} />
+                <Text style={styles.verifiedTagText}>Verified</Text>
               </View>
-              <View style={styles.fieldCopy}>
-                <Text style={styles.fieldLabel}>Location</Text>
-                <TextInput
-                  value={location}
-                  onChangeText={(text) => {
-                    setLocation(text);
-                    setCoordinates(null);
-                  }}
-                  placeholder="City or area"
-                  placeholderTextColor={colors.textTertiary}
-                  style={styles.input}
-                />
-              </View>
+            }
+          />
+          <EditField
+            label="Location"
+            icon="location-outline"
+            value={location}
+            onChangeText={(text) => {
+              setLocation(text);
+              setCoordinates(null);
+            }}
+            placeholder="City or area, e.g. Barahathawa"
+            autoCapitalize="words"
+            error={locationError}
+            hint={coordinates ? 'Detected from your GPS — shows you to nearby buyers' : 'Type your city or tap Detect'}
+            right={
               <Pressable onPress={() => getCurrentLocation()} style={styles.gpsBtn} disabled={locationLoading}>
                 {locationLoading ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Ionicons name="navigate" size={18} color={colors.primary} />
+                  <Ionicons name={coordinates ? 'locate' : 'navigate'} size={13} color={colors.primary} />
                 )}
+                <Text style={styles.gpsBtnText}>{coordinates ? 'GPS' : 'Detect'}</Text>
               </Pressable>
-            </View>
-          </View>
+            }
+          />
+        </EditSection>
 
-          <Text style={styles.sectionTitle}>How do you want to sell?</Text>
-          <View style={styles.typeGrid}>
-            <Pressable
-              style={[styles.typeCard, sellerTypePreference === 'individual' && styles.typeCardActive]}
-              onPress={() => setSellerTypePreference('individual')}
-            >
-              <View style={[styles.typeIcon, sellerTypePreference === 'individual' && styles.typeIconActive]}>
-                <Ionicons
-                  name="person"
-                  size={20}
-                  color={sellerTypePreference === 'individual' ? colors.onPrimary : colors.primary}
-                />
+        {isShop ? (
+          <EditSection
+            icon="storefront-outline"
+            title="Store details"
+            subtitle="Helps buyers find your shop on Explore"
+          >
+            <EditField
+              label="Store name"
+              icon="storefront-outline"
+              value={shopName}
+              onChangeText={setShopName}
+              placeholder="e.g. Mobile Hub"
+              autoCapitalize="words"
+              maxLength={60}
+              error={shopNameError}
+            />
+
+            <View>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>What does your store sell?</Text>
+                {categoryError ? <Text style={styles.labelError}>Pick a category</Text> : null}
               </View>
-              <Text style={[styles.typeTitle, sellerTypePreference === 'individual' && styles.typeTitleActive]}>
-                Individual
-              </Text>
-              <Text style={styles.typeDesc}>Sell personal items like phones and furniture.</Text>
-            </Pressable>
-
-            <Pressable
-              style={[styles.typeCard, sellerTypePreference === 'shop' && styles.typeCardActive]}
-              onPress={() => setSellerTypePreference('shop')}
-            >
-              <View style={[styles.typeIcon, sellerTypePreference === 'shop' && styles.typeIconActive]}>
-                <Ionicons
-                  name="storefront"
-                  size={20}
-                  color={sellerTypePreference === 'shop' ? colors.onPrimary : colors.primary}
-                />
-              </View>
-              <Text style={[styles.typeTitle, sellerTypePreference === 'shop' && styles.typeTitleActive]}>
-                Shop owner
-              </Text>
-              <Text style={styles.typeDesc}>Run a store with listings and shop reviews.</Text>
-            </Pressable>
-          </View>
-
-          {sellerTypePreference === 'shop' ? (
-            <View style={styles.shopPanel}>
-              <Text style={styles.shopPanelTitle}>Your store</Text>
-              <Text style={styles.shopPanelHint}>
-                These details help buyers find your shop on Explore.
-              </Text>
-
-              <View style={styles.fieldCard}>
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldIcon}>
-                    <Ionicons name="storefront-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.fieldCopy}>
-                    <Text style={styles.fieldLabel}>Store name</Text>
-                    <TextInput
-                      value={shopName}
-                      onChangeText={setShopName}
-                      placeholder="e.g. Mobile Hub"
-                      placeholderTextColor={colors.textTertiary}
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.fieldLabel}>Store category</Text>
-              <View style={styles.chipRow}>
+              <View style={styles.catGrid}>
                 {shopCategories.map((cat) => {
                   const active = shopCategory === cat.label;
+                  const tint = cat.tint || colors.primary;
                   return (
                     <Pressable
                       key={cat.label}
                       onPress={() => setShopCategory(cat.label)}
-                      style={[styles.chip, active && styles.chipActive]}
+                      style={[
+                        styles.catChip,
+                        active && { borderColor: tint, backgroundColor: `${tint}1A` },
+                        categoryError && { borderColor: colors.danger },
+                      ]}
                     >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{cat.label}</Text>
+                      <View style={[styles.catIcon, { backgroundColor: active ? tint : `${tint}1F` }]}>
+                        <Ionicons
+                          name={active ? 'checkmark' : cat.icon || 'pricetag-outline'}
+                          size={13}
+                          color={active ? '#fff' : tint}
+                        />
+                      </View>
+                      <Text style={[styles.catText, active && { color: tint }]}>{cat.label}</Text>
                     </Pressable>
                   );
                 })}
               </View>
+            </View>
 
-              <View style={styles.fieldCard}>
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldIcon}>
-                    <Ionicons name="map-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.fieldCopy}>
-                    <Text style={styles.fieldLabel}>Store address</Text>
-                    <TextInput
-                      value={shopAddress}
-                      onChangeText={setShopAddress}
-                      placeholder={location || 'Street, city'}
-                      placeholderTextColor={colors.textTertiary}
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
+            <EditField
+              label="Store address"
+              icon="map-outline"
+              value={shopAddress}
+              onChangeText={setShopAddress}
+              placeholder={location ? `Street, ${location}` : 'Street, city'}
+              hint="Leave empty to use your location"
+            />
 
-              <View style={[styles.fieldCard, { marginBottom: 12 }]}>
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldIcon}>
-                    <Ionicons name="time-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.fieldCopy}>
-                    <Text style={styles.fieldLabel}>Opening hours</Text>
-                    <TextInput
-                      value={openingHours}
-                      onChangeText={setOpeningHours}
-                      placeholder="9:00 AM - 8:00 PM"
-                      placeholderTextColor={colors.textTertiary}
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <Text style={styles.shopPanelHint}>
-                Tax IDs are optional. Add them now or later for a verified shop badge.
-              </Text>
-
-              <View style={styles.fieldCard}>
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldIcon}>
-                    <Ionicons name="card-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.fieldCopy}>
-                    <Text style={styles.fieldLabel}>PAN number (optional)</Text>
-                    <TextInput
-                      value={panNumber}
-                      onChangeText={setPanNumber}
-                      placeholder="e.g. 123456789"
-                      placeholderTextColor={colors.textTertiary}
-                      autoCapitalize="characters"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-              </View>
-
-              <View style={[styles.fieldCard, { marginBottom: 0 }]}>
-                <View style={styles.fieldRow}>
-                  <View style={styles.fieldIcon}>
-                    <Ionicons name="receipt-outline" size={18} color={colors.primary} />
-                  </View>
-                  <View style={styles.fieldCopy}>
-                    <Text style={styles.fieldLabel}>VAT number (optional)</Text>
-                    <TextInput
-                      value={vatNumber}
-                      onChangeText={setVatNumber}
-                      placeholder="VAT registration number"
-                      placeholderTextColor={colors.textTertiary}
-                      autoCapitalize="characters"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
+            <View>
+              <EditField
+                label="Opening hours"
+                icon="time-outline"
+                value={openingHours}
+                onChangeText={setOpeningHours}
+                placeholder="9:00 AM - 8:00 PM"
+              />
+              <View style={styles.presetRow}>
+                {HOUR_PRESETS.map((preset) => {
+                  const active = openingHours === preset;
+                  return (
+                    <Pressable
+                      key={preset}
+                      onPress={() => setOpeningHours(preset)}
+                      style={[styles.preset, active && styles.presetActive]}
+                    >
+                      <Text style={[styles.presetText, active && styles.presetTextActive]}>{preset}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
-          ) : null}
 
+            <View style={styles.taxHead}>
+              <Ionicons name="ribbon-outline" size={18} color={colors.warning} />
+              <View style={styles.previewCopy}>
+                <Text style={styles.taxTitle}>Tax details (optional)</Text>
+                <Text style={styles.taxHint}>Add PAN or VAT now or later to get a verified store badge</Text>
+              </View>
+            </View>
+            <FieldRow>
+              <EditField
+                label="PAN number"
+                icon="card-outline"
+                value={panNumber}
+                onChangeText={setPanNumber}
+                placeholder="123456789"
+                keyboardType="number-pad"
+                autoCapitalize="characters"
+              />
+              <EditField
+                label="VAT number"
+                icon="receipt-outline"
+                value={vatNumber}
+                onChangeText={setVatNumber}
+                placeholder="Optional"
+                autoCapitalize="characters"
+              />
+            </FieldRow>
+          </EditSection>
+        ) : null}
+
+        <View style={styles.noteCard}>
+          <Ionicons name="information-circle" size={20} color={colors.info} />
+          <Text style={styles.noteText}>
+            You can edit everything later from Profile → Edit profile{isShop ? ', including your banner and store hours.' : '.'}
+          </Text>
+        </View>
+
+        <View style={styles.submitWrap}>
           <GradientButton
-            title={loading ? 'Please wait...' : 'Complete profile'}
-            icon="arrow-forward"
+            title={loading ? 'Setting up...' : isShop ? 'Create my store' : 'Complete profile'}
+            icon={loading ? undefined : 'arrow-forward'}
             disabled={loading}
             onPress={completeProfile}
-            style={styles.submit}
           />
+          <Text style={styles.submitHint}>
+            {doneCount === steps.length
+              ? 'All set — you are ready to go!'
+              : `${steps.length - doneCount} step${steps.length - doneCount === 1 ? '' : 's'} left${avatarUri ? '' : ' · photo is optional'}`}
+          </Text>
+        </View>
       </FormScroll>
 
       <AlertModal

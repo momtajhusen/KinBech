@@ -16,7 +16,7 @@ import { FormScroll } from '../components/FormScroll';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle } from '../theme';
 
 export default function InviteFriendsScreen({ navigation }) {
   const { colors } = useTheme();
@@ -239,15 +239,8 @@ const createStyles = (colors) => ({
   copyBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   copyText: { fontSize: 13, fontWeight: '700', color: colors.primary },
   meta: { fontSize: 12, color: colors.textSecondary },
-  fieldCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  input: { fontSize: 16, color: colors.text, paddingVertical: 4 },
+  fieldCard: {},
+  input: { ...formInputStyle(colors), height: 40, paddingVertical: 0 },
   secondaryBtn: {
     marginTop: 4,
     paddingVertical: 14,

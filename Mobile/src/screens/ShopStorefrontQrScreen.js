@@ -1,5 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
-import ScreenLoader from '../components/ScreenLoader';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,32 +13,44 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
+import ScreenLoader from '../components/ScreenLoader';
+import EmptyState from '../components/EmptyState';
 import { api, getAuthToken } from '../services/api';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
-import EmptyState from '../components/EmptyState';
 import { BRAND_TAGLINE } from '../content/brand';
+import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
+const POSTER_GRADIENT = ['#064E3B', '#059669'];
+const QR_SIZE = 200;
+const LOGO = require('../../assets/icons/app-icon.png');
+
+const STEPS = [
+  { icon: 'camera-outline', title: 'Open camera' },
+  { icon: 'scan-outline', title: 'Scan QR' },
+  { icon: 'bag-handle-outline', title: 'Shop & chat' },
+];
+
 function safeFileName(name) {
-  return String(name || 'shop')
-    .trim()
-    .replace(/[^\w.-]+/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 48) || 'shop';
+  return (
+    String(name || 'shop')
+      .trim()
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/-+/g, '-')
+      .slice(0, 48) || 'shop'
+  );
 }
 
 export default function ShopStorefrontQrScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const qrRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [savingPdf, setSavingPdf] = useState(false);
+  const [busy, setBusy] = useState('');
   const [storefront, setStorefront] = useState(null);
   const [error, setError] = useState('');
 
@@ -59,14 +70,14 @@ export default function ShopStorefrontQrScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadStorefront();
-    }, [loadStorefront]),
+    }, [loadStorefront])
   );
 
   const shareLink = async () => {
     if (!storefront?.url) return;
     try {
       await Share.share({
-        message: `Follow ${storefront.shopName} on KinBech\n${storefront.url}`,
+        message: `Shop at ${storefront.shopName} on KinBech\n${storefront.url}`,
         url: storefront.url,
         title: `${storefront.shopName} on KinBech`,
       });
@@ -75,98 +86,95 @@ export default function ShopStorefrontQrScreen({ navigation }) {
     }
   };
 
-  const downloadStorefrontFile = async ({ pathSuffix, filename, mimeType, dialogTitle }) => {
-    if (!storefront) return;
-    try {
-      const token = getAuthToken();
-      const candidates = getApiBaseUrlCandidates();
-      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
-      let downloadedUri = null;
-      let lastError = null;
-
-      for (const baseUrl of candidates) {
-        try {
-          const result = await FileSystem.downloadAsync(
-            `${baseUrl.replace(/\/+$/, '')}${pathSuffix}`,
-            fileUri,
-            {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            },
-          );
-          if (result.status === 200) {
-            downloadedUri = result.uri;
-            break;
-          }
-          lastError = new Error(`Download failed (${result.status})`);
-        } catch (err) {
-          lastError = err;
-        }
-      }
-
-      if (!downloadedUri) {
-        throw lastError || new Error('Could not download file');
-      }
-
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(downloadedUri, {
-          mimeType,
-          dialogTitle,
-          UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : 'public.png',
-        });
-      } else {
-        Alert.alert('Saved', 'File saved to app cache.');
-      }
-    } catch (err) {
-      Alert.alert('Download failed', err?.message || 'Could not save file');
-      throw err;
+  const shareFile = async (uri, mimeType, dialogTitle) => {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(uri, {
+        mimeType,
+        dialogTitle,
+        UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : 'public.png',
+      });
+    } else {
+      Alert.alert('Saved', 'File saved to app storage.');
     }
   };
 
-  const savePrintableQr = async () => {
-    if (!storefront || saving || savingPdf) return;
-    setSaving(true);
+  const downloadFile = async ({ pathSuffix, filename }) => {
+    const token = getAuthToken();
+    const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+    let lastError = null;
+    for (const baseUrl of getApiBaseUrlCandidates()) {
+      try {
+        const result = await FileSystem.downloadAsync(
+          `${baseUrl.replace(/\/+$/, '')}${pathSuffix}`,
+          fileUri,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        );
+        if (result.status === 200) return result.uri;
+        lastError = new Error(`Server returned ${result.status}`);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    throw lastError || new Error('Could not download file');
+  };
+
+  const downloadPdf = async () => {
+    if (!storefront || busy) return;
+    setBusy('pdf');
     try {
-      await downloadStorefrontFile({
-        pathSuffix: '/shops/mine/storefront/qr.png',
-        filename: `${safeFileName(storefront.shopName)}-kinbech-qr.png`,
-        mimeType: 'image/png',
-        dialogTitle: 'Save or print KinBech shop QR',
+      const uri = await downloadFile({
+        pathSuffix: '/shops/mine/storefront/banner.pdf',
+        filename: `${safeFileName(storefront.shopName)}-kinbech-poster.pdf`,
       });
+      await shareFile(uri, 'application/pdf', 'Print your KinBech store poster');
     } catch (err) {
-      if (storefront.qrDataUrl?.includes(',')) {
-        const fileUri = `${FileSystem.cacheDirectory}${safeFileName(storefront.shopName)}-kinbech-qr.png`;
-        await FileSystem.writeAsStringAsync(fileUri, storefront.qrDataUrl.split(',')[1], {
+      Alert.alert('Download failed', err?.message || 'Could not download the poster. Please try again.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const downloadPng = async () => {
+    if (!storefront || busy) return;
+    setBusy('png');
+    const filename = `${safeFileName(storefront.shopName)}-kinbech-qr.png`;
+    try {
+      let uri;
+      try {
+        uri = await downloadFile({ pathSuffix: '/shops/mine/storefront/qr.png', filename });
+      } catch (err) {
+        if (!storefront.qrDataUrl?.includes(',')) throw err;
+        uri = `${FileSystem.cacheDirectory}${filename}`;
+        await FileSystem.writeAsStringAsync(uri, storefront.qrDataUrl.split(',')[1], {
           encoding: FileSystem.EncodingType.Base64,
         });
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: 'image/png',
-            dialogTitle: 'Save or print KinBech shop QR',
-            UTI: 'public.png',
-          });
-        }
-      } else {
-        Alert.alert('Download failed', err?.message || 'Could not save QR code');
       }
+      await shareFile(uri, 'image/png', 'Save your KinBech store QR');
+    } catch (err) {
+      Alert.alert('Download failed', err?.message || 'Could not save the QR image.');
     } finally {
-      setSaving(false);
+      setBusy('');
     }
   };
 
-  const downloadPdfBanner = async () => {
-    if (!storefront || saving || savingPdf) return;
-    setSavingPdf(true);
-    try {
-      await downloadStorefrontFile({
-        pathSuffix: '/shops/mine/storefront/banner.pdf',
-        filename: `${safeFileName(storefront.shopName)}-kinbech-counter-banner.pdf`,
-        mimeType: 'application/pdf',
-        dialogTitle: 'Print counter QR banner (PDF)',
-      });
-    } finally {
-      setSavingPdf(false);
-    }
-  };
+  const header = (
+    <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+      <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
+        <Ionicons name="chevron-back" size={20} color={colors.onPrimary} />
+      </Pressable>
+      <View style={styles.headerCopy}>
+        <Text style={styles.headerTitle}>Store QR poster</Text>
+        <Text style={styles.headerSub}>Print & stick at your counter</Text>
+      </View>
+      {storefront ? (
+        <Pressable onPress={shareLink} hitSlop={12} style={styles.navBtn}>
+          <Ionicons name="share-social-outline" size={18} color={colors.onPrimary} />
+        </Pressable>
+      ) : (
+        <View style={styles.navBtn} />
+      )}
+    </View>
+  );
 
   if (loading && !storefront) {
     return <ScreenLoader label="Preparing your shop QR" />;
@@ -176,14 +184,9 @@ export default function ShopStorefrontQrScreen({ navigation }) {
     return (
       <View style={styles.root}>
         <ThemeStatusBar variant="header" />
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.onPrimary} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Shop QR Code</Text>
-          <View style={styles.navBtn} />
-        </View>
+        {header}
         <EmptyState
+          compact
           icon="qr-code-outline"
           title="QR not available"
           body={error || 'Create a shop first to get your storefront QR code.'}
@@ -194,295 +197,535 @@ export default function ShopStorefrontQrScreen({ navigation }) {
     );
   }
 
+  const meta = [storefront.category, storefront.location].filter(Boolean).join('  ·  ');
+
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <LinearGradient
-        colors={colors.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.header, { paddingTop: insets.top + 8 }]}
-      >
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
-          <Ionicons name="chevron-back" size={24} color={colors.onPrimary} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Shop QR Code</Text>
-        <View style={styles.navBtn} />
-      </LinearGradient>
+      {header}
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.lead}>
-          Download a printable counter banner for your shop. Customers scan the QR to see all your items and offers on KinBech.
-        </Text>
-
-        <View style={styles.bannerCopyCard}>
-          <Text style={styles.bannerCopyHindi}>
-            Hamare sabhi items aur offers KinBech app par dekhein
-          </Text>
-          <Text style={styles.bannerCopyCta}>Scan QR Code</Text>
-        </View>
-
-        <View style={styles.printCard}>
-          <View style={styles.printCardHeader}>
-            <Image source={require('../../assets/icons/app-icon.png')} style={styles.brandIcon} />
-            <View style={styles.printCardBrand}>
-              <Text style={styles.brandName}>KinBech</Text>
+        <View style={styles.poster}>
+          <LinearGradient colors={POSTER_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.posterHero}>
+            <View style={[styles.bubble, styles.bubbleA]} />
+            <View style={[styles.bubble, styles.bubbleB]} />
+            <View style={styles.heroPill}>
+              <Text style={styles.heroPillText}>
+                {storefront.isVerified ? 'VERIFIED STORE' : 'KINBECH STORE'}
+              </Text>
+            </View>
+            <View style={styles.brandBlock}>
+              <View style={styles.logoBadge}>
+                <Image source={LOGO} style={styles.logoImage} />
+              </View>
+              <Text style={styles.brandName} numberOfLines={1} adjustsFontSizeToFit>
+                KinBech App
+              </Text>
               <Text style={styles.brandTagline}>{BRAND_TAGLINE}</Text>
             </View>
-          </View>
+            <Text style={styles.headline}>SCAN & SHOP</Text>
+            <Text style={styles.heroLine}>View all our items & offers on the KinBech app</Text>
+          </LinearGradient>
 
-          <Text style={styles.shopName}>{storefront.shopName}</Text>
-          <Text style={styles.scanHint}>Scan to view shop & follow online</Text>
-
-          <View style={styles.qrWrap}>
-            {storefront.qrDataUrl ? (
-              <Image source={{ uri: storefront.qrDataUrl }} style={styles.qrImage} />
+          <View style={styles.storeCard}>
+            {storefront.logo ? (
+              <View style={styles.storeLogo}>
+                <Image source={{ uri: resolveMediaUrl(storefront.logo) }} style={styles.logoImage} />
+              </View>
             ) : (
-              <QRCode
-                getRef={(ref) => {
-                  qrRef.current = ref;
-                }}
-                value={storefront.url}
-                size={220}
-                color="#0B0F17"
-                backgroundColor="#FFFFFF"
-              />
+              <View style={styles.storePill}>
+                <Ionicons name="storefront" size={10} color={colors.primary} />
+                <Text style={styles.storePillText}>OUR STORE</Text>
+              </View>
             )}
+            <Text style={styles.shopName} numberOfLines={2}>
+              {storefront.shopName}
+            </Text>
+            {meta ? (
+              <Text style={styles.shopMeta} numberOfLines={1}>
+                {meta}
+              </Text>
+            ) : null}
+
+            <View style={styles.qrFrame}>
+              <View style={[styles.corner, styles.cornerTL]} />
+              <View style={[styles.corner, styles.cornerTR]} />
+              <View style={[styles.corner, styles.cornerBL]} />
+              <View style={[styles.corner, styles.cornerBR]} />
+              {storefront.qrDataUrl ? (
+                <Image source={{ uri: storefront.qrDataUrl }} style={styles.qrImage} />
+              ) : (
+                <QRCode value={storefront.url} size={QR_SIZE} color="#0B1F17" backgroundColor="#FFFFFF" ecl="H" />
+              )}
+              <View style={styles.qrLogoWrap}>
+                <View style={styles.qrLogo}>
+                  <Image source={LOGO} style={styles.logoImage} />
+                </View>
+              </View>
+            </View>
+
+            <Text style={styles.scanText}>Scan QR Code with your phone camera</Text>
+            <Text style={styles.urlText} numberOfLines={1} selectable>
+              {storefront.url.replace(/^https?:\/\//, '')}
+            </Text>
           </View>
 
-          <Text style={styles.urlText} selectable>
-            {storefront.url}
-          </Text>
-        </View>
+          <View style={styles.steps}>
+            {STEPS.map((step, i) => (
+              <View key={step.title} style={styles.step}>
+                <View style={styles.stepIcon}>
+                  <Ionicons name={step.icon} size={15} color={colors.onPrimary} />
+                  <View style={styles.stepNum}>
+                    <Text style={styles.stepNumText}>{i + 1}</Text>
+                  </View>
+                </View>
+                <Text style={styles.stepTitle}>{step.title}</Text>
+              </View>
+            ))}
+          </View>
 
-        <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>Print tips</Text>
-          <Text style={styles.tipItem}>• Place near checkout or entrance at eye level</Text>
-          <Text style={styles.tipItem}>• Use A5 or larger for easy scanning</Text>
-          <Text style={styles.tipItem}>• Laminate for durability in busy shops</Text>
+          <LinearGradient colors={POSTER_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.posterFooter}>
+            <Text style={styles.footerTitle}>Get the KinBech app</Text>
+            <Text style={styles.footerSub}>Print on A4 · Laminate · Stick at counter</Text>
+          </LinearGradient>
         </View>
 
         <Pressable
-          style={[styles.primaryBtn, (savingPdf || saving) && styles.primaryBtnDisabled]}
-          onPress={downloadPdfBanner}
-          disabled={savingPdf || saving}
+          style={[styles.primaryBtn, busy && styles.btnDisabled]}
+          onPress={downloadPdf}
+          disabled={Boolean(busy)}
         >
-          {savingPdf ? (
+          {busy === 'pdf' ? (
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
             <>
-              <Ionicons name="document-text-outline" size={18} color={colors.onPrimary} />
-              <Text style={styles.primaryBtnText}>Download PDF counter banner</Text>
+              <Ionicons name="print-outline" size={18} color={colors.onPrimary} />
+              <View>
+                <Text style={styles.primaryBtnText}>Download A4 poster (PDF)</Text>
+                <Text style={styles.primaryBtnSub}>Ready to print for your counter</Text>
+              </View>
             </>
           )}
         </Pressable>
 
-        <Pressable
-          style={[styles.secondaryBtn, (saving || savingPdf) && styles.primaryBtnDisabled]}
-          onPress={savePrintableQr}
-          disabled={saving || savingPdf}
-        >
-          {saving ? (
-            <ActivityIndicator color={colors.primary} />
-          ) : (
-            <>
-              <Ionicons name="download-outline" size={18} color={colors.primary} />
-              <Text style={styles.secondaryBtnText}>Download QR image (PNG)</Text>
-            </>
-          )}
-        </Pressable>
+        <View style={styles.secondaryRow}>
+          <Pressable
+            style={[styles.secondaryBtn, busy && styles.btnDisabled]}
+            onPress={downloadPng}
+            disabled={Boolean(busy)}
+          >
+            {busy === 'png' ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <>
+                <Ionicons name="image-outline" size={16} color={colors.primary} />
+                <Text style={styles.secondaryBtnText}>QR image</Text>
+              </>
+            )}
+          </Pressable>
+          <Pressable style={styles.secondaryBtn} onPress={shareLink}>
+            <Ionicons name="share-social-outline" size={16} color={colors.primary} />
+            <Text style={styles.secondaryBtnText}>Share link</Text>
+          </Pressable>
+        </View>
 
-        <Pressable style={styles.secondaryBtn} onPress={shareLink}>
-          <Ionicons name="share-social-outline" size={18} color={colors.primary} />
-          <Text style={styles.secondaryBtnText}>Share shop link</Text>
-        </Pressable>
+        <View style={styles.tips}>
+          {[
+            ['eye-outline', 'Place at eye level near billing counter'],
+            ['shield-checkmark-outline', 'Laminate it so it lasts longer'],
+            ['sunny-outline', 'Keep it in a well-lit spot for easy scanning'],
+          ].map(([icon, text]) => (
+            <View key={text} style={styles.tipRow}>
+              <Ionicons name={icon} size={14} color={colors.primary} />
+              <Text style={styles.tipText}>{text}</Text>
+            </View>
+          ))}
+        </View>
       </ScrollView>
     </View>
   );
 }
+
+const CORNER = 26;
 
 const createStyles = (colors) => ({
   root: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
-  },
-  loadingText: {
-    marginTop: 12,
-    color: colors.textSecondary,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     paddingHorizontal: 12,
-    paddingBottom: 16,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingBottom: 12,
+    backgroundColor: colors.gradientStart,
   },
   navBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  headerCopy: {
+    flex: 1,
   },
   headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '800',
     color: colors.onPrimary,
   },
+  headerSub: {
+    fontSize: 11.5,
+    color: 'rgba(255,255,255,0.8)',
+  },
   content: {
     padding: 16,
-    gap: 14,
+    gap: 12,
   },
-  lead: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.textSecondary,
-  },
-  bannerCopyCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
-    gap: 6,
-  },
-  bannerCopyHindi: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.text,
-    lineHeight: 22,
-  },
-  bannerCopyCta: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  printCard: {
-    backgroundColor: colors.surface,
+  poster: {
     borderRadius: 20,
+    overflow: 'hidden',
+    backgroundColor: '#F8FAF9',
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  posterHero: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 56,
+    overflow: 'hidden',
+  },
+  bubble: {
+    position: 'absolute',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  bubbleA: {
+    width: 180,
+    height: 180,
+    top: -70,
+    right: -50,
+  },
+  bubbleB: {
+    width: 110,
+    height: 110,
+    bottom: -40,
+    left: -30,
+  },
+  brandBlock: {
     alignItems: 'center',
+    marginTop: 10,
   },
-  printCardHeader: {
-    flexDirection: 'row',
+  logoBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 20,
+    backgroundColor: '#065F46',
     alignItems: 'center',
-    gap: 10,
-    alignSelf: 'stretch',
-    marginBottom: 16,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
-  brandIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-  },
-  printCardBrand: {
-    flex: 1,
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   brandName: {
-    fontSize: 18,
+    marginTop: 10,
+    fontSize: 38,
+    lineHeight: 44,
     fontWeight: '900',
-    color: colors.text,
+    letterSpacing: 0.5,
+    color: '#FFFFFF',
   },
   brandTagline: {
-    fontSize: 12,
-    color: colors.textSecondary,
     marginTop: 2,
+    fontSize: 12.5,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    color: '#A7F3D0',
+  },
+  heroPill: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  heroPillText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: '#FFFFFF',
+  },
+  headline: {
+    marginTop: 14,
+    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '900',
+    letterSpacing: 3,
+    color: '#FFFFFF',
+  },
+  heroLine: {
+    marginTop: 4,
+    textAlign: 'center',
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#D1FAE5',
+  },
+  storeCard: {
+    marginHorizontal: 14,
+    marginTop: -40,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderRadius: 18,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  storePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 10,
+    backgroundColor: '#ECFDF5',
+  },
+  storeLogo: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#D1FAE5',
+    overflow: 'hidden',
+  },
+  storePillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#047857',
   },
   shopName: {
-    fontSize: 22,
+    marginTop: 8,
+    textAlign: 'center',
+    fontSize: 25,
+    lineHeight: 30,
     fontWeight: '900',
-    color: colors.text,
-    textAlign: 'center',
+    color: '#0B1F17',
   },
-  scanHint: {
-    marginTop: 6,
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: 'center',
+  shopMeta: {
+    marginTop: 3,
+    fontSize: 11.5,
+    color: '#6B7280',
   },
-  qrWrap: {
-    marginTop: 18,
-    marginBottom: 14,
+  qrFrame: {
+    marginTop: 16,
+    marginBottom: 12,
     padding: 14,
-    borderRadius: 16,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  corner: {
+    position: 'absolute',
+    width: CORNER,
+    height: CORNER,
+    borderColor: '#059669',
+  },
+  cornerTL: {
+    top: 0,
+    left: 0,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+    borderTopLeftRadius: 10,
+  },
+  cornerTR: {
+    top: 0,
+    right: 0,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+    borderTopRightRadius: 10,
+  },
+  cornerBL: {
+    bottom: 0,
+    left: 0,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+    borderBottomLeftRadius: 10,
+  },
+  cornerBR: {
+    bottom: 0,
+    right: 0,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+    borderBottomRightRadius: 10,
   },
   qrImage: {
-    width: 220,
-    height: 220,
+    width: QR_SIZE,
+    height: QR_SIZE,
+  },
+  qrLogoWrap: {
+    position: 'absolute',
+    width: 50,
+    height: 50,
+    borderRadius: 13,
+    padding: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  qrLogo: {
+    flex: 1,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#065F46',
+  },
+  scanText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#111827',
   },
   urlText: {
-    fontSize: 11,
-    color: colors.textTertiary,
-    textAlign: 'center',
+    marginTop: 3,
+    fontSize: 10.5,
+    color: '#6B7280',
   },
-  tipsCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 14,
+  steps: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingVertical: 14,
+  },
+  step: {
+    flex: 1,
+    alignItems: 'center',
     gap: 6,
   },
-  tipsTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: colors.text,
-    marginBottom: 4,
+  stepIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#059669',
   },
-  tipItem: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    lineHeight: 18,
+  stepNum: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#059669',
+  },
+  stepNumText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#047857',
+  },
+  stepTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  posterFooter: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  footerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  footerSub: {
+    flexShrink: 1,
+    textAlign: 'right',
+    fontSize: 9.5,
+    color: '#A7F3D0',
   },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: colors.primary,
+    gap: 10,
+    minHeight: 52,
     borderRadius: 14,
-    paddingVertical: 15,
+    backgroundColor: colors.primary,
   },
-  primaryBtnDisabled: {
+  btnDisabled: {
     opacity: 0.7,
   },
   primaryBtnText: {
-    fontSize: 16,
+    fontSize: 14.5,
     fontWeight: '800',
     color: colors.onPrimary,
   },
+  primaryBtnSub: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   secondaryBtn: {
+    flex: 1,
+    height: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    borderRadius: 14,
-    paddingVertical: 14,
-    borderWidth: 1,
+    gap: 6,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: colors.primary,
     backgroundColor: colors.surface,
   },
   secondaryBtnText: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.primary,
+  },
+  tips: {
+    padding: 12,
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  tipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tipText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
   },
 });

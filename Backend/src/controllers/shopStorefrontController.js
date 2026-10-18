@@ -1,10 +1,25 @@
 const QRCode = require('qrcode');
+const sharp = require('sharp');
 const Shop = require('../models/Shop');
 const { buildStorefrontPayload, buildStorefrontUrl } = require('../utils/storefront');
 const { generateStorefrontBannerPdf } = require('../utils/storefrontBannerPdf');
+const { readUploadBuffer } = require('../utils/serveUploads');
 
 async function loadOwnedShop(userId) {
   return Shop.findOne({ owner: userId, status: 'active' });
+}
+
+/** pdfkit only embeds PNG/JPEG, so normalise the stored logo to a square PNG. */
+async function shopLogoPng(logoUrl) {
+  if (!logoUrl) return null;
+  try {
+    const buffer = await readUploadBuffer(logoUrl);
+    if (!buffer) return null;
+    return await sharp(buffer).resize(320, 320, { fit: 'cover' }).png().toBuffer();
+  } catch (error) {
+    console.warn('[storefront] shop logo unavailable:', error.message || error);
+    return null;
+  }
 }
 
 async function getMyShopStorefront(req, res, next) {
@@ -74,6 +89,10 @@ async function downloadMyShopStorefrontBannerPdf(req, res, next) {
     const pdfBuffer = await generateStorefrontBannerPdf({
       shopName: shop.name,
       url,
+      category: shop.category,
+      location: shop.location || shop.address,
+      isVerified: Boolean(shop.isVerified),
+      shopLogo: await shopLogoPng(shop.logo),
     });
 
     const safeName = String(shop.name || 'shop')

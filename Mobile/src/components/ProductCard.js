@@ -134,6 +134,34 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.textSecondary,
   },
+  detailRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
+  },
+  conditionChip: {
+    flexShrink: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  conditionText: {
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  agoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+  },
+  agoText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
   metaStack: {
     marginTop: 6,
     gap: 4,
@@ -182,6 +210,27 @@ const createStyles = (colors) => ({
   },
 });
 
+const CONDITION_TONES = {
+  New: 'success',
+  'Like New': 'info',
+  Good: 'primary',
+  Fair: 'warning',
+};
+
+function shortAgo(dateValue) {
+  const then = new Date(dateValue).getTime();
+  if (!Number.isFinite(then)) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - then) / 60000));
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  if (days < 60) return `${Math.round(days / 7)}w ago`;
+  return `${Math.round(days / 30)}mo ago`;
+}
+
 function cityOnly(location) {
   const text = String(location || '').trim();
   if (!text) return 'Location';
@@ -210,6 +259,8 @@ const ProductCard = memo(function ProductCard({
   verificationKind,
   verificationLabel,
   isFeatured,
+  condition,
+  postedAt,
 }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -288,6 +339,7 @@ const ProductCard = memo(function ProductCard({
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
+        unstable_pressDelay={90}
         style={styles.card}
       >
         <View style={[styles.image, { backgroundColor: bgColor, height: imageHeight }]}>
@@ -296,6 +348,7 @@ const ProductCard = memo(function ProductCard({
               source={{ uri: photo }}
               style={styles.imageFill}
               resizeMode="cover"
+              resizeMethod="resize"
               sharedTransitionTag={photoTag}
             />
           ) : (
@@ -338,6 +391,32 @@ const ProductCard = memo(function ProductCard({
               <Text style={styles.away} numberOfLines={1}>{distanceLabel}</Text>
             ) : null}
           </View>
+
+          {condition || postedAt ? (
+            <View style={styles.detailRow}>
+              {condition ? (
+                <View
+                  style={[
+                    styles.conditionChip,
+                    { backgroundColor: `${colors[CONDITION_TONES[condition]] || colors.primary}1F` },
+                  ]}
+                >
+                  <Text
+                    style={[styles.conditionText, { color: colors[CONDITION_TONES[condition]] || colors.primary }]}
+                    numberOfLines={1}
+                  >
+                    {condition}
+                  </Text>
+                </View>
+              ) : null}
+              {postedAt ? (
+                <View style={styles.agoRow}>
+                  <Ionicons name="time-outline" size={10} color={colors.textMuted} />
+                  <Text style={styles.agoText} numberOfLines={1}>{shortAgo(postedAt)}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.metaStack}>
             <View style={styles.metaRow}>

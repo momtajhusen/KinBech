@@ -12,7 +12,7 @@ import * as Location from 'expo-location';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { formatPrice } from '../utils/listing';
+import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import ScreenLoader from '../components/ScreenLoader';
 import { NEPAL_LOCATIONS } from '../utils/locations';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
@@ -196,11 +196,15 @@ export default function MapExploreScreen({ navigation }) {
                 active && styles.pinActive,
               ]}
             >
-              <Ionicons
-                name={marker.markerType === 'shop' ? 'storefront' : 'cube'}
-                size={14}
-                color="#fff"
-              />
+              {marker.markerType === 'shop' && marker.photo ? (
+                <Image source={{ uri: resolveMediaUrl(marker.photo) }} style={styles.pinLogo} />
+              ) : (
+                <Ionicons
+                  name={marker.markerType === 'shop' ? 'storefront' : 'cube'}
+                  size={14}
+                  color="#fff"
+                />
+              )}
             </Pressable>
           );
         })}
@@ -282,7 +286,7 @@ export default function MapExploreScreen({ navigation }) {
           <View style={styles.sheetHandle} />
           <View style={styles.sheetRow}>
             {selected.photo ? (
-              <Image source={{ uri: selected.photo }} style={styles.sheetImage} />
+              <Image source={{ uri: resolveMediaUrl(selected.photo) }} style={styles.sheetImage} />
             ) : (
               <View style={[styles.sheetImage, styles.sheetImageFallback]}>
                 <Ionicons
@@ -512,6 +516,11 @@ const createStyles = (colors) => ({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
+  },
+  pinLogo: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
   },
   pinActive: {
     transform: [{ scale: 1.12 }],

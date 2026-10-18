@@ -18,6 +18,33 @@ const shopSchema = new mongoose.Schema(
       type: String, 
       default: '' 
     },
+    coverImage: {
+      type: String,
+      default: '',
+    },
+    tagline: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    whatsapp: { type: String, trim: true, default: '' },
+    email: { type: String, trim: true, default: '' },
+    website: { type: String, trim: true, default: '' },
+    socialLinks: {
+      facebook: { type: String, trim: true, default: '' },
+      instagram: { type: String, trim: true, default: '' },
+      tiktok: { type: String, trim: true, default: '' },
+      youtube: { type: String, trim: true, default: '' },
+    },
+    openDays: {
+      type: [String],
+      default: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    },
+    deliveryAvailable: { type: Boolean, default: false },
+    deliveryAreas: { type: String, trim: true, default: '' },
+    paymentMethods: { type: [String], default: ['Cash'] },
+    returnPolicy: { type: String, trim: true, default: '' },
+    establishedYear: { type: Number, default: null },
     category: { 
       type: String, 
       required: true,

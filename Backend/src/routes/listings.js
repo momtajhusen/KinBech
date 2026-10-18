@@ -2,6 +2,8 @@ const { Router } = require('express');
 const {
   getListings,
   searchListings,
+  getSearchSuggestions,
+  getRelatedListings,
   getCategoryCounts,
   getMyListings,
   getMyPurchases,
@@ -21,7 +23,9 @@ const router = Router();
 // Public routes. optionalAuth keeps the request user available for owner checks on detail.
 router.get('/', optionalAuth, getListings);
 router.get('/search', optionalAuth, searchListings);
+router.get('/suggestions', getSearchSuggestions);
 router.get('/category-counts', optionalAuth, getCategoryCounts);
+router.get('/related', optionalAuth, getRelatedListings);
 
 // Named routes MUST be registered before /:id
 router.get('/mine', requireAuth, getMyListings);
