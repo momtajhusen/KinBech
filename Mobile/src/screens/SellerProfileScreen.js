@@ -432,10 +432,11 @@ const createStyles = (colors) => ({
     gap: 3,
   },
   name: {
-    flexShrink: 1,
+    flex: 1,
     fontSize: 15.5,
     fontWeight: '800',
     color: '#fff',
+    minWidth: 0,
   },
   badges: {
     flexDirection: 'row',
@@ -457,6 +458,7 @@ const createStyles = (colors) => ({
     fontWeight: '800',
     letterSpacing: 0.2,
     color: '#fff',
+    minWidth: 0,
   },
   locationRow: {
     flexDirection: 'row',
@@ -468,6 +470,7 @@ const createStyles = (colors) => ({
     flex: 1,
     fontSize: 10,
     color: 'rgba(255,255,255,0.85)',
+    minWidth: 0,
   },
   statsCard: {
     flexDirection: 'row',
@@ -502,10 +505,12 @@ const createStyles = (colors) => ({
     fontSize: 13,
     fontWeight: '800',
     color: colors.text,
+    minWidth: 0,
   },
   statLabel: {
     fontSize: 9,
     color: colors.textMuted,
+    minWidth: 0,
   },
   body: {
     paddingHorizontal: 14,
@@ -532,6 +537,7 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '800',
     color: '#fff',
+    minWidth: 0,
   },
   actionSecondary: {
     borderWidth: 1.5,
@@ -542,6 +548,7 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '800',
     color: colors.menuBlue,
+    minWidth: 0,
   },
   aboutCard: {
     padding: 8,
@@ -554,6 +561,7 @@ const createStyles = (colors) => ({
     fontSize: 11,
     lineHeight: 15,
     color: colors.textSecondary,
+    minWidth: 0,
   },
   listHeader: {
     flexDirection: 'row',
@@ -582,9 +590,11 @@ const createStyles = (colors) => ({
     fontSize: 10.5,
     fontWeight: '700',
     color: colors.textMuted,
+    minWidth: 0,
   },
   segmentTextActive: {
     color: '#fff',
+    minWidth: 0,
   },
   sortBtn: {
     height: 28,
@@ -599,8 +609,9 @@ const createStyles = (colors) => ({
   },
   sortText: {
     fontSize: 11,
-    fontWeight: '700,
+    fontWeight: '700',
     color: colors.text,
+    minWidth: 0,
   },
   grid: {
     flexDirection: 'row',
@@ -654,6 +665,7 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '700',
     color: colors.text,
+    minWidth: 0,
   },
   cardPrice: {
     fontSize: 12,
@@ -677,9 +689,11 @@ const createStyles = (colors) => ({
     fontSize: 12.5,
     fontWeight: '700',
     color: colors.text,
+    minWidth: 0,
   },
   emptyBody: {
     fontSize: 11,
     color: colors.textMuted,
+    minWidth: 0,
   },
 });
