@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  findNodeHandle,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useThemedStyles } from '../theme';
+import { useTheme, useThemedStyles } from '../theme';
 
 let opener = null;
 
@@ -50,56 +60,134 @@ export function PhotoSourceSheetHost() {
 }
 
 function PhotoSourceSheet({ visible, onSelect }) {
+  const { isDark } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const insets = useSafeAreaInsets();
+  const cardRef = useRef(null);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.88)).current;
+
+  useEffect(() => {
+    if (!visible) {
+      opacity.setValue(0);
+      scale.setValue(0.88);
+      return undefined;
+    }
+
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        damping: 16,
+        stiffness: 220,
+        mass: 0.8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const focusTimer = setTimeout(() => {
+      const node = findNodeHandle(cardRef.current);
+      if (node) AccessibilityInfo.setAccessibilityFocus(node);
+    }, 80);
+
+    return () => clearTimeout(focusTimer);
+  }, [visible, opacity, scale]);
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="fade"
       statusBarTranslucent
       navigationBarTranslucent
       onRequestClose={() => onSelect(null)}
     >
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={() => onSelect(null)} />
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-          <View style={styles.handle} />
-          <Text style={styles.title}>Add photo</Text>
-          <Text style={styles.subtitle}>Take a new photo or choose one from your gallery.</Text>
+        <BlurView
+          pointerEvents="none"
+          intensity={48}
+          tint={isDark ? 'dark' : 'light'}
+          blurMethod="none"
+          style={StyleSheet.absoluteFill}
+        />
+        <View pointerEvents="none" style={styles.dim} />
 
-          <Pressable
-            style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-            onPress={() => onSelect('camera')}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss photo source"
+          style={StyleSheet.absoluteFill}
+          onPress={() => onSelect(null)}
+        />
+
+        <View pointerEvents="box-none" style={styles.centerWrap}>
+          <Animated.View
+            ref={cardRef}
+            accessible
+            accessibilityViewIsModal
+            accessibilityRole="dialog"
+            accessibilityLabel="Add photo. Choose camera or gallery."
+            style={[styles.card, { opacity, transform: [{ scale }] }]}
           >
-            <View style={styles.iconWrap}>
-              <Ionicons name="camera" size={22} color={styles.icon.color} />
-            </View>
-            <View style={styles.optionCopy}>
-              <Text style={styles.optionTitle}>Camera</Text>
-              <Text style={styles.optionHint}>Take a photo now</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={styles.chevron.color} />
-          </Pressable>
+            <Pressable
+              style={styles.closeBtn}
+              onPress={() => onSelect(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
+              <Ionicons name="close" size={18} color={styles.closeIcon.color} />
+            </Pressable>
 
-          <Pressable
-            style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
-            onPress={() => onSelect('gallery')}
-          >
-            <View style={styles.iconWrap}>
-              <Ionicons name="images" size={22} color={styles.icon.color} />
+            <View style={styles.hero}>
+              <View style={styles.heroGlow} />
+              <View style={styles.heroInner}>
+                <Ionicons name="images" size={28} color="#FFFFFF" />
+              </View>
             </View>
-            <View style={styles.optionCopy}>
-              <Text style={styles.optionTitle}>Gallery</Text>
-              <Text style={styles.optionHint}>Choose from your device</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={styles.chevron.color} />
-          </Pressable>
 
-          <Pressable style={styles.cancel} onPress={() => onSelect(null)}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </Pressable>
+            <Text style={styles.title}>Add photo</Text>
+            <Text style={styles.subtitle}>Take a new photo or choose one from your gallery.</Text>
+
+            <Pressable
+              style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+              onPress={() => onSelect('camera')}
+              accessibilityRole="button"
+              accessibilityLabel="Camera. Take a photo now."
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons name="camera" size={22} color={styles.icon.color} />
+              </View>
+              <View style={styles.optionCopy}>
+                <Text style={styles.optionTitle}>Camera</Text>
+                <Text style={styles.optionHint}>Take a photo now</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={styles.chevron.color} />
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+              onPress={() => onSelect('gallery')}
+              accessibilityRole="button"
+              accessibilityLabel="Gallery. Choose from your device."
+            >
+              <View style={styles.iconWrap}>
+                <Ionicons name="images" size={22} color={styles.icon.color} />
+              </View>
+              <View style={styles.optionCopy}>
+                <Text style={styles.optionTitle}>Gallery</Text>
+                <Text style={styles.optionHint}>Choose from your device</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={styles.chevron.color} />
+            </Pressable>
+
+            <Pressable style={styles.cancel} onPress={() => onSelect(null)}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </Pressable>
+          </Animated.View>
         </View>
       </View>
     </Modal>
@@ -110,33 +198,76 @@ function createStyles(colors) {
   return StyleSheet.create({
     overlay: {
       flex: 1,
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
-    backdrop: {
+    dim: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: colors.overlay || 'rgba(0,0,0,0.55)',
+      backgroundColor: colors.overlay || 'rgba(11,15,23,0.55)',
     },
-    sheet: {
-      backgroundColor: colors.background,
-      borderTopLeftRadius: 28,
-      borderTopRightRadius: 28,
+    centerWrap: {
+      ...StyleSheet.absoluteFillObject,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 24,
+    },
+    card: {
+      width: '100%',
+      maxWidth: 360,
+      backgroundColor: colors.surface,
+      borderRadius: 28,
       paddingHorizontal: 20,
-      paddingTop: 10,
-      borderTopWidth: 1,
+      paddingTop: 22,
+      paddingBottom: 16,
+      borderWidth: 1,
       borderColor: colors.border,
+      shadowColor: colors.shadow || '#000',
+      shadowOffset: { width: 0, height: 18 },
+      shadowOpacity: 0.32,
+      shadowRadius: 28,
+      elevation: 18,
     },
-    handle: {
+    closeBtn: {
+      position: 'absolute',
+      top: 14,
+      right: 14,
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.iconBackground || colors.surface,
+      zIndex: 2,
+    },
+    closeIcon: {
+      color: colors.textMuted,
+    },
+    hero: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 14,
       alignSelf: 'center',
-      width: 42,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: colors.border,
-      marginBottom: 16,
+    },
+    heroGlow: {
+      position: 'absolute',
+      width: 78,
+      height: 78,
+      borderRadius: 39,
+      backgroundColor: colors.glow || 'rgba(4,120,87,0.22)',
+    },
+    heroInner: {
+      width: 58,
+      height: 58,
+      borderRadius: 29,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: colors.primary,
     },
     title: {
-      fontSize: 20,
+      fontSize: 21,
       fontWeight: '800',
       color: colors.text,
+      textAlign: 'center',
     },
     subtitle: {
       marginTop: 6,
@@ -144,6 +275,8 @@ function createStyles(colors) {
       fontSize: 14,
       lineHeight: 20,
       color: colors.textMuted,
+      textAlign: 'center',
+      paddingHorizontal: 8,
     },
     option: {
       flexDirection: 'row',
@@ -152,7 +285,7 @@ function createStyles(colors) {
       padding: 14,
       marginBottom: 10,
       borderRadius: 18,
-      backgroundColor: colors.surface,
+      backgroundColor: colors.background,
       borderWidth: 1,
       borderColor: colors.border,
     },
@@ -189,11 +322,10 @@ function createStyles(colors) {
     },
     cancel: {
       marginTop: 4,
-      height: 48,
+      height: 46,
       borderRadius: 16,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.surface,
     },
     cancelText: {
       fontSize: 15,

@@ -24,8 +24,8 @@ import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
-const COVER_HEIGHT = 120;
-const LOGO_SIZE = 76;
+const COVER_HEIGHT = 90;
+const LOGO_SIZE = 64;
 
 const SORTS = [
   { key: 'newest', label: 'Newest' },
@@ -189,7 +189,7 @@ export default function ShopProfileScreen({ route, navigation }) {
   const hasCoords =
     coords.lat != null && coords.lng != null && Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng));
   const placeText = shop.address || shop.location || '';
-  const cardWidth = (width - 32 - 10) / 2;
+  const cardWidth = (width - 32 - 8) / 2;
 
   const startChat = async () => {
     if (chatBusy || !ownerId) return;
@@ -581,7 +581,7 @@ export default function ShopProfileScreen({ route, navigation }) {
               {shop.logo ? (
                 <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fillImage} />
               ) : (
-                <Ionicons name="storefront" size={32} color={colors.primary} />
+                <Ionicons name="storefront" size={28} color={colors.primary} />
               )}
             </View>
             {isOpen != null ? (
@@ -598,7 +598,7 @@ export default function ShopProfileScreen({ route, navigation }) {
             <Text style={styles.name} numberOfLines={1}>
               {shop.name}
             </Text>
-            {shop.isVerified ? <Ionicons name="shield-checkmark" size={16} color={colors.primary} /> : null}
+            {shop.isVerified ? <Ionicons name="shield-checkmark" size={14} color={colors.primary} /> : null}
           </View>
           {shop.tagline ? (
             <Text style={styles.tagline} numberOfLines={2}>
@@ -632,7 +632,7 @@ export default function ShopProfileScreen({ route, navigation }) {
             {stats.map((s, i) => (
               <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
                 <View style={styles.statTop}>
-                  <Ionicons name={s.icon} size={13} color={s.tint} />
+                  <Ionicons name={s.icon} size={12} color={s.tint} />
                   <Text style={styles.statValue}>{s.value}</Text>
                 </View>
                 <Text style={styles.statLabel}>{s.label}</Text>
@@ -747,8 +747,8 @@ const createStyles = (colors) => ({
   logo: {
     width: LOGO_SIZE,
     height: LOGO_SIZE,
-    borderRadius: 20,
-    borderWidth: 4,
+    borderRadius: 16,
+    borderWidth: 3,
     borderColor: colors.background,
     backgroundColor: colors.pastelGreen,
     overflow: 'hidden',
@@ -758,49 +758,49 @@ const createStyles = (colors) => ({
   openPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginBottom: 6,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginBottom: 4,
   },
   openDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   openText: {
-    fontSize: 11.5,
+    fontSize: 10.5,
     fontWeight: '800',
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
+    gap: 5,
+    marginTop: 6,
   },
   name: {
     flexShrink: 1,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.text,
   },
   tagline: {
-    marginTop: 2,
-    fontSize: 13,
+    marginTop: 1,
+    fontSize: 12,
     color: colors.textSecondary,
   },
   deliveryTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     backgroundColor: colors.pastelBlue,
   },
   deliveryTagText: {
-    fontSize: 10.5,
+    fontSize: 9.5,
     fontWeight: '700',
     color: colors.menuBlue,
   },
@@ -808,50 +808,50 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 4,
+    gap: 5,
+    marginTop: 3,
   },
   storeTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     backgroundColor: colors.primary,
   },
   storeTagText: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     color: colors.onPrimary,
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   verifiedText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.primary,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 4,
+    gap: 3,
+    marginTop: 3,
   },
   locationText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textMuted,
   },
   statsCard: {
     flexDirection: 'row',
-    marginTop: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
+    marginTop: 8,
+    paddingVertical: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -859,7 +859,7 @@ const createStyles = (colors) => ({
   stat: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: 1,
   },
   statDivider: {
     borderLeftWidth: 1,
@@ -868,30 +868,30 @@ const createStyles = (colors) => ({
   statTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
   },
   statValue: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: colors.text,
   },
   statLabel: {
-    fontSize: 10.5,
+    fontSize: 10,
     color: colors.textMuted,
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
+    gap: 6,
+    marginTop: 8,
   },
   actionBtn: {
     flex: 1,
-    height: 40,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
-    borderRadius: 12,
+    gap: 4,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -902,7 +902,7 @@ const createStyles = (colors) => ({
     backgroundColor: colors.primary,
   },
   actionText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.text,
   },
@@ -912,17 +912,17 @@ const createStyles = (colors) => ({
   tabsTrack: {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginTop: 14,
+    marginTop: 10,
     padding: 3,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.iconBackground,
   },
   tabBtn: {
     flex: 1,
-    height: 32,
-    borderRadius: 9,
+    height: 30,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -930,7 +930,7 @@ const createStyles = (colors) => ({
     backgroundColor: colors.primary,
   },
   tabText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.textMuted,
   },
@@ -939,18 +939,18 @@ const createStyles = (colors) => ({
   },
   searchRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 16,
-    marginTop: 12,
+    marginTop: 10,
   },
   searchBox: {
     flex: 1,
-    height: 38,
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    gap: 5,
+    paddingHorizontal: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -958,34 +958,34 @@ const createStyles = (colors) => ({
   searchInput: {
     flex: 1,
     paddingVertical: 0,
-    fontSize: 13,
+    fontSize: 12,
     color: colors.text,
   },
   sortBtn: {
-    height: 38,
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    gap: 3,
+    paddingHorizontal: 9,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   sortText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.text,
   },
   chipRow: {
-    gap: 6,
+    gap: 5,
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 8,
   },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -995,7 +995,7 @@ const createStyles = (colors) => ({
     backgroundColor: colors.primary,
   },
   chipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.text,
   },
@@ -1006,9 +1006,9 @@ const createStyles = (colors) => ({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 8,
   },
   productCard: {
     borderRadius: 12,
@@ -1018,52 +1018,52 @@ const createStyles = (colors) => ({
     overflow: 'hidden',
   },
   productImageWrap: {
-    aspectRatio: 1.15,
+    aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.iconBackground,
   },
   saleTag: {
     position: 'absolute',
-    top: 6,
-    left: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    top: 5,
+    left: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
     backgroundColor: colors.danger,
   },
   saleTagText: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '800',
     color: '#fff',
   },
   productInfo: {
-    paddingHorizontal: 9,
-    paddingVertical: 8,
-    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    gap: 1,
   },
   productTitle: {
-    fontSize: 12.5,
+    fontSize: 11.5,
     fontWeight: '700',
     color: colors.text,
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 6,
+    gap: 5,
   },
   productPrice: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.price,
   },
   oldPrice: {
-    fontSize: 11,
+    fontSize: 10,
     color: colors.textMuted,
     textDecorationLine: 'line-through',
   },
   productMeta: {
-    fontSize: 10.5,
+    fontSize: 10,
     color: colors.textMuted,
   },
   section: {

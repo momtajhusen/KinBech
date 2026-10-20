@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus } = require('../controllers/authController');
+const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, pinStore, unpinStore, getPinnedStores } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -41,6 +41,11 @@ router.delete('/payment-methods/:id', requireAuth, deletePaymentMethod);
 router.get('/wallet', requireAuth, getWallet);
 router.get('/support', requireAuth, getMySupportTickets);
 router.post('/support', requireAuth, createSupportTicket);
+
+// Pinned stores routes
+router.post('/pinned-stores', requireAuth, pinStore);
+router.delete('/pinned-stores/:storeId', requireAuth, unpinStore);
+router.get('/pinned-stores', requireAuth, getPinnedStores);
 
 // Admin routes
 router.get('/admin/all', requireAdmin, getAllAdmins);

@@ -7,6 +7,19 @@ import { useTheme, useThemedStyles } from '../theme';
 export const CARD_ROW_PADDING = 16;
 export const CARD_GAP = 10;
 export const PEEK_VISIBLE = 2.5;
+export const COMPACT_IMAGE_RATIO = 0.78;
+export const COMPACT_BODY_HEIGHT = 114;
+
+export function compactCardLayout(width) {
+  const cardWidth = Number(width) || 0;
+  const imageHeight = Math.round(cardWidth * COMPACT_IMAGE_RATIO);
+  return {
+    width: cardWidth,
+    imageHeight,
+    bodyHeight: COMPACT_BODY_HEIGHT,
+    height: imageHeight + COMPACT_BODY_HEIGHT,
+  };
+}
 
 /** Width so `visibleCount` cards (e.g. 3.5) fit in one screen row. */
 export function peekCardWidth(screenWidth, visibleCount = PEEK_VISIBLE) {
@@ -107,16 +120,18 @@ const createStyles = (colors) => ({
   },
   body: {
     paddingHorizontal: 10,
-    paddingTop: 8,
-    paddingBottom: 10,
+    paddingTop: 6,
+    paddingBottom: 6,
+    overflow: 'hidden',
   },
   title: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.text,
+    lineHeight: 16,
   },
   priceRow: {
-    marginTop: 4,
+    marginTop: 2,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -127,6 +142,7 @@ const createStyles = (colors) => ({
     fontSize: 14,
     fontWeight: '800',
     color: colors.price,
+    lineHeight: 18,
   },
   away: {
     flexShrink: 0,
@@ -135,7 +151,7 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
   },
   detailRow: {
-    marginTop: 6,
+    marginTop: 4,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -144,7 +160,7 @@ const createStyles = (colors) => ({
   conditionChip: {
     flexShrink: 1,
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderRadius: 6,
   },
   conditionText: {
@@ -163,8 +179,8 @@ const createStyles = (colors) => ({
     color: colors.textMuted,
   },
   metaStack: {
-    marginTop: 6,
-    gap: 4,
+    marginTop: 4,
+    gap: 2,
   },
   metaRow: {
     flexDirection: 'row',
@@ -172,9 +188,9 @@ const createStyles = (colors) => ({
     gap: 7,
   },
   metaIcon: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     backgroundColor: colors.iconBackground,
     alignItems: 'center',
     justifyContent: 'center',
@@ -184,6 +200,7 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
+    lineHeight: 14,
   },
   verifyChip: {
     flexDirection: 'row',
@@ -271,7 +288,8 @@ const ProductCard = memo(function ProductCard({
   const bgColor = resolveColor(imageColor, colors) ?? colors.iconBackground;
   const cardWidth = width ?? (compact ? peekCardWidth(screenWidth) : undefined);
   const frameWidth = cardWidth || (compact ? peekCardWidth(screenWidth) : 0);
-  const imageHeight = compact && frameWidth ? Math.round(frameWidth * 0.78) : 110;
+  const layout = compact && frameWidth ? compactCardLayout(frameWidth) : null;
+  const imageHeight = layout?.imageHeight ?? 110;
   const iconSize = compact ? 28 : 42;
 
   // Micro-animations
@@ -332,6 +350,7 @@ const ProductCard = memo(function ProductCard({
       style={[
         styles.cardWrapper,
         cardWidth ? { width: cardWidth } : null,
+        layout ? { height: layout.height } : null,
         { transform: [{ scale: scaleAnim }] },
       ]}
     >
@@ -340,7 +359,7 @@ const ProductCard = memo(function ProductCard({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         unstable_pressDelay={90}
-        style={styles.card}
+        style={[styles.card, layout ? { flex: 1 } : null]}
       >
         <View style={[styles.image, { backgroundColor: bgColor, height: imageHeight }]}>
           {photo ? (
@@ -381,7 +400,7 @@ const ProductCard = memo(function ProductCard({
             </Pressable>
           </Animated.View>
         </View>
-        <View style={styles.body}>
+        <View style={[styles.body, layout ? { height: layout.bodyHeight } : null]}>
           <Text numberOfLines={1} style={styles.title} sharedTransitionTag={titleTag}>
             {title}
           </Text>

@@ -10,6 +10,7 @@ const { signUserToken, publicUser } = require('../utils/token');
 const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
 const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
 const PlatformAlert = require('../models/PlatformAlert');
+const { haversineDistanceKm } = require('../utils/listing');
 
 function otpExpiry() {
   const minutes = Number(process.env.OTP_EXPIRES_MINUTES || 5);
@@ -709,6 +710,217 @@ async function saveDeviceToken(req, res, next) {
   }
 }
 
+async function pinStore(req, res, next) {
+  try {
+    const { storeId, storeType } = req.body;
+
+    if (!storeId) {
+      return res.status(400).json({ message: 'storeId is required' });
+    }
+
+    if (!storeType || !['shop', 'individual'].includes(storeType)) {
+      return res.status(400).json({ message: 'storeType must be shop or individual' });
+    }
+
+    // Check if store exists
+    if (storeType === 'shop') {
+      const shop = await Shop.findOne({ _id: storeId, status: 'active' });
+      if (!shop) {
+        return res.status(404).json({ message: 'Store not found' });
+      }
+    } else {
+      const user = await User.findOne({ _id: storeId, status: { $ne: 'suspended' } });
+      if (!user) {
+        return res.status(404).json({ message: 'Seller not found' });
+      }
+    }
+
+    // Check if already pinned
+    const existingPin = req.user.pinnedStores?.find(
+      p => String(p.storeId) === String(storeId)
+    );
+
+    if (existingPin) {
+      return res.json({ ok: true, message: 'Store already pinned' });
+    }
+
+    // Add to pinned stores
+    if (!req.user.pinnedStores) {
+      req.user.pinnedStores = [];
+    }
+
+    req.user.pinnedStores.push({
+      storeId,
+      storeType,
+      pinnedAt: new Date(),
+    });
+
+    await req.user.save();
+
+    res.json({ ok: true, message: 'Store pinned successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function unpinStore(req, res, next) {
+  try {
+    const { storeId } = req.params;
+
+    if (!storeId) {
+      return res.status(400).json({ message: 'storeId is required' });
+    }
+
+    if (!req.user.pinnedStores || req.user.pinnedStores.length === 0) {
+      return res.json({ ok: true, message: 'No pinned stores' });
+    }
+
+    req.user.pinnedStores = req.user.pinnedStores.filter(
+      p => String(p.storeId) !== String(storeId)
+    );
+
+    await req.user.save();
+
+    res.json({ ok: true, message: 'Store unpinned successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getPinnedStores(req, res, next) {
+  try {
+    const { lat, lng } = req.query;
+    const userLat = lat != null && lat !== '' ? Number(lat) : null;
+    const userLng = lng != null && lng !== '' ? Number(lng) : null;
+
+    const pinnedStoreIds = (req.user.pinnedStores || []).map(p => p.storeId);
+    const pinned = [];
+
+    // Fetch shops
+    const shopIds = pinnedStoreIds.filter(id => {
+      const pin = req.user.pinnedStores.find(p => String(p.storeId) === String(id));
+      return pin && pin.storeType === 'shop';
+    });
+
+    if (shopIds.length > 0) {
+      const shops = await Shop.find({ _id: { $in: shopIds }, status: 'active' }).lean();
+      for (const shop of shops) {
+        const listings = await Listing.find({
+          shopId: shop._id,
+          status: 'active',
+        })
+          .select('photos category location coordinates createdAt')
+          .limit(10)
+          .lean();
+
+        const coords = shop.coordinates || {};
+        const distance = userLat != null && userLng != null && coords.lat != null && coords.lng != null
+          ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
+          : null;
+
+        pinned.push({
+          _id: shop._id,
+          id: shop._id,
+          name: shop.name,
+          avatarUrl: shop.logo || '',
+          coverImage: shop.coverImage || '',
+          tagline: shop.tagline || '',
+          rating: Number(shop.ratingAverage) || 0,
+          reviewsCount: Number(shop.reviewCount) || 0,
+          listingCount: listings.length,
+          distance: distance == null ? null : Math.round(distance * 10) / 10,
+          location: shop.location || shop.address || '',
+          verified: Boolean(shop.isVerified),
+          verificationKind: shop.isVerified ? 'business' : null,
+          verificationLabel: shop.isVerified ? 'Business Verified' : null,
+          productGallery: listings.slice(0, 4).map(l => l.photos?.[0]).filter(Boolean),
+          sellerType: 'shop',
+          category: shop.category || 'Other',
+          shopId: shop._id,
+          userId: shop.owner,
+          description: shop.description || '',
+          phone: shop.phone || '',
+          openingHours: shop.openingHours || '',
+          coordinates: coords,
+        });
+      }
+    }
+
+    // Fetch individual sellers
+    const userIds = pinnedStoreIds.filter(id => {
+      const pin = req.user.pinnedStores.find(p => String(p.storeId) === String(id));
+      return pin && pin.storeType === 'individual';
+    });
+
+    if (userIds.length > 0) {
+      const users = await User.find({
+        _id: { $in: userIds },
+        status: { $ne: 'suspended' },
+      })
+        .select('name avatarUrl location coordinates phone bio')
+        .lean();
+
+      for (const user of users) {
+        const listings = await Listing.find({
+          seller: user._id,
+          sellerType: 'individual',
+          status: 'active',
+        })
+          .select('photos category location coordinates createdAt')
+          .limit(10)
+          .lean();
+
+        const coords = user.coordinates || {};
+        const distance = userLat != null && userLng != null && coords.latitude != null && coords.longitude != null
+          ? haversineDistanceKm(userLat, userLng, coords.latitude, coords.longitude)
+          : null;
+
+        const location = user.preferences?.showLocation === false ? '' : user.location || '';
+
+        pinned.push({
+          _id: user._id,
+          id: user._id,
+          name: user.name || 'Seller',
+          avatarUrl: user.avatarUrl || '',
+          coverImage: user.avatarUrl || '',
+          rating: 0,
+          reviewsCount: 0,
+          listingCount: listings.length,
+          distance: distance == null ? null : Math.round(distance * 10) / 10,
+          location,
+          verified: Boolean(user.phone),
+          verificationKind: user.phone ? 'phone' : null,
+          verificationLabel: user.phone ? 'Phone Verified' : null,
+          productGallery: listings.slice(0, 4).map(l => l.photos?.[0]).filter(Boolean),
+          sellerType: 'individual',
+          category: listings[0]?.category || 'General',
+          shopId: null,
+          userId: user._id,
+          description: user.bio || '',
+          phone: user.preferences?.showPhone ? user.phone || '' : '',
+          coordinates: coords,
+        });
+      }
+    }
+
+    // Sort by pinnedAt (most recent first)
+    const pinnedWithTime = pinned.map(store => {
+      const pin = req.user.pinnedStores.find(p => String(p.storeId) === String(store._id));
+      return { ...store, pinnedAt: pin?.pinnedAt };
+    });
+
+    pinnedWithTime.sort((a, b) => {
+      const aTime = new Date(a.pinnedAt || 0).getTime();
+      const bTime = new Date(b.pinnedAt || 0).getTime();
+      return bTime - aTime;
+    });
+
+    res.json({ stores: pinnedWithTime });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   signup,
   login,
@@ -729,4 +941,7 @@ module.exports = {
   updatePlatformAlert,
   getAllUsers,
   updateUserStatus,
+  pinStore,
+  unpinStore,
+  getPinnedStores,
 };

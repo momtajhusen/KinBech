@@ -2,7 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEY = '@kinbech_home_listings_v3';
 const EXPLORE_KEY = '@kinbech_explore_catalog_v3';
-const TTL_MS = 90_000;
+const TTL_MS = 300_000; // 5 minutes - longer cache for faster perceived performance
+const EXPLORE_TTL_MS = 300_000; // 5 minutes for explore cache
 
 /** @type {{ listings: any[], location?: string, coords?: { lat: number|null, lng: number|null }, fetchedAt: number } | null} */
 let memory = null;
@@ -33,6 +34,16 @@ export function getHomeListingsMemory() {
 
 export function isHomeListingsFresh(maxAgeMs = TTL_MS) {
   return Boolean(memory?.listings?.length && Date.now() - memory.fetchedAt < maxAgeMs);
+}
+
+export function isExploreFresh(maxAgeMs = EXPLORE_TTL_MS) {
+  return Boolean(
+    (exploreMemory?.products?.length ||
+      exploreMemory?.featured?.length ||
+      exploreMemory?.popular?.length ||
+      exploreMemory?.nearby?.length) &&
+      Date.now() - exploreMemory.fetchedAt < maxAgeMs
+  );
 }
 
 export function setHomeListingsCache(payload) {

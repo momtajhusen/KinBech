@@ -130,7 +130,7 @@ export default function SellerProfileScreen({ navigation, route }) {
   const activeCount = seller?.activeCount ?? listings.filter((l) => l.status === 'active').length;
   const soldCount = seller?.soldCount ?? listings.filter((l) => l.status === 'sold').length;
   const sinceYear = seller?.memberSince ? new Date(seller.memberSince).getFullYear() : null;
-  const cardWidth = (width - 32 - 10) / 2;
+  const cardWidth = (width - 32 - 8) / 2;
 
   const startChat = async () => {
     if (chatBusy || !userId) return;
@@ -201,7 +201,7 @@ export default function SellerProfileScreen({ navigation, route }) {
               {seller?.avatarUrl ? (
                 <Image source={{ uri: resolveMediaUrl(seller.avatarUrl) }} style={styles.fillImage} />
               ) : (
-                <Ionicons name="person" size={30} color={colors.menuBlue} />
+                <Ionicons name="person" size={26} color={colors.menuBlue} />
               )}
             </View>
             <View style={styles.flex1}>
@@ -209,7 +209,7 @@ export default function SellerProfileScreen({ navigation, route }) {
                 <Text style={styles.name} numberOfLines={1}>
                   {seller?.name || 'Seller'}
                 </Text>
-                {verified ? <Ionicons name="checkmark-circle" size={16} color="#fff" /> : null}
+                {verified ? <Ionicons name="checkmark-circle" size={14} color="#fff" /> : null}
               </View>
               <View style={styles.badges}>
                 <View style={styles.badge}>
@@ -387,25 +387,25 @@ const createStyles = (colors) => ({
   },
   header: {
     paddingHorizontal: 16,
-    paddingBottom: 40,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingBottom: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
     overflow: 'hidden',
   },
   watermark: {
     position: 'absolute',
     right: -18,
-    bottom: -24,
+    bottom: -20,
   },
   headerBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 4,
   },
   headerBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.16)',
@@ -413,13 +413,13 @@ const createStyles = (colors) => ({
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   avatar: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    borderWidth: 3,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 2.5,
     borderColor: 'rgba(255,255,255,0.9)',
     backgroundColor: colors.pastelBlue,
     overflow: 'hidden',
@@ -429,31 +429,31 @@ const createStyles = (colors) => ({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 3,
   },
   name: {
     flexShrink: 1,
-    fontSize: 18,
+    fontSize: 15.5,
     fontWeight: '800',
     color: '#fff',
   },
   badges: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 5,
+    gap: 4,
+    marginTop: 3,
   },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 8,
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 5,
     backgroundColor: 'rgba(255,255,255,0.18)',
   },
   badgeText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.2,
     color: '#fff',
@@ -461,33 +461,33 @@ const createStyles = (colors) => ({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 5,
+    gap: 2,
+    marginTop: 3,
   },
   locationText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 10,
     color: 'rgba(255,255,255,0.85)',
   },
   statsCard: {
     flexDirection: 'row',
     marginHorizontal: 16,
-    marginTop: -26,
-    paddingVertical: 10,
-    borderRadius: 14,
+    marginTop: -14,
+    paddingVertical: 6,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   stat: {
     flex: 1,
     alignItems: 'center',
-    gap: 2,
+    gap: 0,
   },
   statDivider: {
     borderLeftWidth: 1,
@@ -496,40 +496,40 @@ const createStyles = (colors) => ({
   statTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
   },
   statValue: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.text,
   },
   statLabel: {
-    fontSize: 10.5,
+    fontSize: 9,
     color: colors.textMuted,
   },
   body: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    gap: 12,
+    paddingHorizontal: 14,
+    paddingTop: 8,
+    gap: 8,
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 5,
   },
   actionBtn: {
-    height: 40,
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    gap: 4,
+    paddingHorizontal: 12,
+    borderRadius: 9,
   },
   actionPrimary: {
     backgroundColor: colors.menuBlue,
   },
   actionPrimaryText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '800',
     color: '#fff',
   },
@@ -539,20 +539,20 @@ const createStyles = (colors) => ({
     backgroundColor: colors.pastelBlue,
   },
   actionSecondaryText: {
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '800',
     color: colors.menuBlue,
   },
   aboutCard: {
-    padding: 12,
-    borderRadius: 14,
+    padding: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   aboutText: {
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 15,
     color: colors.textSecondary,
   },
   listHeader: {
@@ -562,16 +562,16 @@ const createStyles = (colors) => ({
   },
   segment: {
     flexDirection: 'row',
-    padding: 3,
-    borderRadius: 10,
+    padding: 2.5,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.iconBackground,
   },
   segmentBtn: {
-    height: 28,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    height: 24,
+    paddingHorizontal: 9,
+    borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -579,7 +579,7 @@ const createStyles = (colors) => ({
     backgroundColor: colors.menuBlue,
   },
   segmentText: {
-    fontSize: 12,
+    fontSize: 10.5,
     fontWeight: '700',
     color: colors.textMuted,
   },
@@ -587,99 +587,99 @@ const createStyles = (colors) => ({
     color: '#fff',
   },
   sortBtn: {
-    height: 34,
+    height: 28,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    gap: 2,
+    paddingHorizontal: 8,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   sortText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '700,
     color: colors.text,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 6,
   },
   card: {
-    borderRadius: 12,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
   cardImage: {
-    aspectRatio: 1.15,
+    aspectRatio: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.iconBackground,
   },
   soldTag: {
     position: 'absolute',
-    top: 6,
-    left: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+    top: 4,
+    left: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
     backgroundColor: colors.statusSold,
   },
   soldTagText: {
-    fontSize: 9.5,
+    fontSize: 8.5,
     fontWeight: '800',
     color: '#fff',
   },
   heartBtn: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
   },
   cardInfo: {
-    paddingHorizontal: 9,
-    paddingVertical: 8,
-    gap: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    gap: 0,
   },
   cardTitle: {
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '700',
     color: colors.text,
   },
   cardPrice: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
     color: colors.price,
   },
   cardMeta: {
-    fontSize: 10.5,
+    fontSize: 9,
     color: colors.textMuted,
   },
   emptyBox: {
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 24,
-    borderRadius: 14,
+    gap: 3,
+    paddingVertical: 18,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   emptyTitle: {
-    fontSize: 13.5,
+    fontSize: 12.5,
     fontWeight: '700',
     color: colors.text,
   },
   emptyBody: {
-    fontSize: 12,
+    fontSize: 11,
     color: colors.textMuted,
   },
 });

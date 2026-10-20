@@ -1,21 +1,18 @@
 import { useState, useEffect, memo, useCallback, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, Text, View, Animated, Dimensions } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
 import { resolveMediaUrl, formatDistanceLabel } from '../utils/listing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(200, SCREEN_WIDTH / 2.0);
-const COVER_HEIGHT = 74;
-const LOGO_SIZE = 54;
 export const INDIVIDUAL_GRADIENT = ['#1E3A8A', '#2563EB'];
 
 const createStyles = (colors) => ({
   card: {
     width: CARD_WIDTH,
     backgroundColor: colors.surface,
-    borderRadius: 18,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
@@ -28,97 +25,112 @@ const createStyles = (colors) => ({
   fill: {
     flex: 1,
   },
-  cover: {
-    height: COVER_HEIGHT,
-    overflow: 'hidden',
-  },
-  coverGradient: {
-    width: '100%',
-    height: '100%',
-  },
-  coverWatermark: {
-    position: 'absolute',
-    right: -10,
-    bottom: -14,
-  },
-  coverTag: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
+  logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    gap: 6,
   },
-  coverTagText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-    color: '#fff',
+  logoGroup: {
+    gap: 6,
   },
-  coverPin: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-  },
-  coverPinButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  badgeRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.28)',
+    gap: 6,
   },
-  logo: {
-    position: 'absolute',
-    top: COVER_HEIGHT - LOGO_SIZE / 2,
-    left: 12,
-    width: LOGO_SIZE,
-    height: LOGO_SIZE,
-    borderWidth: 3,
-    borderColor: colors.surface,
+  logoWrap: {
+    borderWidth: 1.5,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   logoShop: {
-    borderRadius: 14,
     backgroundColor: colors.pastelGreen,
+    borderColor: colors.primary,
   },
   logoPerson: {
-    borderRadius: LOGO_SIZE / 2,
     backgroundColor: colors.pastelBlue,
+    borderColor: colors.menuBlue,
   },
-  ratingBadge: {
-    position: 'absolute',
-    top: COVER_HEIGHT + 6,
-    right: 10,
+  individualCard: {
+    borderColor: 'rgba(37, 99, 235, 0.22)',
+    backgroundColor: 'rgba(37, 99, 235, 0.03)',
+  },
+  storeCard: {
+    borderColor: 'rgba(16, 185, 129, 0.22)',
+    backgroundColor: 'rgba(16, 185, 129, 0.01)',
+  },
+  typeBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    paddingHorizontal: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  typeBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  topRightActions: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  typeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 8,
-    backgroundColor: colors.pastelOrange,
+  },
+  typeBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  pinButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 6,
+  },
+  ratingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1.5,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 6,
+    backgroundColor: 'rgba(245, 158, 11, 0.16)',
   },
   ratingText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  ratingCount: {
     fontSize: 10,
-    fontWeight: '600',
-    color: colors.textMuted,
+    fontWeight: '800',
+    color: colors.warning,
   },
   body: {
     flex: 1,
-    paddingTop: LOGO_SIZE / 2 + 8,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 11,
+    paddingTop: 11,
+    paddingBottom: 10,
+    justifyContent: 'space-between',
   },
   avatarImage: {
     width: '100%',
@@ -128,24 +140,37 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    marginTop: 2,
   },
   name: {
     flexShrink: 1,
     fontSize: 14,
     fontWeight: '800',
     color: colors.text,
+    lineHeight: 18,
+  },
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 3,
   },
   subtitle: {
-    marginTop: 2,
+    flexShrink: 1,
     fontSize: 11,
-    fontWeight: '600',
-    color: colors.textMuted,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    lineHeight: 14,
+    letterSpacing: 0.2,
+  },
+  metaStack: {
+    gap: 4,
   },
   statLine: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 8,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   statItem: {
     flexDirection: 'row',
@@ -160,66 +185,41 @@ const createStyles = (colors) => ({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
+    gap: 7,
+  },
+  locationIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: colors.iconBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locationText: {
     flex: 1,
     fontSize: 11,
-    fontWeight: '500',
-    color: colors.textMuted,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    lineHeight: 14,
   },
-  thumbRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  thumb: {
-    flex: 1,
-    aspectRatio: 1,
-    borderRadius: 10,
-    overflow: 'hidden',
+  viewProfileBtn: {
+    marginTop: 4,
+    height: 30,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
+    borderWidth: 1.2,
   },
-  moreOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
-  },
-  moreText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  spacer: {
-    flex: 1,
-  },
-  button: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    height: 36,
-    borderRadius: 10,
-  },
-  buttonShop: {
+  viewProfileBtnStore: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  buttonPerson: {
-    borderWidth: 1.5,
+  viewProfileBtnIndividual: {
+    backgroundColor: 'transparent',
     borderColor: colors.menuBlue,
-    backgroundColor: colors.pastelBlue,
   },
-  buttonText: {
-    fontSize: 12.5,
+  viewProfileBtnText: {
+    fontSize: 11.5,
     fontWeight: '800',
   },
   // Compact (pinned)
@@ -236,12 +236,11 @@ const createStyles = (colors) => ({
   },
   compactBody: {
     padding: 10,
+    flex: 1,
+    justifyContent: 'space-between',
   },
   compactTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    gap: 6,
   },
   compactAvatar: {
     width: 38,
@@ -252,26 +251,32 @@ const createStyles = (colors) => ({
     borderWidth: 1.5,
   },
   compactPin: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
     width: 24,
     height: 24,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    zIndex: 5,
   },
   compactName: {
     fontSize: 12,
     fontWeight: '800',
     color: colors.text,
+    lineHeight: 15,
+    marginTop: 4,
   },
   compactTag: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 3,
-    marginTop: 4,
+    marginTop: 2,
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderRadius: 6,
   },
   compactTagText: {
@@ -282,7 +287,7 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 6,
+    marginTop: 4,
     minHeight: 14,
   },
 });
@@ -299,7 +304,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
   listingCount,
   location,
   isPinned = false,
-  productGallery,
+  width,
   compact = false,
   sellerType,
   onPress,
@@ -356,7 +361,6 @@ const SellerProfileCard = memo(function SellerProfileCard({
   const displayLocation = location || seller?.location || 'Unknown location';
   const displayAvatar = resolveMediaUrl(avatar || seller?.avatarUrl || '');
   const isVerified = verified ?? Boolean(seller?.verified);
-  const coverPhoto = isShop && seller?.coverImage ? resolveMediaUrl(seller.coverImage) : '';
   const category =
     seller?.category && seller.category !== 'Other' && seller.category !== 'General'
       ? seller.category
@@ -366,10 +370,14 @@ const SellerProfileCard = memo(function SellerProfileCard({
   const km = rawDistance == null || rawDistance === '' ? null : Number(rawDistance);
   const distanceLabel = formatDistanceLabel(Number.isFinite(km) ? km : null);
 
-  const gallerySource = productGallery?.length ? productGallery : seller?.productGallery || [];
-  const thumbs = gallerySource.map((item) => resolveMediaUrl(item)).filter(Boolean);
-  const extraThumbs = Math.max(0, thumbs.length - 3);
   const itemsLabel = `${displayListings} ${displayListings === 1 ? 'item' : 'items'}`;
+  const cardWidth = width || CARD_WIDTH;
+
+  // Banner-free card: fixed height keeps the grid tidy and content readable.
+  const SELLER_CARD_HEIGHT = 190;
+  const layout = { width: cardWidth, height: SELLER_CARD_HEIGHT };
+
+  const logoSize = Math.min(46, Math.round(cardWidth * 0.32));
 
   const accent = isShop ? colors.primary : colors.menuBlue;
   const accentSoft = isShop ? colors.pastelGreen : colors.pastelBlue;
@@ -382,36 +390,43 @@ const SellerProfileCard = memo(function SellerProfileCard({
   if (compact) {
     return (
       <Animated.View style={[styles.compactCard, { transform: [{ scale: scaleAnim }] }]}>
-        <Pressable onPress={handlePress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
+        <Pressable onPress={handlePress} onPressIn={handlePressIn} onPressOut={handlePressOut} style={styles.fill}>
           <View style={[styles.compactStrip, { backgroundColor: accent }]} />
-          <View style={styles.compactBody}>
-            <View style={styles.compactTop}>
-              <View
-                style={[
-                  styles.compactAvatar,
-                  { borderRadius: isShop ? 10 : 19, borderColor: accent, backgroundColor: accentSoft },
-                ]}
-              >
-                {displayAvatar ? (
-                  <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
-                ) : (
-                  <Ionicons name={typeIcon} size={18} color={accent} />
-                )}
+          
+          <Animated.View style={[styles.compactPin, { transform: [{ scale: pinScaleAnim }] }]}>
+            <Pressable onPress={handlePinToggle} hitSlop={8} style={styles.fill}>
+              <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                {pinIcon(12, pinned ? colors.primary : colors.textMuted)}
               </View>
-              <Animated.View style={{ transform: [{ scale: pinScaleAnim }] }}>
-                <Pressable onPress={handlePinToggle} hitSlop={8} style={styles.compactPin}>
-                  {pinIcon(13, pinned ? colors.primary : colors.textMuted)}
-                </Pressable>
-              </Animated.View>
-            </View>
+            </Pressable>
+          </Animated.View>
 
-            <Text style={styles.compactName} numberOfLines={1}>
-              {displayName}
-            </Text>
-            <View style={[styles.compactTag, { backgroundColor: accentSoft }]}>
-              <Ionicons name={typeIcon} size={9} color={accent} />
-              <Text style={[styles.compactTagText, { color: accent }]}>
-                {isShop ? 'Store' : 'Individual'}
+          <View style={styles.compactBody}>
+            <View>
+              <View style={styles.compactTop}>
+                <View
+                  style={[
+                    styles.compactAvatar,
+                    { borderRadius: isShop ? 10 : 19, borderColor: accent, backgroundColor: accentSoft },
+                  ]}
+                >
+                  {displayAvatar ? (
+                    <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
+                  ) : (
+                    <Ionicons name={typeIcon} size={18} color={accent} />
+                  )}
+                </View>
+                
+                <View style={[styles.compactTag, { backgroundColor: accentSoft }]}>
+                  <Ionicons name={typeIcon} size={8} color={accent} />
+                  <Text style={[styles.compactTagText, { color: accent }]} numberOfLines={1}>
+                    {isShop ? 'STORE' : 'INDIVIDUAL'}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.compactName} numberOfLines={1}>
+                {displayName}
               </Text>
             </View>
 
@@ -442,136 +457,128 @@ const SellerProfileCard = memo(function SellerProfileCard({
     );
   }
 
-  const subtitle = isShop
-    ? isVerified
-      ? 'Business verified'
-      : category || 'Local store'
-    : isVerified
-      ? 'Phone verified'
-      : 'Personal seller';
-
   return (
-    <Animated.View style={[styles.card, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View
+      style={[
+        styles.card,
+        isShop ? styles.storeCard : styles.individualCard,
+        { width: layout.width, height: layout.height, transform: [{ scale: scaleAnim }] },
+      ]}
+    >
       <Pressable
         onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         style={styles.fill}
       >
-        <View style={styles.cover}>
-          {coverPhoto ? (
-            <Image source={{ uri: coverPhoto }} style={styles.coverGradient} resizeMode="cover" />
-          ) : (
-            <LinearGradient
-              colors={isShop ? colors.gradient : INDIVIDUAL_GRADIENT}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.coverGradient}
-            >
-              <Ionicons
-                name={typeIcon}
-                size={72}
-                color="rgba(255,255,255,0.12)"
-                style={styles.coverWatermark}
-              />
-            </LinearGradient>
-          )}
-          <View style={styles.coverTag}>
-            <Ionicons name={typeIcon} size={10} color="#fff" />
-            <Text style={styles.coverTagText}>{isShop ? 'STORE' : 'INDIVIDUAL'}</Text>
-          </View>
-          <Animated.View style={[styles.coverPin, { transform: [{ scale: pinScaleAnim }] }]}>
-            <Pressable onPress={handlePinToggle} hitSlop={8} style={styles.coverPinButton}>
-              {pinIcon(15, '#fff')}
-            </Pressable>
-          </Animated.View>
-        </View>
-
-        <View style={[styles.logo, isShop ? styles.logoShop : styles.logoPerson]}>
-          {displayAvatar ? (
-            <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
-          ) : (
-            <Ionicons name={typeIcon} size={24} color={accent} />
-          )}
-        </View>
-
-        {hasRating ? (
-          <View style={styles.ratingBadge}>
-            <Ionicons name="star" size={11} color={colors.warning} />
-            <Text style={styles.ratingText}>{displayRating}</Text>
-            <Text style={styles.ratingCount}>({displayReviews})</Text>
-          </View>
-        ) : null}
-
         <View style={styles.body}>
-          <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>
-              {displayName}
-            </Text>
-            {isVerified ? (
-              <Ionicons
-                name={isShop ? 'shield-checkmark' : 'checkmark-circle'}
-                size={13}
-                color={colors.primary}
-              />
-            ) : null}
-          </View>
-          <Text style={styles.subtitle} numberOfLines={1}>
-            {subtitle}
-          </Text>
-
-          <View style={styles.statLine}>
-            <View style={styles.statItem}>
-              <Ionicons name="cube-outline" size={12} color={accent} />
-              <Text style={styles.statText}>{itemsLabel}</Text>
+          <View style={styles.topRightActions}>
+            <View style={[styles.typeBadge, { backgroundColor: accentSoft }]}>
+              <Ionicons name={typeIcon} size={9} color={accent} />
+              <Text style={[styles.typeBadgeText, { color: accent }]}>
+                {isShop ? 'STORE' : 'INDIVIDUAL'}
+              </Text>
             </View>
-            {distanceLabel ? (
-              <View style={styles.statItem}>
-                <Ionicons name="navigate-outline" size={12} color={accent} />
-                <Text style={styles.statText}>{distanceLabel}</Text>
-              </View>
-            ) : null}
+            <Animated.View style={{ transform: [{ scale: pinScaleAnim }] }}>
+              <Pressable onPress={handlePinToggle} hitSlop={8} style={styles.pinButton}>
+                {pinIcon(13, pinned ? colors.primary : colors.textMuted)}
+              </Pressable>
+            </Animated.View>
           </View>
 
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={12} color={colors.textMuted} />
-            <Text style={styles.locationText} numberOfLines={1}>
-              {displayLocation}
-            </Text>
-          </View>
-
-          <View style={styles.thumbRow}>
-            {[0, 1, 2].map((i) => (
-              <View key={i} style={styles.thumb}>
-                {thumbs[i] ? (
-                  <Image source={{ uri: thumbs[i] }} style={styles.avatarImage} resizeMode="cover" />
-                ) : (
-                  <Ionicons name="image-outline" size={14} color={colors.textMuted} />
-                )}
-                {i === 2 && extraThumbs > 0 ? (
-                  <View style={styles.moreOverlay}>
-                    <Text style={styles.moreText}>+{extraThumbs}</Text>
+          <View>
+            <View style={styles.logoRow}>
+              <View style={styles.logoGroup}>
+                <View
+                  style={[
+                    styles.logoWrap,
+                    isShop ? styles.logoShop : styles.logoPerson,
+                    {
+                      width: logoSize,
+                      height: logoSize,
+                      borderRadius: isShop ? 14 : logoSize / 2,
+                    },
+                  ]}
+                >
+                  {displayAvatar ? (
+                    <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
+                  ) : (
+                    <Ionicons name={typeIcon} size={22} color={accent} />
+                  )}
+                </View>
+                
+                {hasRating ? (
+                  <View style={styles.ratingChip}>
+                    <Ionicons name="star" size={10} color={colors.warning} />
+                    <Text style={styles.ratingText}>{displayRating}</Text>
                   </View>
                 ) : null}
               </View>
-            ))}
+            </View>
+
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {displayName}
+              </Text>
+              {isVerified ? (
+                <Ionicons
+                  name={isShop ? 'shield-checkmark' : 'checkmark-circle'}
+                  size={14}
+                  color={colors.primary}
+                />
+              ) : null}
+            </View>
+            <View style={styles.subtitleRow}>
+              <Text style={[styles.subtitle, { color: accent }]} numberOfLines={1}>
+                {category || (isShop ? 'Local Store' : 'Individual Seller')}
+              </Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.metaStack}>
+              <View style={styles.locationRow}>
+                <View style={styles.locationIcon}>
+                  <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
+                </View>
+                <Text style={styles.locationText} numberOfLines={1}>
+                  {displayLocation}
+                </Text>
+              </View>
+              <View style={styles.statLine}>
+                <View style={styles.statItem}>
+                  <Ionicons name="cube-outline" size={12} color={colors.textSecondary} />
+                  <Text style={styles.statText} numberOfLines={1}>
+                    {itemsLabel}
+                  </Text>
+                </View>
+                {distanceLabel ? (
+                  <View style={styles.statItem}>
+                    <Ionicons name="navigate-outline" size={12} color={colors.textSecondary} />
+                    <Text style={styles.statText} numberOfLines={1}>
+                      {distanceLabel}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
           </View>
 
-          <View style={styles.spacer} />
-
-          <Pressable
-            style={[styles.button, isShop ? styles.buttonShop : styles.buttonPerson]}
-            onPress={handlePress}
+          <View
+            style={[
+              styles.viewProfileBtn,
+              isShop ? styles.viewProfileBtnStore : styles.viewProfileBtnIndividual,
+            ]}
           >
-            <Ionicons
-              name={isShop ? 'storefront-outline' : 'person-outline'}
-              size={14}
-              color={isShop ? colors.onPrimary : colors.menuBlue}
-            />
-            <Text style={[styles.buttonText, { color: isShop ? colors.onPrimary : colors.menuBlue }]}>
-              {isShop ? 'View Store' : 'View Profile'}
+            <Text
+              style={[
+                styles.viewProfileBtnText,
+                { color: isShop ? colors.onPrimary || '#fff' : colors.menuBlue },
+              ]}
+            >
+              View Profile
             </Text>
-          </Pressable>
+          </View>
         </View>
       </Pressable>
     </Animated.View>

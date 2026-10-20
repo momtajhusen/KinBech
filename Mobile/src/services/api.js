@@ -458,6 +458,12 @@ export const api = {
   getFeaturedSellers: (params = {}) => request(`/sellers/featured${toQuery(params)}`),
   getPopularSellers: (params = {}) => request(`/sellers/popular${toQuery(params)}`),
   getNearbySellers: (params = {}) => request(`/sellers/nearby${toQuery(params)}`),
+
+  // Pinned stores APIs
+  getPinnedStores: (params = {}) => request(`/auth/pinned-stores${toQuery(params)}`),
+  pinStore: (payload) =>
+    request('/auth/pinned-stores', { method: 'POST', body: JSON.stringify(payload) }),
+  unpinStore: (storeId) => request(`/auth/pinned-stores/${storeId}`, { method: 'DELETE' }),
   
   // Shop APIs
   createShop: (payload) =>

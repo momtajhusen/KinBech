@@ -29,6 +29,7 @@ import {
   catalogFingerprint,
   getExploreMemory,
   getHomeListingsMemory,
+  isExploreFresh,
   loadExploreCache,
   loadHomeListingsCache,
   setExploreMemory,
@@ -48,6 +49,7 @@ const GRID_GUTTER = 8;
 const GRID_PADDING = 10;
 const ALL_TINT = '#F59E0B';
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FOCUS_CACHE_TTL_MS = 300_000; // 5 minutes
 
 const SORT_OPTIONS = [
   { key: 'newest', label: 'Newest', icon: 'sparkles-outline' },
@@ -236,13 +238,13 @@ const createStyles = (colors) => ({
     overflow: 'hidden',
   },
   sidebarContent: {
-    paddingTop: 4,
+    paddingTop: 2,
   },
   sideItem: {
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 3,
-    gap: 3,
+    gap: 2,
   },
   sideItemActive: {
     backgroundColor: colors.background,
@@ -305,7 +307,8 @@ const createStyles = (colors) => ({
   },
   heroCard: {
     marginHorizontal: GRID_PADDING,
-    padding: 9,
+    marginBottom: 8,
+    padding: 8,
     borderRadius: 14,
     borderWidth: 1,
   },
@@ -337,35 +340,16 @@ const createStyles = (colors) => ({
     fontWeight: '600',
     color: colors.textSecondary,
   },
-  heroStats: {
+
+  heroSortRow: {
     marginTop: 8,
-    flexDirection: 'row',
-    gap: 5,
+    gap: 6,
   },
-  heroStat: {
-    flex: 1,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    borderRadius: 9,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-  },
-  heroStatValue: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  heroStatLabel: {
-    fontSize: 8.5,
-    fontWeight: '700',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
+
   sortRow: {
     paddingHorizontal: GRID_PADDING,
-    paddingTop: 8,
-    paddingBottom: 8,
+    paddingTop: 2,
+    paddingBottom: 2,
     gap: 6,
   },
   sortChip: {
@@ -396,7 +380,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: GRID_PADDING + 2,
-    paddingBottom: 6,
+    paddingBottom: 4,
   },
   resultsTitle: {
     fontSize: 13,
@@ -417,18 +401,18 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: GRID_PADDING,
-    paddingBottom: 12,
+    paddingBottom: 4,
     gap: GRID_GUTTER,
   },
   sellerSection: {
-    marginTop: 14,
+    marginTop: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 9,
     paddingHorizontal: GRID_PADDING + 2,
-    marginBottom: 10,
+    marginBottom: 4,
   },
   sectionIcon: {
     width: 30,
@@ -458,10 +442,6 @@ const createStyles = (colors) => ({
   sectionCountText: {
     fontSize: 11,
     fontWeight: '800',
-  },
-  sellerRow: {
-    paddingHorizontal: GRID_PADDING,
-    gap: 10,
   },
   filterHandle: {
     alignSelf: 'center',
@@ -667,7 +647,7 @@ export default function ExploreScreen({ navigation, route }) {
     paneAnim.setValue(0);
     Animated.timing(paneAnim, {
       toValue: 1,
-      duration: 240,
+      duration: 200,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
@@ -688,6 +668,7 @@ export default function ExploreScreen({ navigation, route }) {
       if (last?.coords) {
         const coords = { lat: last.coords.latitude, lng: last.coords.longitude };
         setUserCoords(coords);
+        // Fetch precise location in background, don't block
         Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
           .then((current) => {
             if (!current?.coords) return;
@@ -736,12 +717,19 @@ export default function ExploreScreen({ navigation, route }) {
     });
   }, []);
 
-  const fetchSellers = useCallback(async ({ silent = false } = {}) => {
-    if (!silent && !hasLoadedRef.current) setItemsLoading(true);
+  const fetchSellers = useCallback(async ({ silent = false, force = false } = {}) => {
+    // Check if we have fresh cache
+    if (!force && silent && isExploreFresh(FOCUS_CACHE_TTL_MS) && hasLoadedRef.current) {
+      return;
+    }
+
+    // Always load silently for better perceived performance
+    if (!hasLoadedRef.current) setItemsLoading(true);
+
     try {
       const coords = await Promise.race([
         fetchQuickLocation(),
-        new Promise((resolve) => setTimeout(() => resolve(null), 120)),
+        new Promise((resolve) => setTimeout(() => resolve(null), 100)),
       ]);
       const locParams = {};
       if (coords?.lat != null && coords?.lng != null) {
@@ -757,6 +745,11 @@ export default function ExploreScreen({ navigation, route }) {
       ]);
 
       applyExplorePayload(featuredRes, popularRes, nearbyRes, productsRes, coords);
+
+      // Refresh pinned stores from backend
+      const pinned = await pinnedStoresUtils.getPinnedStores({ lat: coords?.lat, lng: coords?.lng });
+      setPinnedStores(pinned);
+
       hasLoadedRef.current = true;
     } catch (error) {
       console.error('Failed to load explore data:', error);
@@ -796,35 +789,24 @@ export default function ExploreScreen({ navigation, route }) {
         setItemsLoading(false);
       }
     })();
+    // Start location fetch in background, don't block cache load
+    fetchQuickLocation();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetchQuickLocation]);
 
   useEffect(() => {
-    pinnedStoresUtils.getPinnedStores().then((pinned) => {
+    // Load pinned stores from backend in background
+    pinnedStoresUtils.getPinnedStores({ lat: userCoords.lat, lng: userCoords.lng }).then((pinned) => {
       setPinnedStores(Array.isArray(pinned) ? pinned : []);
     }).catch(() => {});
-
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          await Location.requestForegroundPermissionsAsync();
-        }
-        const last = await Location.getLastKnownPositionAsync();
-        if (last?.coords) {
-          setUserCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
-        }
-      } catch (_) {
-        // nearby distance is optional
-      }
-    })();
-  }, []);
+  }, [userCoords.lat, userCoords.lng]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchSellers({ silent: hasLoadedRef.current });
+      // Always silent load for instant display
+      fetchSellers({ silent: true });
     }, [fetchSellers])
   );
 
@@ -861,11 +843,16 @@ export default function ExploreScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, activeTab, userCoords.lat, userCoords.lng]);
+  }, [activeCategory, activeTab, userCoords]);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => fetchSellers({ silent: true }));
+  const { refreshing, onRefresh } = usePullRefresh(() => fetchSellers({ silent: true, force: true }));
 
   const handleSellerPress = useCallback((seller) => {
+    const sellerId = seller?._id || seller?.id || seller?.shopId;
+    if (sellerId) {
+      pinnedStoresUtils.incrementUsage(sellerId).catch(() => {});
+    }
+
     if (seller?.sellerType === 'shop' || seller?.shopId) {
       navigation.navigate(ROUTES.SHOP_PROFILE, {
         shopId: seller.shopId || seller._id || seller.id,
@@ -881,19 +868,21 @@ export default function ExploreScreen({ navigation, route }) {
   const handlePinToggle = useCallback(async (sellerId) => {
     const seller = [...featuredSellers, ...popularSellers, ...nearbySellers]
       .find(s => s._id === sellerId);
-    
+
     if (!seller) return;
 
-    const isPinned = await pinnedStoresUtils.isStorePinned(sellerId);
-    
+    const isPinned = await pinnedStoresUtils.isStorePinned(sellerId, pinnedStores);
+
     if (isPinned) {
       await pinnedStoresUtils.unpinStore(sellerId);
-      setPinnedStores(prev => prev.filter(s => s._id !== sellerId));
     } else {
       await pinnedStoresUtils.pinStore(seller);
-      setPinnedStores(prev => [...prev, seller]);
     }
-  }, [featuredSellers, popularSellers, nearbySellers]);
+
+    // Refresh pinned stores from backend
+    const pinned = await pinnedStoresUtils.getPinnedStores({ lat: userCoords.lat, lng: userCoords.lng });
+    setPinnedStores(pinned);
+  }, [featuredSellers, popularSellers, nearbySellers, pinnedStores, userCoords]);
 
   const handleProductPress = useCallback((product, index) => {
     // Navigate to product detail
@@ -1010,7 +999,11 @@ export default function ExploreScreen({ navigation, route }) {
       return withDistance;
     };
     return {
-      pinned: order(pinnedStores),
+      pinned: order(pinnedStores).sort((a, b) => {
+        const aTime = new Date(a.pinnedAt || 0).getTime();
+        const bTime = new Date(b.pinnedAt || 0).getTime();
+        return bTime - aTime;
+      }),
       featured: order(featuredSellers),
       popular: order(popularSellers),
       nearby: order(nearbySellers).slice(0, 8),
@@ -1034,29 +1027,12 @@ export default function ExploreScreen({ navigation, route }) {
 
   const heroStats = useMemo(() => {
     if (activeTab === 'products') {
-      const prices = filteredProducts.map(listingPrice).filter((v) => v != null);
-      const distances = filteredProducts.map((it) => it.distanceKm).filter((v) => Number.isFinite(v));
-      const weekAgo = Date.now() - WEEK_MS;
-      const freshCount = filteredProducts.filter((it) => listingCreatedAt(it) >= weekAgo).length;
       return {
         subtitle: `${filteredProducts.length} item${filteredProducts.length === 1 ? '' : 's'} to explore`,
-        stats: [
-          { label: 'From', value: prices.length ? formatPrice(Math.min(...prices)) : '—' },
-          { label: 'Nearest', value: nearestLabel(distances) },
-          { label: 'New 7d', value: String(freshCount) },
-        ],
       };
     }
-    const list = sellerSections.all;
-    const distances = list.map((s) => s.distance).filter((v) => Number.isFinite(v));
-    const stores = list.filter((s) => s.sellerType === 'shop' || s.shopId).length;
     return {
-      subtitle: `${list.length} seller${list.length === 1 ? '' : 's'} around you`,
-      stats: [
-        { label: 'Stores', value: String(stores) },
-        { label: 'Verified', value: String(list.filter((s) => s.verified).length) },
-        { label: 'Nearest', value: nearestLabel(distances) },
-      ],
+      subtitle: `${sellerSections.all.length} seller${sellerSections.all.length === 1 ? '' : 's'} around you`,
     };
   }, [activeTab, filteredProducts, sellerSections]);
 
@@ -1094,57 +1070,66 @@ export default function ExploreScreen({ navigation, route }) {
     handleCategoryChange(cat.label);
   };
 
-  const renderSellerRow = (list, compact) => (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sellerRow}>
-      {list.map((seller) => (
-        <SellerProfileCard
-          key={seller._id || seller.id}
-          seller={seller}
-          sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
-          compact={compact}
-          onPress={() => handleSellerPress(seller)}
-          onPinToggle={() => handlePinToggle(seller._id)}
-          isPinned={pinnedStores.some((s) => s._id === seller._id)}
-        />
-      ))}
-    </ScrollView>
-  );
+  const renderSellerGrid = (list, isPinned = false) => {
+    if (isPinned && list.length > 2) {
+      return (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[styles.productGrid, { flexWrap: 'nowrap', paddingRight: GRID_PADDING }]}
+        >
+          {list.map((seller) => (
+            <View key={seller._id || seller.id} style={{ width: productCardWidth }}>
+              <SellerProfileCard
+                seller={seller}
+                sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
+                width={productCardWidth}
+                onPress={() => handleSellerPress(seller)}
+                onPinToggle={() => handlePinToggle(seller._id)}
+                isPinned={true}
+              />
+            </View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    return (
+      <View style={styles.productGrid}>
+        {list.map((seller) => (
+          <SellerProfileCard
+            key={seller._id || seller.id}
+            seller={seller}
+            sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
+            width={productCardWidth}
+            onPress={() => handleSellerPress(seller)}
+            onPinToggle={() => handlePinToggle(seller._id)}
+            isPinned={pinnedStores.some((s) => s._id === seller._id)}
+          />
+        ))}
+      </View>
+    );
+  };
 
   const sellerBlocks = [
-    {
+    pinnedStores.length > 0 && {
       key: 'pinned',
       icon: 'bookmark',
       tint: colors.primary,
       title: 'My pinned stores',
       subtitle: 'Quick access to your favourites',
       list: sellerSections.pinned,
-      compact: true,
+      isPinned: true,
     },
     {
-      key: 'featured',
-      icon: 'star',
-      tint: colors.warning,
-      title: 'Featured near you',
-      subtitle: 'Handpicked trusted sellers',
-      list: sellerSections.featured,
+      key: 'all',
+      icon: 'storefront',
+      tint: colors.secondary || colors.primary,
+      title: 'All Stores',
+      subtitle: 'Browse all available sellers',
+      list: sellerSections.all,
     },
-    {
-      key: 'popular',
-      icon: 'flame',
-      tint: colors.danger,
-      title: 'Popular sellers',
-      subtitle: 'Most visited this week',
-      list: sellerSections.popular,
-    },
-    {
-      key: 'nearby',
-      icon: 'location',
-      tint: colors.info || colors.primary,
-      title: 'Sellers near you',
-      subtitle: 'Closest to your location',
-      list: sellerSections.nearby,
-    },
-  ].filter((block) => block.list.length > 0);
+  ].filter((block) => block && block.list && block.list.length > 0);
 
   return (
     <>
@@ -1275,41 +1260,25 @@ export default function ExploreScreen({ navigation, route }) {
                 },
               ]}
             >
-              <ScrollView
-                style={styles.mainContent}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={[styles.scrollViewContent, { paddingBottom: 28 + insets.bottom }]}
-                refreshControl={refreshControl(colors, refreshing, onRefresh)}
-              >
-                <View style={[styles.heroCard, { backgroundColor: `${activeTint}14`, borderColor: `${activeTint}33` }]}>
-                  <View style={styles.heroTop}>
-                    <View style={[styles.heroIcon, { backgroundColor: activeTint }]}>
-                      {activeMeta?.imageUrl ? (
-                        <Image source={{ uri: activeMeta.imageUrl }} style={styles.sideIconImage} />
-                      ) : (
-                        <Ionicons name={activeMeta?.icon || 'grid'} size={17} color="#FFFFFF" />
-                      )}
-                    </View>
-                    <View style={styles.heroCopy}>
-                      <Text style={styles.heroTitle} numberOfLines={1}>
-                        {isAll ? (activeTab === 'products' ? 'All products' : 'All sellers') : activeCategory}
-                      </Text>
-                      <Text style={styles.heroSub} numberOfLines={1}>
-                        {itemsLoading ? 'Loading…' : heroStats.subtitle}
-                      </Text>
-                    </View>
+              <View style={[styles.heroCard, { backgroundColor: `${activeTint}14`, borderColor: `${activeTint}33` }]}>
+                <View style={styles.heroTop}>
+                  <View style={[styles.heroIcon, { backgroundColor: activeTint }]}>
+                    {activeMeta?.imageUrl ? (
+                      <Image source={{ uri: activeMeta.imageUrl }} style={styles.sideIconImage} />
+                    ) : (
+                      <Ionicons name={activeMeta?.icon || 'grid'} size={17} color="#FFFFFF" />
+                    )}
                   </View>
-                  <View style={styles.heroStats}>
-                    {heroStats.stats.map((stat) => (
-                      <View key={stat.label} style={styles.heroStat}>
-                        <Text style={styles.heroStatValue} numberOfLines={1}>{stat.value}</Text>
-                        <Text style={styles.heroStatLabel} numberOfLines={1}>{stat.label}</Text>
-                      </View>
-                    ))}
+                  <View style={styles.heroCopy}>
+                    <Text style={styles.heroTitle} numberOfLines={1}>
+                      {isAll ? (activeTab === 'products' ? 'All products' : 'All sellers') : activeCategory}
+                    </Text>
+                    <Text style={styles.heroSub} numberOfLines={1}>
+                      {itemsLoading ? 'Loading…' : heroStats.subtitle}
+                    </Text>
                   </View>
                 </View>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sortRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.heroSortRow}>
                   {sortOptions.map((opt) => {
                     const active = sortBy === opt.key;
                     return (
@@ -1324,7 +1293,14 @@ export default function ExploreScreen({ navigation, route }) {
                     );
                   })}
                 </ScrollView>
+              </View>
 
+              <ScrollView
+                style={styles.mainContent}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[styles.scrollViewContent, { paddingBottom: 28 + insets.bottom }]}
+                refreshControl={refreshControl(colors, refreshing, onRefresh)}
+              >
                 {activeTab === 'products' ? (
                   <>
                     {activeFilterCount > 0 ? (
@@ -1366,11 +1342,11 @@ export default function ExploreScreen({ navigation, route }) {
                     )}
                   </>
                 ) : itemsLoading && sellerBlocks.length === 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sellerRow}>
-                    {[0, 1].map((i) => (
-                      <SellerProfileCardSkeleton key={i} />
+                  <View style={styles.productGrid}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <SellerProfileCardSkeleton key={i} width={productCardWidth} />
                     ))}
-                  </ScrollView>
+                  </View>
                 ) : sellerBlocks.length > 0 ? (
                   sellerBlocks.map((block) => (
                     <View key={block.key} style={styles.sellerSection}>
@@ -1382,7 +1358,7 @@ export default function ExploreScreen({ navigation, route }) {
                         subtitle={block.subtitle}
                         count={block.list.length}
                       />
-                      {renderSellerRow(block.list, block.compact)}
+                      {renderSellerGrid(block.list, block.isPinned)}
                     </View>
                   ))
                 ) : (
@@ -1397,7 +1373,7 @@ export default function ExploreScreen({ navigation, route }) {
             </Animated.View>
           </View>
         </View>
-        {itemsLoading && products.length === 0 ? <ScreenLoader overlay label="Loading" /> : null}
+        {itemsLoading && products.length === 0 ? <ScreenLoader overlay label="Loading items..." /> : null}
       </View>
 
       <Modal

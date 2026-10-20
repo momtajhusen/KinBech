@@ -20,6 +20,14 @@ function publicUser(user, options = {}) {
     ? { ...defaultPrefs, ...(user.preferences.toObject ? user.preferences.toObject() : user.preferences) }
     : defaultPrefs;
   const includePrivate = options.includePrivate === true;
+
+  // Format pinned stores for client
+  const pinnedStores = (user.pinnedStores || []).map(p => ({
+    storeId: p.storeId ? String(p.storeId) : null,
+    storeType: p.storeType || 'shop',
+    pinnedAt: p.pinnedAt,
+  }));
+
   return {
     id: user._id.toString(),
     name: user.name,
@@ -38,6 +46,7 @@ function publicUser(user, options = {}) {
     profileComplete: Boolean(user.profileComplete),
     joinedAt: user.createdAt || null,
     createdAt: user.createdAt || null,
+    pinnedStores,
     ...(includePrivate
       ? {
           chatRestrictedUntil: user.chatRestrictedUntil || null,

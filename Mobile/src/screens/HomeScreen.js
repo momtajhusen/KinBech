@@ -5,7 +5,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   Animated,
-  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -19,7 +18,6 @@ import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
 import ScreenLoader from '../components/ScreenLoader';
-import { INDIVIDUAL_GRADIENT } from '../components/SellerProfileCard';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -36,8 +34,9 @@ import {
   loadHomeListingsCache,
   setHomeListingsCache,
 } from '../utils/homeListingsCache';
+import pinnedStoresUtils from '../utils/pinnedStores';
 
-const FOCUS_CACHE_TTL_MS = 60_000;
+const FOCUS_CACHE_TTL_MS = 300_000; // 5 minutes - longer cache for faster focus returns
 const APP_LOGO = require('../../assets/icons/app-icon.png');
 const BUDGET_LIMIT = 5000;
 
@@ -62,13 +61,7 @@ function mergeStores(...lists) {
     seen.add(key);
     merged.push(store);
   });
-  return merged
-    .sort((a, b) => {
-      const shopDiff = (b.sellerType === 'shop' ? 1 : 0) - (a.sellerType === 'shop' ? 1 : 0);
-      if (shopDiff) return shopDiff;
-      return (Number(b.listingCount) || 0) - (Number(a.listingCount) || 0);
-    })
-    .slice(0, 10);
+  return merged.slice(0, 10);
 }
 
 export default function HomeScreen({ navigation }) {
@@ -84,10 +77,10 @@ export default function HomeScreen({ navigation }) {
   const [, setLoading] = useState(false);
   const [settled, setSettled] = useState(() => Boolean(initialCatalog?.listings?.length));
   const [location, setLocation] = useState(initialCatalog?.location || 'Kathmandu');
-  const [locating, setLocating] = useState(false);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentViews, setRecentViews] = useState(() => getRecentlyViewed());
+  const [pinnedStores, setPinnedStores] = useState([]);
   const hasLoadedRef = useRef(Boolean(initialCatalog?.listings?.length));
   const catalogFpRef = useRef(catalogFingerprint(initialCatalog?.listings || []));
   const hasAnimatedRef = useRef(false);
@@ -106,13 +99,12 @@ export default function HomeScreen({ navigation }) {
     }
     hasAnimatedRef.current = true;
     Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start();
   }, [fadeAnim, slideAnim]);
 
   const fetchCurrentLocation = useCallback(async () => {
-    setLocating(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -126,36 +118,49 @@ export default function HomeScreen({ navigation }) {
         coords = { lat: last.coords.latitude, lng: last.coords.longitude };
         userCoordsRef.current = coords;
         setUserCoords(coords);
+
+        // Use cached location label if available
+        if (initialCatalog?.location) {
+          locationLabelRef.current = initialCatalog.location;
+          setLocation(initialCatalog.location);
+        }
       }
 
-      const currentLocation = await Location.getCurrentPositionAsync({
+      // Don't block UI - fetch precise location in background
+      Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
-      });
-      coords = {
-        lat: currentLocation.coords.latitude,
-        lng: currentLocation.coords.longitude,
-      };
-      userCoordsRef.current = coords;
-      setUserCoords(coords);
+      })
+        .then((currentLocation) => {
+          coords = {
+            lat: currentLocation.coords.latitude,
+            lng: currentLocation.coords.longitude,
+          };
+          userCoordsRef.current = coords;
+          setUserCoords(coords);
 
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: coords.lat,
-        longitude: coords.lng,
-      });
-      const addr = reverseGeocode?.[0];
-      if (addr) {
-        const label = formatCityDistrict(addr, 'Kathmandu');
-        locationLabelRef.current = label;
-        setLocation(label);
-      }
+          return Location.reverseGeocodeAsync({
+            latitude: coords.lat,
+            longitude: coords.lng,
+          });
+        })
+        .then((reverseGeocode) => {
+          const addr = reverseGeocode?.[0];
+          if (addr) {
+            const label = formatCityDistrict(addr, 'Kathmandu');
+            locationLabelRef.current = label;
+            setLocation(label);
+          }
+        })
+        .catch((error) => {
+          console.log('Background location error:', error);
+        });
+
       return coords;
     } catch (error) {
       console.log('Location error:', error);
       return null;
-    } finally {
-      setLocating(false);
     }
-  }, []);
+  }, [initialCatalog]);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +181,7 @@ export default function HomeScreen({ navigation }) {
       }
       revealContent();
     })();
+    // Start location fetch in background, don't block cache load
     fetchCurrentLocation();
     return () => {
       cancelled = true;
@@ -202,11 +208,20 @@ export default function HomeScreen({ navigation }) {
   }, []);
 
   const loadStores = useCallback(async (params) => {
-    const [nearbyRes, featuredRes] = await Promise.all([
+    const [nearbyRes, featuredRes, pinnedRes] = await Promise.all([
       api.getNearbySellers(params),
       api.getFeaturedSellers(params),
+      api.getPinnedStores(params),
     ]);
-    const next = mergeStores(featuredRes.data?.sellers || [], nearbyRes.data?.sellers || []);
+
+    const nearbyList = nearbyRes.data?.sellers || [];
+    const featuredList = featuredRes.data?.sellers || [];
+    const pinnedList = pinnedRes.data?.stores || [];
+
+    // Set pinned stores separately
+    setPinnedStores(pinnedList);
+
+    const next = mergeStores(pinnedList, featuredList, nearbyList);
     if (next.length || (!nearbyRes.error && !featuredRes.error)) {
       storesMemory = next;
       setStores(next);
@@ -218,11 +233,12 @@ export default function HomeScreen({ navigation }) {
       return;
     }
 
-    if (!silent && !hasLoadedRef.current) setLoading(true);
+    // Always load silently for better perceived performance
+    if (!hasLoadedRef.current) setLoading(true);
 
     const coords = await Promise.race([
       resolveCoordsQuick(),
-      new Promise((resolve) => setTimeout(() => resolve(userCoordsRef.current), 120)),
+      new Promise((resolve) => setTimeout(() => resolve(userCoordsRef.current), 100)),
     ]);
 
     const params = {};
@@ -231,7 +247,9 @@ export default function HomeScreen({ navigation }) {
       params.lng = coords.lng;
     }
 
+    // Load stores in background, don't block listings
     loadStores(params);
+
     const { data, error } = await api.getListings({ ...params, page: 1, limit: 40 });
     if (error) {
       console.error('Failed to load listings:', error);
@@ -258,7 +276,7 @@ export default function HomeScreen({ navigation }) {
       revealContent();
     }
 
-    if (!silent) setLoading(false);
+    setLoading(false);
   }, [loadStores, resolveCoordsQuick, revealContent]);
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true, force: true }));
@@ -278,7 +296,9 @@ export default function HomeScreen({ navigation }) {
         const known = userCoordsRef.current;
         loadStores(known.lat != null && known.lng != null ? { lat: known.lat, lng: known.lng } : {});
       }
-      loadListings({ silent: hasLoadedRef.current });
+      // Always silent load for instant display
+      loadListings({ silent: true });
+      // Load other data in background
       loadRecentlyViewed().then((items) => setRecentViews(items));
       api.getNotifications().then(({ data }) => {
         if (data) setUnreadCount(data.unreadCount || 0);
@@ -410,71 +430,92 @@ export default function HomeScreen({ navigation }) {
 
   const categoryTiles = [
     { label: 'All', icon: 'grid', color: colors.warning, isMore: true },
-    ...productCategories,
+    ...productCategories.slice(0, 5),
   ];
 
   const renderStore = (store) => {
     const isShop = store.sellerType === 'shop';
-    const cover = resolveMediaUrl(store.coverImage || '');
     const logo = resolveMediaUrl(store.avatarUrl || '');
     const distance = formatDistanceLabel(Number(store.distance));
     const rating = Number(store.rating) || 0;
+    const accent = isShop ? colors.primary : colors.menuBlue;
+    const accentSoft = isShop ? colors.pastelGreen : colors.pastelBlue;
+    const typeIcon = isShop ? 'storefront' : 'person';
     return (
       <Pressable
         key={String(store.shopId || store.id || store._id)}
         onPress={() => openStore(store)}
-        style={({ pressed }) => [styles.storeCard, pressed && styles.pressed]}
+        style={({ pressed }) => [
+          styles.storeCard,
+          !isShop && styles.individualCard,
+          pressed && styles.pressed
+        ]}
       >
-        <View style={styles.storeBanner}>
-          {cover ? (
-            <Image source={{ uri: cover }} style={styles.fill} />
-          ) : (
-            <LinearGradient
-              colors={isShop ? colors.gradient : INDIVIDUAL_GRADIENT}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.fill}
-            />
-          )}
-          <View style={styles.storeShade} />
-          <View style={styles.storeTypePill}>
-            <Ionicons name={isShop ? 'storefront' : 'person'} size={9} color="#fff" />
-            <Text style={styles.storeTypeText}>{isShop ? 'STORE' : 'SELLER'}</Text>
+        <View style={styles.storeHeader}>
+          <View
+            style={[
+              styles.storeLogo,
+              !isShop && styles.storeLogoRound,
+              { borderColor: accent, backgroundColor: accentSoft },
+            ]}
+          >
+            {logo ? (
+              <Image source={{ uri: logo }} style={styles.fill} />
+            ) : (
+              <Ionicons name={typeIcon} size={20} color={accent} />
+            )}
           </View>
-        </View>
-        <View style={[styles.storeLogo, !isShop && styles.storeLogoRound]}>
-          {logo ? (
-            <Image source={{ uri: logo }} style={styles.fill} />
-          ) : (
-            <Ionicons name={isShop ? 'storefront' : 'person'} size={20} color={colors.primary} />
-          )}
-        </View>
-        <View style={styles.storeBody}>
-          <View style={styles.storeNameRow}>
-            <Text style={styles.storeName} numberOfLines={1}>
-              {store.name}
-            </Text>
-            {store.verified ? <Ionicons name="checkmark-circle" size={14} color={colors.info} /> : null}
-          </View>
-          <Text style={styles.storeMeta} numberOfLines={1}>
-            {[store.category, String(store.location || '').split(',')[0]].filter(Boolean).join(' · ') || 'Local seller'}
-          </Text>
-          <View style={styles.storeStats}>
-            <View style={styles.storeStat}>
-              <Ionicons name="star" size={11} color={colors.warning} />
-              <Text style={styles.storeStatText}>{rating > 0 ? rating.toFixed(1) : 'New'}</Text>
+          <View style={styles.storeHeaderText}>
+            <View style={styles.storeNameRow}>
+              <Text style={styles.storeName} numberOfLines={1}>
+                {store.name}
+              </Text>
+              {store.verified ? (
+                <Ionicons name="checkmark-circle" size={12} color={colors.info} />
+              ) : null}
             </View>
-            <View style={styles.storeStat}>
-              <Ionicons name="cube-outline" size={11} color={colors.textMuted} />
-              <Text style={styles.storeStatText}>{Number(store.listingCount) || 0} items</Text>
-            </View>
-            {distance ? (
-              <View style={styles.storeStat}>
-                <Ionicons name="navigate-outline" size={11} color={colors.textMuted} />
-                <Text style={styles.storeStatText}>{distance}</Text>
+            <View style={styles.storeBadgesRow}>
+              <View style={[styles.storeTypePill, { backgroundColor: accentSoft }]}>
+                <Ionicons name={typeIcon} size={8} color={accent} />
+                <Text style={[styles.storeTypeText, { color: accent }]}>
+                  {isShop ? 'STORE' : 'INDIVIDUAL'}
+                </Text>
               </View>
-            ) : null}
+              {store.verified ? (
+                <View style={[styles.storeTypePill, { backgroundColor: `${colors.info}20` }]}>
+                  <Ionicons name="checkmark-circle" size={8} color={colors.info} />
+                  <Text style={[styles.storeTypeText, { color: colors.info }]}>VERIFIED</Text>
+                </View>
+              ) : null}
+            </View>
           </View>
+        </View>
+
+        <View style={styles.storeSubRow}>
+          <Text style={[styles.storeMeta, { color: accent }]} numberOfLines={1}>
+            {[store.category || (isShop ? 'Store' : 'Individual'), String(store.location || '').split(',')[0]]
+              .filter(Boolean)
+              .join(' · ')}
+          </Text>
+        </View>
+
+        <View style={styles.storeDivider} />
+
+        <View style={styles.storeStats}>
+          <View style={styles.storeStat}>
+            <Ionicons name="star" size={10} color={rating > 0 ? colors.warning : colors.textMuted} />
+            <Text style={styles.storeStatText}>{rating > 0 ? rating.toFixed(1) : 'New'}</Text>
+          </View>
+          <View style={styles.storeStat}>
+            <Ionicons name="cube-outline" size={10} color={colors.textMuted} />
+            <Text style={styles.storeStatText}>{Number(store.listingCount) || 0} items</Text>
+          </View>
+          {distance ? (
+            <View style={styles.storeStat}>
+              <Ionicons name="navigate-outline" size={10} color={colors.textMuted} />
+              <Text style={styles.storeStatText}>{distance}</Text>
+            </View>
+          ) : null}
         </View>
       </Pressable>
     );
@@ -498,7 +539,7 @@ export default function HomeScreen({ navigation }) {
                 <Pressable
                   style={styles.locationRow}
                   onPress={() => {
-                    if (!locating) fetchCurrentLocation();
+                    fetchCurrentLocation();
                   }}
                   hitSlop={8}
                 >
@@ -506,11 +547,7 @@ export default function HomeScreen({ navigation }) {
                   <Text style={styles.locationText} numberOfLines={1}>
                     {location}
                   </Text>
-                  {locating ? (
-                    <ActivityIndicator size="small" color={colors.onGradient} style={styles.locatingSpinner} />
-                  ) : (
-                    <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.8)" />
-                  )}
+                  <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.8)" />
                 </Pressable>
               </View>
             </View>
@@ -587,7 +624,7 @@ export default function HomeScreen({ navigation }) {
                     {cat.imageUrl ? (
                       <Image source={{ uri: cat.imageUrl }} style={styles.categoryImage} />
                     ) : (
-                      <Ionicons name={cat.icon || 'pricetag-outline'} size={20} color={tint} />
+                      <Ionicons name={cat.icon || 'pricetag-outline'} size={18} color={tint} />
                     )}
                     {count > 0 ? (
                       <View style={[styles.categoryCount, { backgroundColor: tint }]}>
@@ -617,6 +654,41 @@ export default function HomeScreen({ navigation }) {
           ) : null
         ) : (
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+            {recent.length > 0 ? (
+              <Section
+                styles={styles}
+                colors={colors}
+                icon="time"
+                tint={colors.info}
+                title="Recently viewed"
+                subtitle="Pick up where you left off"
+                onViewAll={() => navigation.navigate(ROUTES.RECENTLY_VIEWED)}
+                items={recent}
+                onPressItem={openItem}
+              />
+            ) : null}
+
+            {pinnedStores.length > 0 ? (
+              <View style={styles.block}>
+                <SectionHeader
+                  styles={styles}
+                  colors={colors}
+                  icon="bookmark"
+                  tint={colors.primary}
+                  title="Pinned sellers"
+                  subtitle="Your favourite sellers saved for quick access"
+                  onViewAll={openSellers}
+                />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.storeRow}
+                >
+                  {pinnedStores.map(renderStore)}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <Section
               styles={styles}
               colors={colors}
@@ -634,27 +706,6 @@ export default function HomeScreen({ navigation }) {
               items={trending}
               onPressItem={openItem}
             />
-
-            {stores.length > 0 ? (
-              <View style={styles.block}>
-                <SectionHeader
-                  styles={styles}
-                  colors={colors}
-                  icon="storefront"
-                  tint={colors.primary}
-                  title="Stores & sellers nearby"
-                  subtitle="Trusted local shops and sellers"
-                  onViewAll={openSellers}
-                />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.storeRow}
-                >
-                  {stores.map(renderStore)}
-                </ScrollView>
-              </View>
-            ) : null}
 
             {topCategories.length > 1 ? (
               <View style={styles.block}>
@@ -756,20 +807,6 @@ export default function HomeScreen({ navigation }) {
                 onPressItem={openItem}
               />
             ) : null}
-
-            {recent.length > 0 ? (
-              <Section
-                styles={styles}
-                colors={colors}
-                icon="time"
-                tint={colors.info}
-                title="Recently viewed"
-                subtitle="Pick up where you left off"
-                onViewAll={() => navigation.navigate(ROUTES.RECENTLY_VIEWED)}
-                items={recent}
-                onPressItem={openItem}
-              />
-            ) : null}
           </Animated.View>
         )}
       </ScrollView>
@@ -788,7 +825,7 @@ export default function HomeScreen({ navigation }) {
           });
         }}
       />
-      {listings.length === 0 && !settled ? <ScreenLoader overlay label="Loading" /> : null}
+      {listings.length === 0 && !settled ? <ScreenLoader overlay label="Loading items..." /> : null}
     </View>
   );
 }
@@ -859,7 +896,7 @@ const createStyles = (colors) => ({
     flex: 1,
   },
   content: {
-    paddingBottom: 28,
+    paddingBottom: 20,
   },
   pressed: {
     opacity: 0.8,
@@ -870,7 +907,7 @@ const createStyles = (colors) => ({
   },
   header: {
     paddingHorizontal: 18,
-    paddingBottom: 40,
+    paddingBottom: 28,
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
   },
@@ -913,9 +950,6 @@ const createStyles = (colors) => ({
     fontSize: 12,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.9)',
-  },
-  locatingSpinner: {
-    transform: [{ scale: 0.7 }],
   },
   headerActions: {
     flexDirection: 'row',
@@ -960,18 +994,18 @@ const createStyles = (colors) => ({
     color: colors.onGradient,
   },
   searchWrap: {
-    marginTop: -24,
+    marginTop: -20,
     paddingHorizontal: 16,
   },
   block: {
-    marginTop: 22,
+    marginTop: 10,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 6,
   },
   sectionIcon: {
     width: 30,
@@ -1004,14 +1038,14 @@ const createStyles = (colors) => ({
     color: colors.link,
   },
   categoryBlock: {
-    marginTop: 8,
+    marginTop: 6,
   },
   miniHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   miniTitle: {
     fontSize: 15,
@@ -1023,20 +1057,20 @@ const createStyles = (colors) => ({
     gap: 4,
   },
   categoryTile: {
-    width: 70,
+    width: 58,
     alignItems: 'center',
   },
   categoryIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   categoryImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
   },
   categoryCount: {
     position: 'absolute',
@@ -1057,8 +1091,8 @@ const createStyles = (colors) => ({
     color: '#fff',
   },
   categoryLabel: {
-    marginTop: 5,
-    fontSize: 11,
+    marginTop: 4,
+    fontSize: 10,
     fontWeight: '700',
     color: colors.text,
   },
@@ -1112,64 +1146,42 @@ const createStyles = (colors) => ({
     gap: 10,
   },
   storeCard: {
-    width: 220,
+    width: 240,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    padding: 10,
     overflow: 'hidden',
   },
-  storeBanner: {
-    height: 76,
-    backgroundColor: colors.surfaceMuted,
+  individualCard: {
+    borderColor: 'rgba(37, 99, 235, 0.22)',
+    backgroundColor: 'rgba(37, 99, 235, 0.03)',
   },
-  storeShade: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 40,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  storeTypePill: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
+  storeHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    gap: 8,
   },
-  storeTypeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#fff',
-    letterSpacing: 0.4,
+  storeHeaderText: {
+    flex: 1,
   },
   storeLogo: {
-    position: 'absolute',
-    top: 50,
-    left: 12,
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    borderWidth: 3,
-    borderColor: colors.surface,
-    backgroundColor: colors.surfaceMuted,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   storeLogoRound: {
-    borderRadius: 24,
+    borderRadius: 22,
   },
-  storeBody: {
-    paddingHorizontal: 12,
-    paddingTop: 26,
-    paddingBottom: 12,
+  storeDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 8,
   },
   storeNameRow: {
     flexDirection: 'row',
@@ -1178,20 +1190,43 @@ const createStyles = (colors) => ({
   },
   storeName: {
     flexShrink: 1,
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '800',
     color: colors.text,
   },
+  storeSubRow: {
+    marginTop: 6,
+  },
+  storeBadgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  storeTypePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 5,
+  },
+  storeTypeText: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
   storeMeta: {
-    marginTop: 2,
-    fontSize: 11.5,
-    color: colors.textMuted,
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.primary,
+    lineHeight: 13,
   },
   storeStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginTop: 8,
+    justifyContent: 'space-between',
+    gap: 8,
   },
   storeStat: {
     flexDirection: 'row',
@@ -1199,12 +1234,12 @@ const createStyles = (colors) => ({
     gap: 3,
   },
   storeStatText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: colors.textSecondary,
   },
   sellBanner: {
-    marginTop: 24,
+    marginTop: 10,
     marginHorizontal: 16,
     borderRadius: 18,
     overflow: 'hidden',

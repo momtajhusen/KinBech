@@ -69,6 +69,14 @@ const userSchema = new mongoose.Schema(
     /** Each credit = 1 day featured listing */
     featuredCredits: { type: Number, default: 0, min: 0 },
     fcmToken: { type: String, default: '', index: true },
+    /** Pinned stores - synced across devices */
+    pinnedStores: [
+      {
+        storeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+        storeType: { type: String, enum: ['shop', 'individual'] },
+        pinnedAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true, collection: 'users' }
 );
