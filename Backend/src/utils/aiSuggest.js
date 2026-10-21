@@ -84,12 +84,19 @@ function buildPrompt(categories) {
     '- condition: exactly one of "New", "Good", "Fair", judged from the visible wear.',
     '- If something is unclear, give your best reasonable guess instead of leaving it empty.',
   ];
+  lines.push('');
+  lines.push('Category rules (critical — buyers filter by this):');
+  lines.push('- Put the same product type in the same category every time.');
+  lines.push('- Use a product class, never a brand, model, colour, or condition.');
+  lines.push('- Examples of wrong names: "Apple", "iPhone 13", "Gaming Laptop", "Red Sofa".');
+  lines.push('- Phone, charger, and cover → Mobiles. MacBook and notebooks → Laptops.');
+  lines.push('- TV, fan, SSD, power supply, headphones → Electronics.');
   if (list.length) {
-    lines.push(
-      `- category: exactly one of ${list.map((c) => `"${c}"`).join(', ')}, choosing the closest match.`,
-    );
+    lines.push(`- Prefer exactly one of: ${list.map((c) => `"${c}"`).join(', ')}.`);
+    lines.push('- Invent a new name only if this item is a different product class not covered above.');
+    lines.push('- A new name must be 1 to 3 Title Case words, usually plural, e.g. "Books", "Toys & Games".');
   } else {
-    lines.push('- category: a short marketplace category name.');
+    lines.push('- category: a short marketplace class name, 1 to 3 Title Case words.');
   }
   return lines.join('\n');
 }

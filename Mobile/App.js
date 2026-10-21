@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { PhotoSourceSheetHost } from './src/components/PhotoSourceSheet';
 import { AuthProvider } from './src/context/AuthContext';
+import { WishlistProvider } from './src/context/WishlistContext';
 import { SharedTransitionProvider } from './src/context/SharedTransitionContext';
 import { ThemeProvider } from './src/theme';
 import { getAuthToken, getWorkingApiBaseUrl } from './src/services/api';
@@ -97,10 +98,12 @@ export default function App() {
         <SharedTransitionProvider>
           <ThemeProvider>
             <AuthProvider>
-              <GlobalErrorBridge>
-                <AppNavigator />
-                <PhotoSourceSheetHost />
-              </GlobalErrorBridge>
+              <WishlistProvider>
+                <GlobalErrorBridge>
+                  <AppNavigator />
+                  <PhotoSourceSheetHost />
+                </GlobalErrorBridge>
+              </WishlistProvider>
             </AuthProvider>
           </ThemeProvider>
         </SharedTransitionProvider>

@@ -16,6 +16,7 @@ import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import { categoryIcon, formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useWishlist } from '../context/WishlistContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 /**
@@ -37,6 +38,7 @@ export default function WishlistScreen({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { tryBeginNavigation } = useSharedTransition();
+  const { toggle, refresh } = useWishlist();
   const [items, setItems] = useState([]);
 
   const loadWishlist = useCallback(async () => {
@@ -73,7 +75,7 @@ export default function WishlistScreen({ navigation }) {
 
   const removeItem = async (id) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
-    await api.toggleWishlist(id);
+    await toggle(id);
   };
 
   // Guard against undefined colors

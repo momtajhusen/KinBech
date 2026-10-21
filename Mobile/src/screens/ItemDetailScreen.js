@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
+import { useWishlist } from '../context/WishlistContext';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
@@ -75,9 +76,9 @@ export default function ItemDetailScreen({ navigation, route }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { isSaved, toggle } = useWishlist();
   const { isIOS } = useSharedTransition();
   const [activeIndex, setActiveIndex] = useState(0);
-  const [favorited, setFavorited] = useState(false);
   const [descOpen, setDescOpen] = useState(true);
   const [listing, setListing] = useState(route?.params?.item || null);
   const [viewerOpen, setViewerOpen] = useState(false);
@@ -433,17 +434,13 @@ export default function ItemDetailScreen({ navigation, route }) {
               </Pressable>
               <Pressable
                 style={styles.headerBtn}
-                onPress={async () => {
-                  if (!listingId) return;
-                  const { error } = await api.toggleWishlist(listingId);
-                  if (!error) setFavorited((v) => !v);
-                }}
+                onPress={() => listingId && toggle(listingId)}
                 hitSlop={10}
               >
                 <Ionicons
-                  name={favorited ? 'heart' : 'heart-outline'}
+                  name={isSaved(listingId) ? 'heart' : 'heart-outline'}
                   size={20}
-                  color={favorited ? colors.danger : '#fff'}
+                  color={isSaved(listingId) ? colors.danger : '#fff'}
                 />
               </Pressable>
             </View>
@@ -688,9 +685,6 @@ export default function ItemDetailScreen({ navigation, route }) {
                         sharedId: card.id,
                       })
                     }
-                    onToggleSave={async () => {
-                      await api.toggleWishlist(card.id);
-                    }}
                   />
                 ))}
               </View>

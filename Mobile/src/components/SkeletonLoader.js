@@ -70,7 +70,7 @@ export function Skeleton({
 export function ProductCardSkeleton({ width, compact = true }) {
   const { colors } = useTheme();
   const layout = compact && width ? compactCardLayout(width) : null;
-  const imageHeight = layout?.imageHeight ?? 110;
+  const imageHeight = layout?.imageHeight ?? 140;
 
   return (
     <View
@@ -89,12 +89,23 @@ export function ProductCardSkeleton({ width, compact = true }) {
           <Skeleton width={32} height={32} borderRadius={16} />
         </View>
       </View>
-      <View style={{ padding: 8, gap: 6 }}>
-        <Skeleton width={width * 0.82} height={12} borderRadius={4} />
-        <Skeleton width={width * 0.42} height={13} borderRadius={4} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <View style={{ padding: 10, gap: 4 }}>
+        <Skeleton width={width * 0.85} height={14} borderRadius={4} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 }}>
+          <Skeleton width={width * 0.42} height={15} borderRadius={4} />
+          <Skeleton width={width * 0.32} height={11} borderRadius={4} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+          <Skeleton width={40} height={16} borderRadius={8} />
+          <Skeleton width={width * 0.28} height={10} borderRadius={4} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
           <Skeleton width={12} height={12} borderRadius={6} />
-          <Skeleton width={width * 0.55} height={10} borderRadius={4} />
+          <Skeleton width={width * 0.5} height={12} borderRadius={4} />
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+          <Skeleton width={12} height={12} borderRadius={6} />
+          <Skeleton width={width * 0.4} height={12} borderRadius={4} />
         </View>
       </View>
     </View>

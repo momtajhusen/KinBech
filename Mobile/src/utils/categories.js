@@ -43,10 +43,10 @@ export const FALLBACK_PRODUCT_CATEGORIES = [
   { label: 'Mobiles', icon: 'phone-portrait-outline', color: '#5B39C6', tint: '#5B39C6' },
   { label: 'Laptops', icon: 'laptop-outline', color: '#16A34A', tint: '#16A34A' },
   { label: 'Electronics', icon: 'headset-outline', color: '#DB2777', tint: '#DB2777' },
-  { label: 'Furniture', icon: 'file-tray-stacked-outline', color: '#059669', tint: '#059669' },
+  { label: 'Furniture', icon: 'bed-outline', color: '#059669', tint: '#059669' },
   { label: 'Vehicles', icon: 'car-outline', color: '#4F46E5', tint: '#4F46E5' },
   { label: 'Fashion', icon: 'shirt-outline', color: '#EC4899', tint: '#EC4899' },
-  { label: 'Sports & Fitness', icon: 'bicycle-outline', color: '#0D9488', tint: '#0D9488' },
+  { label: 'Sports & Fitness', icon: 'barbell-outline', color: '#0D9488', tint: '#0D9488' },
 ];
 
 export const FALLBACK_SHOP_CATEGORIES = [
@@ -81,6 +81,33 @@ export function mapApiCategory(item) {
 }
 
 const categoriesMemory = {};
+const categoryListeners = new Set();
+
+function emitCategories(type) {
+  categoryListeners.forEach((fn) => fn(type));
+}
+
+export function upsertCategoryMemory(type, category) {
+  if (!category?.label) return;
+  const current = categoriesMemory[type] || [];
+  const index = current.findIndex((item) => item.label === category.label);
+  const next = index >= 0
+    ? current.map((item, i) => (i === index ? { ...item, ...category } : item))
+    : [...current, category];
+  categoriesMemory[type] = next;
+  emitCategories(type);
+}
+
+export async function refreshCategories(type = 'product') {
+  const { data, error } = await api.getCategories(type);
+  if (error) return [];
+  const list = normalizeCategoriesResponse(data, type).map(mapApiCategory);
+  if (list.length) {
+    categoriesMemory[type] = list;
+    emitCategories(type);
+  }
+  return list;
+}
 
 export function useCategories(type = 'product') {
   const fallback = type === 'shop' ? FALLBACK_SHOP_CATEGORIES : FALLBACK_PRODUCT_CATEGORIES;
@@ -92,16 +119,18 @@ export function useCategories(type = 'product') {
       setCategories(categoriesMemory[type]);
     }
     (async () => {
-      const { data, error } = await api.getCategories(type);
-      if (!active || error) return;
-      const list = normalizeCategoriesResponse(data, type).map(mapApiCategory);
-      if (list.length) {
-        categoriesMemory[type] = list;
-        setCategories(list);
-      }
+      const list = await refreshCategories(type);
+      if (!active || !list.length) return;
+      setCategories(list);
     })();
+    const onChange = (changedType) => {
+      if (changedType && changedType !== type) return;
+      if (categoriesMemory[type]?.length) setCategories(categoriesMemory[type]);
+    };
+    categoryListeners.add(onChange);
     return () => {
       active = false;
+      categoryListeners.delete(onChange);
     };
   }, [type]);
 

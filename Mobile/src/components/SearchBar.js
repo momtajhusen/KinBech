@@ -5,35 +5,30 @@ import { useTheme, useThemedStyles } from '../theme';
 const createStyles = (colors) => ({
   container: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    height: 52,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    height: 46,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   input: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     color: colors.text,
   },
   placeholder: {
     flex: 1,
-    fontSize: 15,
-    color: colors.textSecondary,
+    fontSize: 14,
+    color: colors.textMuted,
   },
   filterBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: `${colors.primary}1A`,
   },
 });
 
@@ -54,7 +49,7 @@ export default function SearchBar({
 
   const filterButton = onFilterPress ? (
     <Pressable onPress={onFilterPress} hitSlop={8} style={styles.filterBtn}>
-      <Ionicons name="options-outline" size={18} color={colors.primary} />
+      <Ionicons name="options-outline" size={18} color={colors.textMuted} />
     </Pressable>
   ) : null;
 
@@ -66,7 +61,7 @@ export default function SearchBar({
         accessibilityRole="search"
         accessibilityLabel={placeholder}
       >
-        <Ionicons name="search" size={20} color={colors.textSecondary} />
+        <Ionicons name="search-outline" size={18} color={colors.textMuted} />
         <Text style={styles.placeholder} numberOfLines={1}>{placeholder}</Text>
         {filterButton}
       </Pressable>
@@ -75,7 +70,7 @@ export default function SearchBar({
 
   return (
     <View style={styles.container}>
-      <Ionicons name="search" size={20} color={colors.textSecondary} />
+      <Ionicons name="search-outline" size={18} color={colors.textMuted} />
       <TextInput
         value={value}
         onChangeText={onChangeText}

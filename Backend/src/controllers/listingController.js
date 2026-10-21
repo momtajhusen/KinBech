@@ -11,6 +11,7 @@ const { evaluateListingModeration } = require('../utils/listingModeration');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
+const { resolveProductCategory } = require('../utils/productCategory');
 const {
   normalize, searchTokens, queryFilter, scoreName, scoreListing, hasWordMatch,
 } = require('../utils/searchMatch');
@@ -708,13 +709,20 @@ async function createListing(req, res, next) {
       });
     }
 
+    const resolvedCategory = await resolveProductCategory({
+      name: category,
+      title,
+      description,
+      createIfMissing: true,
+    });
+
     const listingData = {
       seller: req.user._id,
       sellerType,
       title: String(title).trim(),
       description: description || '',
       price: parsedPrice,
-      category,
+      category: resolvedCategory?.name || String(category).trim(),
       condition: condition || 'Good',
       photos: Array.isArray(photos) ? photos : [],
       location: resolvedLocation,
@@ -810,11 +818,20 @@ async function updateListing(req, res, next) {
       'isOnSale',
     ];
 
-    fields.forEach((field) => {
-      if (req.body[field] !== undefined) {
-        listing[field] = req.body[field];
+    for (const field of fields) {
+      if (req.body[field] === undefined) continue;
+      if (field === 'category') {
+        const resolvedCategory = await resolveProductCategory({
+          name: req.body.category,
+          title: req.body.title || listing.title,
+          description: req.body.description || listing.description,
+          createIfMissing: true,
+        });
+        listing.category = resolvedCategory?.name || String(req.body.category).trim();
+        continue;
       }
-    });
+      listing[field] = req.body[field];
+    }
 
     if (req.body.searchWords !== undefined) {
       listing.searchWords = normalizeSearchWords(req.body.searchWords);

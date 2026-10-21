@@ -97,8 +97,8 @@ async function evaluateListingModeration(listingLike, { currentStatus } = {}) {
     listingLike.category
       ? Category.findOne({
           type: 'product',
-          name: String(listingLike.category).trim(),
           isActive: true,
+          name: new RegExp(`^${String(listingLike.category).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
         }).lean()
       : null,
   ]);

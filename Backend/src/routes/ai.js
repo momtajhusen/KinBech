@@ -1,6 +1,7 @@
 const express = require('express');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const { listAvailableModels, suggestListingFromImage, testModel } = require('../utils/aiSuggest');
+const { listProductCategoryNames, resolveProductCategory } = require('../utils/productCategory');
 const {
   candidateModels,
   clearModelBlock,
@@ -22,9 +23,11 @@ router.post('/listing-suggest', requireAuth, async (req, res) => {
   try {
     let data = String(req.body?.image || req.body?.data || '');
     let mimeType = String(req.body?.mimeType || 'image/jpeg').toLowerCase();
-    const categories = Array.isArray(req.body?.categories)
-      ? req.body.categories.filter((c) => typeof c === 'string').slice(0, 40)
+    const fromClient = Array.isArray(req.body?.categories)
+      ? req.body.categories.filter((c) => typeof c === 'string')
       : [];
+    const fromDb = await listProductCategoryNames();
+    const categories = [...new Set([...fromDb, ...fromClient])].slice(0, 60);
 
     if (!data) {
       return res.status(400).json({ message: 'Missing image data' });
@@ -45,6 +48,23 @@ router.post('/listing-suggest', requireAuth, async (req, res) => {
     }
 
     const { suggestion, model } = await suggestListingFromImage({ data, mimeType, categories });
+    const resolved = await resolveProductCategory({
+      name: suggestion.category,
+      title: suggestion.title,
+      description: suggestion.description,
+      createIfMissing: true,
+    });
+    if (resolved?.name) {
+      suggestion.category = resolved.name;
+      suggestion.categoryCreated = Boolean(resolved.created);
+      suggestion.categoryRecord = {
+        id: resolved.id,
+        name: resolved.name,
+        icon: resolved.icon,
+        color: resolved.color,
+        type: 'product',
+      };
+    }
     return res.json({ suggestion, model });
   } catch (error) {
     const status = error.status === 429 || error.status === 503 ? error.status : 502;

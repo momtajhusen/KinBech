@@ -429,8 +429,8 @@ export default function HomeScreen({ navigation }) {
   const firstName = String(user?.name || '').trim().split(/\s+/)[0];
 
   const categoryTiles = [
-    { label: 'All', icon: 'grid', color: colors.warning, isMore: true },
     ...productCategories.slice(0, 5),
+    { label: 'All', icon: 'grid', color: colors.warning, isMore: true },
   ];
 
   const renderStore = (store) => {
@@ -613,7 +613,6 @@ export default function HomeScreen({ navigation }) {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
             {categoryTiles.map((cat) => {
               const tint = cat.color || cat.tint || colors.primary;
-              const count = cat.isMore ? listings.length : categoryCounts[cat.label] || 0;
               return (
                 <Pressable
                   key={cat.label}
@@ -626,11 +625,6 @@ export default function HomeScreen({ navigation }) {
                     ) : (
                       <Ionicons name={cat.icon || 'pricetag-outline'} size={18} color={tint} />
                     )}
-                    {count > 0 ? (
-                      <View style={[styles.categoryCount, { backgroundColor: tint }]}>
-                        <Text style={styles.categoryCountText}>{count > 99 ? '99+' : count}</Text>
-                      </View>
-                    ) : null}
                   </View>
                   <Text style={styles.categoryLabel} numberOfLines={1}>
                     {cat.label}
@@ -728,11 +722,6 @@ export default function HomeScreen({ navigation }) {
                         style={[styles.tab, active && styles.tabActive]}
                       >
                         <Text style={[styles.tabText, active && styles.tabTextActive]}>{name}</Text>
-                        <View style={[styles.tabCount, active && styles.tabCountActive]}>
-                          <Text style={[styles.tabCountText, active && styles.tabTextActive]}>
-                            {categoryCounts[name]}
-                          </Text>
-                        </View>
                       </Pressable>
                     );
                   })}

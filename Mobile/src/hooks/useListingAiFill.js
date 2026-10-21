@@ -3,6 +3,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { api } from '../services/api';
 import { showErrorAlert } from '../components/AlertModal';
 import { mergeSearchWords } from '../components/SearchWordsField';
+import { upsertCategoryMemory } from '../utils/categories';
 
 export const AI_LIMIT_MESSAGE = "Today's AI limit is used up. Please fill the details yourself.";
 
@@ -56,7 +57,15 @@ export function useListingAiFill({ categories, conditions, fields, onTitleFilled
       if (Array.isArray(suggestion.searchWords) && suggestion.searchWords.length) {
         fields.setSearchWords?.((current) => mergeSearchWords(current, suggestion.searchWords));
       }
-      if (suggestion.category && categories.some((cat) => cat.label === suggestion.category)) {
+      if (suggestion.category) {
+        const record = suggestion.categoryRecord;
+        upsertCategoryMemory('product', {
+          id: record?.id,
+          label: suggestion.category,
+          icon: record?.icon || 'pricetag-outline',
+          color: record?.color || '#5B39C6',
+          tint: record?.color || '#5B39C6',
+        });
         fields.setCategory?.(suggestion.category);
       }
       if (suggestion.condition && conditions.includes(suggestion.condition)) {

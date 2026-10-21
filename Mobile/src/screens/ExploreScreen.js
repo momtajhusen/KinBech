@@ -15,7 +15,7 @@ import {
   Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
+import { INFO_COPY, navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import {
   attachDistanceToCard,
@@ -36,7 +36,7 @@ import {
 } from '../utils/homeListingsCache';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-import { useCategories, mergeSidebarCategories } from '../utils/categories';
+import { useCategories, mergeSidebarCategories, refreshCategories } from '../utils/categories';
 import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
@@ -44,18 +44,18 @@ import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
 import { ProductCardSkeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
 
-const SIDEBAR_WIDTH = 66;
+const SIDEBAR_WIDTH = 62;
 const GRID_GUTTER = 8;
 const GRID_PADDING = 10;
-const ALL_TINT = '#F59E0B';
+const ALL_TINT = '#047857';
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const FOCUS_CACHE_TTL_MS = 300_000; // 5 minutes
 
 const SORT_OPTIONS = [
-  { key: 'newest', label: 'Newest', icon: 'sparkles-outline' },
+  { key: 'newest', label: 'Newest', icon: 'star-outline', activeIcon: 'star' },
   { key: 'nearby', label: 'Nearest', icon: 'navigate-outline' },
-  { key: 'priceLow', label: 'Price ↑', icon: 'trending-up-outline' },
-  { key: 'priceHigh', label: 'Price ↓', icon: 'trending-down-outline' },
+  { key: 'priceLow', label: '₹ Price ↑', icon: 'trending-up-outline' },
+  { key: 'priceHigh', label: '₹ Price ↓', icon: 'trending-down-outline' },
   { key: 'topRated', label: 'Popular', icon: 'flame-outline' },
 ];
 
@@ -137,7 +137,7 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 8,
     gap: 8,
   },
@@ -145,22 +145,22 @@ const createStyles = (colors) => ({
     flex: 1,
     flexDirection: 'row',
     backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 3,
+    borderRadius: 14,
+    padding: 4,
     borderWidth: 1,
     borderColor: colors.border,
   },
   tabBtn: {
     flex: 1,
-    height: 32,
-    borderRadius: 9,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
   },
   tabBtnActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: '#059669',
   },
   tabBtnText: {
     fontSize: 13,
@@ -168,7 +168,7 @@ const createStyles = (colors) => ({
     color: colors.textMuted,
   },
   tabBtnTextActive: {
-    color: colors.onPrimary,
+    color: '#fff',
   },
   tabCount: {
     minWidth: 20,
@@ -188,11 +188,11 @@ const createStyles = (colors) => ({
     color: colors.textSecondary,
   },
   tabCountTextActive: {
-    color: colors.onPrimary,
+    color: '#fff',
   },
   filterBtn: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: 12,
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -201,8 +201,8 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
   },
   filterBtnActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#047857',
+    borderColor: '#047857',
   },
   filterBadge: {
     position: 'absolute',
@@ -232,54 +232,61 @@ const createStyles = (colors) => ({
     width: SIDEBAR_WIDTH,
     backgroundColor: colors.surface,
     borderTopRightRadius: 20,
+    borderBottomRightRadius: 20,
     borderRightWidth: 1,
     borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
   },
   sidebarContent: {
-    paddingTop: 2,
+    paddingTop: 4,
+    paddingBottom: 8,
   },
   sideItem: {
     alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 3,
-    gap: 2,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 3,
+    borderRadius: 14,
+    marginHorizontal: 3,
   },
   sideItemActive: {
     backgroundColor: colors.background,
+    borderRadius: 14,
   },
   sideIndicator: {
     position: 'absolute',
     left: 0,
-    top: 8,
-    bottom: 8,
+    top: 6,
+    bottom: 6,
     width: 3,
-    borderTopRightRadius: 4,
-    borderBottomRightRadius: 4,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: '#10B981',
   },
   sideIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   sideIconActive: {
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
   },
   sideIconImage: {
     width: '100%',
     height: '100%',
   },
   sideLabel: {
-    fontSize: 9.5,
+    fontSize: 9,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: colors.textMuted,
     textAlign: 'center',
     lineHeight: 11,
   },
@@ -287,85 +294,43 @@ const createStyles = (colors) => ({
     color: colors.text,
     fontWeight: '800',
   },
-  sideCount: {
-    minWidth: 20,
-    paddingHorizontal: 4,
-    borderRadius: 7,
-    backgroundColor: colors.iconBackground,
-  },
   sideCountText: {
-    fontSize: 9,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '700',
     color: colors.textMuted,
     textAlign: 'center',
   },
   mainContent: {
     flex: 1,
+    backgroundColor: colors.background,
   },
   scrollViewContent: {
-    paddingTop: 2,
+    paddingTop: 0,
   },
-  heroCard: {
-    marginHorizontal: GRID_PADDING,
-    marginBottom: 8,
-    padding: 8,
-    borderRadius: 14,
-    borderWidth: 1,
+  sortScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
-  heroTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  heroIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  heroCopy: {
-    flex: 1,
-  },
-  heroTitle: {
-    fontSize: 14.5,
-    fontWeight: '900',
-    color: colors.text,
-    letterSpacing: -0.2,
-  },
-  heroSub: {
-    marginTop: 1,
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-
-  heroSortRow: {
-    marginTop: 8,
-    gap: 6,
-  },
-
   sortRow: {
     paddingHorizontal: GRID_PADDING,
-    paddingTop: 2,
-    paddingBottom: 2,
+    paddingVertical: 6,
     gap: 6,
+    alignItems: 'center',
   },
   sortChip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    height: 28,
-    borderRadius: 14,
+    paddingHorizontal: 11,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
   sortChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#059669',
+    borderColor: '#059669',
   },
   sortChipText: {
     fontSize: 11.5,
@@ -373,7 +338,7 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   sortChipTextActive: {
-    color: colors.onPrimary,
+    color: '#fff',
   },
   resultsBar: {
     flexDirection: 'row',
@@ -395,7 +360,7 @@ const createStyles = (colors) => ({
   clearLinkText: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.link,
+    color: '#10B981',
   },
   productGrid: {
     flexDirection: 'row',
@@ -403,6 +368,43 @@ const createStyles = (colors) => ({
     paddingHorizontal: GRID_PADDING,
     paddingBottom: 4,
     gap: GRID_GUTTER,
+  },
+  trustBanner: {
+    marginHorizontal: GRID_PADDING,
+    marginTop: 10,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.45)',
+    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  trustIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  trustCopy: {
+    flex: 1,
+  },
+  trustTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  trustTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#34D399',
+  },
+  trustSub: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textMuted,
   },
   sellerSection: {
     marginTop: 4,
@@ -805,7 +807,7 @@ export default function ExploreScreen({ navigation, route }) {
 
   useFocusEffect(
     useCallback(() => {
-      // Always silent load for instant display
+      refreshCategories('product');
       fetchSellers({ silent: true });
     }, [fetchSellers])
   );
@@ -844,6 +846,8 @@ export default function ExploreScreen({ navigation, route }) {
       cancelled = true;
     };
   }, [activeCategory, activeTab, userCoords]);
+
+
 
   const { refreshing, onRefresh } = usePullRefresh(() => fetchSellers({ silent: true, force: true }));
 
@@ -1025,17 +1029,6 @@ export default function ExploreScreen({ navigation, route }) {
   const activeTint = activeMeta?.tint || activeMeta?.color || ALL_TINT;
   const isAll = !activeCategory || activeCategory === 'All';
 
-  const heroStats = useMemo(() => {
-    if (activeTab === 'products') {
-      return {
-        subtitle: `${filteredProducts.length} item${filteredProducts.length === 1 ? '' : 's'} to explore`,
-      };
-    }
-    return {
-      subtitle: `${sellerSections.all.length} seller${sellerSections.all.length === 1 ? '' : 's'} around you`,
-    };
-  }, [activeTab, filteredProducts, sellerSections]);
-
   useEffect(() => {
     if (activeCategory == null && categories.length > 0) {
       if (initialCategory && categories.find((c) => c.label === initialCategory)) {
@@ -1208,7 +1201,7 @@ export default function ExploreScreen({ navigation, route }) {
             <View style={styles.sidebar}>
               <ScrollView
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={[styles.sidebarContent, { paddingBottom: 28 + insets.bottom }]}
+                contentContainerStyle={[styles.sidebarContent, { paddingBottom: insets.bottom }]}
               >
                 {categories.map((cat) => {
                   const isActive = cat.label === activeCategory;
@@ -1220,26 +1213,23 @@ export default function ExploreScreen({ navigation, route }) {
                         style={[styles.sideItem, isActive && styles.sideItemActive]}
                         onPress={() => pressSideItem(cat, itemAnim)}
                       >
-                        {isActive ? <View style={[styles.sideIndicator, { backgroundColor: tint }]} /> : null}
+                        {isActive ? <View style={styles.sideIndicator} /> : null}
                         <View
                           style={[
                             styles.sideIcon,
-                            { backgroundColor: isActive ? tint : `${tint}1F` },
+                            { backgroundColor: isActive ? tint : `${tint}22` },
                             isActive && [styles.sideIconActive, { shadowColor: tint }],
                           ]}
                         >
                           {cat.imageUrl ? (
                             <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
                           ) : (
-                            <Ionicons name={cat.icon} size={17} color={isActive ? '#FFFFFF' : tint} />
+                            <Ionicons name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
                           )}
                         </View>
                         <Text numberOfLines={2} style={[styles.sideLabel, isActive && styles.sideLabelActive]}>
                           {cat.label}
                         </Text>
-                        <View style={[styles.sideCount, isActive && { backgroundColor: `${tint}26` }]}>
-                          <Text style={[styles.sideCountText, isActive && { color: tint }]}>{cat.count || 0}</Text>
-                        </View>
                       </Pressable>
                     </Animated.View>
                   );
@@ -1260,25 +1250,13 @@ export default function ExploreScreen({ navigation, route }) {
                 },
               ]}
             >
-              <View style={[styles.heroCard, { backgroundColor: `${activeTint}14`, borderColor: `${activeTint}33` }]}>
-                <View style={styles.heroTop}>
-                  <View style={[styles.heroIcon, { backgroundColor: activeTint }]}>
-                    {activeMeta?.imageUrl ? (
-                      <Image source={{ uri: activeMeta.imageUrl }} style={styles.sideIconImage} />
-                    ) : (
-                      <Ionicons name={activeMeta?.icon || 'grid'} size={17} color="#FFFFFF" />
-                    )}
-                  </View>
-                  <View style={styles.heroCopy}>
-                    <Text style={styles.heroTitle} numberOfLines={1}>
-                      {isAll ? (activeTab === 'products' ? 'All products' : 'All sellers') : activeCategory}
-                    </Text>
-                    <Text style={styles.heroSub} numberOfLines={1}>
-                      {itemsLoading ? 'Loading…' : heroStats.subtitle}
-                    </Text>
-                  </View>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.heroSortRow}>
+              <View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.sortScroll}
+                  contentContainerStyle={styles.sortRow}
+                >
                   {sortOptions.map((opt) => {
                     const active = sortBy === opt.key;
                     return (
@@ -1287,7 +1265,7 @@ export default function ExploreScreen({ navigation, route }) {
                         style={[styles.sortChip, active && styles.sortChipActive]}
                         onPress={() => setSortBy(opt.key)}
                       >
-                        <Ionicons name={opt.icon} size={13} color={active ? colors.onPrimary : colors.textMuted} />
+                        <Ionicons name={active ? (opt.activeIcon || opt.icon) : opt.icon} size={13} color={active ? '#fff' : colors.textMuted} />
                         <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{opt.label}</Text>
                       </Pressable>
                     );
@@ -1295,23 +1273,24 @@ export default function ExploreScreen({ navigation, route }) {
                 </ScrollView>
               </View>
 
+              {activeFilterCount > 0 ? (
+                <View style={styles.resultsBar}>
+                  <Text style={styles.resultsTitle}>{filteredProducts.length} results</Text>
+                  <Pressable style={styles.clearLink} onPress={clearFilters} hitSlop={8}>
+                    <Ionicons name="close-circle" size={14} color="#10B981" />
+                    <Text style={styles.clearLinkText}>Clear filters</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
               <ScrollView
                 style={styles.mainContent}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={[styles.scrollViewContent, { paddingBottom: 28 + insets.bottom }]}
+                contentContainerStyle={[styles.scrollViewContent, { paddingBottom: insets.bottom }]}
                 refreshControl={refreshControl(colors, refreshing, onRefresh)}
               >
                 {activeTab === 'products' ? (
-                  <>
-                    {activeFilterCount > 0 ? (
-                      <View style={styles.resultsBar}>
-                        <Text style={styles.resultsTitle}>{filteredProducts.length} results</Text>
-                        <Pressable style={styles.clearLink} onPress={clearFilters} hitSlop={8}>
-                          <Ionicons name="close-circle" size={14} color={colors.link} />
-                          <Text style={styles.clearLinkText}>Clear filters</Text>
-                        </Pressable>
-                      </View>
-                    ) : null}
+                  <View>
                     {itemsLoading && filteredProducts.length === 0 ? (
                       <View style={styles.productGrid}>
                         {[0, 1, 2, 3].map((i) => (
@@ -1319,17 +1298,36 @@ export default function ExploreScreen({ navigation, route }) {
                         ))}
                       </View>
                     ) : filteredProducts.length > 0 ? (
-                      <View style={styles.productGrid}>
-                        {filteredProducts.map((item) => (
-                          <GridCard
-                            key={item.id}
-                            item={item}
-                            width={productCardWidth}
-                            onOpen={handleProductPress}
-                            onSave={handleSaveProduct}
-                          />
-                        ))}
-                      </View>
+                      <>
+                        <View style={styles.productGrid}>
+                          {filteredProducts.map((item) => (
+                            <GridCard
+                              key={item.id}
+                              item={item}
+                              width={productCardWidth}
+                              onOpen={handleProductPress}
+                              onSave={handleSaveProduct}
+                            />
+                          ))}
+                        </View>
+                        <Pressable
+                          style={styles.trustBanner}
+                          onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.SafetyTips)}
+                        >
+                          <View style={styles.trustIcons}>
+                            <Ionicons name="shield-checkmark" size={22} color="#34D399" />
+                            <Ionicons name="lock-closed" size={16} color="#34D399" style={{ marginLeft: -6, marginTop: 8 }} />
+                          </View>
+                          <View style={styles.trustCopy}>
+                            <View style={styles.trustTitleRow}>
+                              <Ionicons name="shield-checkmark" size={13} color="#34D399" />
+                              <Text style={styles.trustTitle}>Safe & Trusted</Text>
+                            </View>
+                            <Text style={styles.trustSub}>Verified sellers · Secure payments · Buyer protection</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={16} color="#34D399" />
+                        </Pressable>
+                      </>
                     ) : (
                       <EmptyState
                         compact
@@ -1340,7 +1338,7 @@ export default function ExploreScreen({ navigation, route }) {
                         onButtonPress={() => navigateToTab(navigation, TABS.POST)}
                       />
                     )}
-                  </>
+                  </View>
                 ) : itemsLoading && sellerBlocks.length === 0 ? (
                   <View style={styles.productGrid}>
                     {[0, 1, 2, 3].map((i) => (
@@ -1348,19 +1346,21 @@ export default function ExploreScreen({ navigation, route }) {
                     ))}
                   </View>
                 ) : sellerBlocks.length > 0 ? (
-                  sellerBlocks.map((block) => (
-                    <View key={block.key} style={styles.sellerSection}>
-                      <SectionTitle
-                        styles={styles}
-                        icon={block.icon}
-                        tint={block.tint}
-                        title={block.title}
-                        subtitle={block.subtitle}
-                        count={block.list.length}
-                      />
-                      {renderSellerGrid(block.list, block.isPinned)}
-                    </View>
-                  ))
+                  <View>
+                    {sellerBlocks.map((block) => (
+                      <View key={block.key} style={styles.sellerSection}>
+                        <SectionTitle
+                          styles={styles}
+                          icon={block.icon}
+                          tint={block.tint}
+                          title={block.title}
+                          subtitle={block.subtitle}
+                          count={block.list.length}
+                        />
+                        {renderSellerGrid(block.list, block.isPinned)}
+                      </View>
+                    ))}
+                  </View>
                 ) : (
                   <EmptyState
                     compact
