@@ -45,6 +45,7 @@ import {
   rememberSearch,
 } from '../utils/recentSearches';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
+import { useWishlist } from '../context/WishlistContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const GRID_PADDING = 16;
@@ -117,7 +118,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const [scope, setScope] = useState('all');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
-  const [favorites, setFavorites] = useState({});
+  const { isSaved, toggle } = useWishlist();
   const [recent, setRecent] = useState([]);
 
   const [filters, setFilters] = useState(() => ({
@@ -380,10 +381,7 @@ export default function SearchResultsScreen({ navigation, route }) {
     setFilters({ category: undefined, condition: undefined, priceMin: null, priceMax: null, radiusKm: null });
   };
 
-  const toggleFavorite = async (id) => {
-    setFavorites((prev) => ({ ...prev, [id]: !prev[id] }));
-    await api.toggleWishlist(id);
-  };
+  const toggleFavorite = (id) => toggle(id);
 
   const openProduct = (item) =>
     openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id });
@@ -573,7 +571,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const renderProductRow = (item, index) => {
     const isShop = item.sellerType === 'shop';
     const bestMatch = index === 0 && query && sortKey === 'relevance' && matchMode === 'all';
-    const saved = Boolean(favorites[item.id]);
+    const saved = isSaved(item.id);
     const place = [String(item.location || '').split(',')[0].trim(), item.distanceLabel]
       .filter(Boolean)
       .join(' · ');
@@ -656,8 +654,6 @@ export default function SearchResultsScreen({ navigation, route }) {
             compact
             width={cardWidth}
             sharedId={item.id}
-            saved={!!favorites[item.id]}
-            onToggleSave={() => toggleFavorite(item.id)}
             onPress={() => openProduct(item)}
           />
         ))}

@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { ChevronDown, Filter, Search, X } from 'lucide-react';
 import api from '../services/api';
+import Pagination from '../components/Pagination';
+import useDebounce from '../utils/useDebounce';
 
 function formatWhen(value) {
   if (!value) return '—';
@@ -32,28 +35,47 @@ export default function ErrorLog() {
   const [filter, setFilter] = useState('open');
   const [source, setSource] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearch = useDebounce(searchTerm);
   const [selected, setSelected] = useState(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const fetchErrors = async () => {
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
+
+  const fetchErrors = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { status: filter, source, q: searchTerm || undefined, limit: 100 };
+      const params = { 
+        status: filter, 
+        source, 
+        q: debouncedSearch || undefined, 
+        page,
+        limit 
+      };
       const response = await api.get('/errors/admin', { params });
       setErrors(response.data.errors || []);
       setStats(response.data.stats || { openCount: 0, fatalCount: 0 });
+      setTotal(response.data.total || 0);
+      setTotalPages(response.data.totalPages || 1);
     } catch (err) {
       console.error('Failed to fetch errors', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, source, debouncedSearch, page, limit]);
 
   useEffect(() => {
     fetchErrors();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, source]);
+  }, [fetchErrors]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [filter, source, debouncedSearch]);
 
   const openDetail = async (id) => {
     try {
@@ -80,18 +102,6 @@ export default function ErrorLog() {
     }
   };
 
-  const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return errors;
-    const q = searchTerm.toLowerCase();
-    return errors.filter(
-      (e) =>
-        e.message?.toLowerCase().includes(q) ||
-        e.path?.toLowerCase().includes(q) ||
-        e.userLabel?.toLowerCase().includes(q) ||
-        e.source?.toLowerCase().includes(q)
-    );
-  }, [errors, searchTerm]);
-
   return (
     <div className="error-log-page">
       <div className="page-header">
@@ -104,53 +114,50 @@ export default function ErrorLog() {
             ) : null}
           </p>
         </div>
-        <div className="page-filters">
-          {[
-            { value: 'open', label: 'Open' },
-            { value: 'acknowledged', label: 'Acknowledged' },
-            { value: 'resolved', label: 'Resolved' },
-            { value: 'ignored', label: 'Ignored' },
-            { value: 'all', label: 'All' },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={`filter-chip ${filter === opt.value ? 'active' : ''}`}
-              onClick={() => setFilter(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div className="page-header" style={{ marginTop: 0 }}>
-        <div className="page-filters">
-          {[
-            { value: 'all', label: 'All sources' },
-            { value: 'backend', label: 'Backend' },
-            { value: 'mobile', label: 'Mobile' },
-            { value: 'website', label: 'Website' },
-            { value: 'admin', label: 'Admin' },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={`filter-chip ${source === opt.value ? 'active' : ''}`}
-              onClick={() => setSource(opt.value)}
-            >
-              {opt.label}
-            </button>
-          ))}
+      <div className="filter-bar">
+        <div className="filter-group left">
+          <div className="search-box">
+            <Search className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search by message, path, or user..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+          </div>
         </div>
-        <input
-          type="text"
-          className="search-input"
-          placeholder="Search message, path, user…"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && fetchErrors()}
-        />
+        <div className="filter-group right">
+          <div className="dropdown-filter">
+            <Filter className="filter-icon" />
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              <option value="open">Open Status</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="resolved">Resolved</option>
+              <option value="ignored">Ignored</option>
+              <option value="all">All Status</option>
+            </select>
+            <ChevronDown className="chev-icon" />
+          </div>
+          <div className="dropdown-filter">
+            <Filter className="filter-icon" />
+            <select value={source} onChange={(e) => setSource(e.target.value)}>
+              <option value="all">All Sources</option>
+              <option value="backend">Backend</option>
+              <option value="mobile">Mobile</option>
+              <option value="website">Website</option>
+              <option value="admin">Admin</option>
+            </select>
+            <ChevronDown className="chev-icon" />
+          </div>
+          {(searchTerm || filter !== 'open' || source !== 'all') && (
+            <button className="clear-btn" onClick={() => { setSearchTerm(''); setFilter('open'); setSource('all'); }}>
+              <X className="item-icon" /> Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -171,7 +178,7 @@ export default function ErrorLog() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((err) => (
+                {errors.map((err) => (
                   <tr
                     key={err.id}
                     className={selected?.id === err.id ? 'row-selected' : ''}
@@ -198,7 +205,14 @@ export default function ErrorLog() {
                 ))}
               </tbody>
             </table>
-            {filtered.length === 0 ? <div className="empty-state">No errors found</div> : null}
+            {errors.length === 0 ? <div className="empty-state">No errors found</div> : null}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+            />
           </div>
 
           <aside className="error-detail-panel">

@@ -4,6 +4,7 @@ import { AdminThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import LiveActivity from './pages/LiveActivity';
 import Users from './pages/Users';
 import Listings from './pages/Listings';
 import Shops from './pages/Shops';
@@ -55,6 +56,7 @@ export default function AdminApp() {
           >
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="live-activity" element={<LiveActivity />} />
             <Route path="users" element={<Users />} />
             <Route path="shops" element={<Shops />} />
             <Route path="listings" element={<Listings />} />

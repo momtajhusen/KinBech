@@ -21,6 +21,7 @@ import { INDIVIDUAL_GRADIENT } from '../components/SellerProfileCard';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useWishlist } from '../context/WishlistContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const STATUS_TABS = [
@@ -50,7 +51,7 @@ export default function SellerProfileScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('active');
   const [sortKey, setSortKey] = useState('newest');
-  const [wishlistIds, setWishlistIds] = useState(new Set());
+  const { isSaved, toggle } = useWishlist();
   const [chatBusy, setChatBusy] = useState(false);
 
   const loadSeller = useCallback(
@@ -75,15 +76,6 @@ export default function SellerProfileScreen({ navigation, route }) {
         setListings(Array.isArray(res.data?.listings) ? res.data.listings : []);
       }
       setLoading(false);
-
-      const wish = await api.getWishlist();
-      setWishlistIds(
-        new Set(
-          (wish.data?.listings || wish.data?.wishlist || [])
-            .map((l) => String(l._id || l.id || l.listingId || ''))
-            .filter(Boolean)
-        )
-      );
     },
     [sellerId]
   );
@@ -148,16 +140,9 @@ export default function SellerProfileScreen({ navigation, route }) {
     });
   };
 
-  const toggleWish = async (listing) => {
+  const toggleWish = (listing) => {
     const id = String(listing._id || listing.id || '');
-    if (!id) return;
-    setWishlistIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-    await api.toggleWishlist(id);
+    if (id) toggle(id);
   };
 
   const stats = [
@@ -317,7 +302,7 @@ export default function SellerProfileScreen({ navigation, route }) {
             <View style={styles.grid}>
               {visibleListings.map((listing) => {
                 const id = listing._id || listing.id;
-                const wished = wishlistIds.has(String(id));
+                const wished = isSaved(id);
                 const isSold = listing.status === 'sold';
                 return (
                   <Pressable

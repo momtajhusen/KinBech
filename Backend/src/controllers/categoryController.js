@@ -97,8 +97,27 @@ async function listCategoriesAdmin(req, res, next) {
 
     const filter = {};
     if (type) filter.type = type;
-    const docs = await Category.find(filter).sort({ type: 1, sortOrder: 1, name: 1 });
-    return res.json({ categories: docs.map((doc) => toPublic(doc, req)) });
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, docs] = await Promise.all([
+      Category.countDocuments(filter),
+      Category.find(filter)
+        .sort({ type: 1, sortOrder: 1, name: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    return res.json({
+      categories: docs.map((doc) => toPublic(doc, req)),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

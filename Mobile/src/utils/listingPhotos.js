@@ -1,7 +1,7 @@
 import { Alert, Platform } from 'react-native';
-import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { requestPhotoSource } from '../components/PhotoSourceSheet';
+import { cropCenterToAspect, imagePickerOptions } from './pickImage';
 
 export const MAX_LISTING_PHOTOS = 4;
 export const EXTRA_PHOTO_SLOTS = 3;
@@ -98,19 +98,6 @@ const SPECS = {
   extra: { aspect: [4, 5], width: 1080 },
 };
 
-async function normalizePhoto(uri, spec) {
-  try {
-    const result = await ImageManipulator.manipulateAsync(
-      uri,
-      [{ resize: { width: spec.width } }],
-      { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
-    );
-    return result?.uri || uri;
-  } catch {
-    return uri;
-  }
-}
-
 export async function pickListingPhoto(slotType = 'main') {
   const source = await requestPhotoSource();
   if (!source) return null;
@@ -126,18 +113,11 @@ export async function pickListingPhoto(slotType = 'main') {
   const spec = SPECS[slotType] || SPECS.extra;
 
   try {
-    const options = {
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      // Instagram portrait post, 4:5. This is only the crop, not the camera lens.
-      aspect: spec.aspect,
-      quality: 1,
-    };
+    const options = imagePickerOptions({ aspect: spec.aspect, quality: 1 });
     const result =
       source === 'camera'
         ? await ImagePicker.launchCameraAsync({
             ...options,
-            // The phone camera captures its full wide frame first. The 4:5 crop comes after.
             cameraType: ImagePicker.CameraType.back,
           })
         : await ImagePicker.launchImageLibraryAsync(options);
@@ -146,7 +126,7 @@ export async function pickListingPhoto(slotType = 'main') {
       return null;
     }
 
-    return normalizePhoto(result.assets[0].uri, spec);
+    return cropCenterToAspect(result.assets[0].uri, spec.aspect, spec.width);
   } catch {
     return null;
   }

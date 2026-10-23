@@ -2,6 +2,9 @@ const Review = require('../models/Review');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
+const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
+const { emitActivity } = require('../utils/realtime');
+const { reviewActivityEvent } = require('../utils/activityEvents');
 
 async function createReview(req, res, next) {
   try {
@@ -43,6 +46,13 @@ async function createReview(req, res, next) {
       return res.status(400).json({ message: 'You have already reviewed this listing' });
     }
 
+    if (review) {
+      const contentCheck = await evaluatePublicText({ review: String(review) }, 'review');
+      if (!contentCheck.ok) {
+        return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
+      }
+    }
+
     // Create review
     const newReview = await Review.create({
       reviewer: req.user._id,
@@ -52,6 +62,7 @@ async function createReview(req, res, next) {
       review: review || '',
       tags: tags || [],
     });
+    emitActivity(reviewActivityEvent(newReview));
 
     // Update shop's average rating
     const allReviews = await Review.find({ shopId, status: 'approved' });
@@ -120,21 +131,42 @@ async function getMyReviews(req, res, next) {
 
 async function getAllReviews(req, res, next) {
   try {
-    const { status } = req.query;
+    const { status, q } = req.query;
     const filter = {};
     
     if (status) {
       filter.status = status;
     }
 
-    const reviews = await Review.find(filter)
-      .populate('reviewer', 'name avatarUrl')
-      .populate('shopId', 'name logo')
-      .populate('listing', 'title photos')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const search = String(q || '').trim();
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.review = re;
+    }
 
-    res.json({ reviews });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, reviews] = await Promise.all([
+      Review.countDocuments(filter),
+      Review.find(filter)
+        .populate('reviewer', 'name avatarUrl')
+        .populate('shopId', 'name logo')
+        .populate('listing', 'title photos')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    res.json({
+      reviews,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

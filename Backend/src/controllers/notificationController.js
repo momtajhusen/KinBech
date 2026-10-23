@@ -206,12 +206,37 @@ async function createBroadcastNotification(req, res, next) {
 
 async function getBroadcastNotifications(req, res, next) {
   try {
-    const broadcasts = await Notification.find({ type: 'broadcast' })
-      .populate('sender', 'name')
-      .sort({ createdAt: -1 })
-      .limit(50);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
 
-    res.json({ broadcasts });
+    const filter = { type: 'broadcast' };
+
+    const [total, docs] = await Promise.all([
+      Notification.countDocuments(filter),
+      Notification.find(filter)
+        .populate('sender', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    res.json({
+      broadcasts: docs.map(b => ({
+        id: b._id,
+        title: b.title,
+        message: b.message || b.body,
+        audience: b.audience,
+        deliveryMethod: b.deliveryMethod,
+        sentAt: b.createdAt,
+        status: 'sent',
+        sender: b.sender ? { name: b.sender.name } : null
+      })),
+      total,
+      page,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

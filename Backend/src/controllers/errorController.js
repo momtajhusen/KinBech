@@ -95,8 +95,11 @@ async function listErrorsAdmin(req, res, next) {
       source,
       severity,
       q,
-      limit = 100,
     } = req.query;
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
 
     const filter = {};
     if (status && status !== 'all') filter.status = status;
@@ -107,10 +110,15 @@ async function listErrorsAdmin(req, res, next) {
       filter.$or = [{ message: re }, { path: re }, { stack: re }, { userLabel: re }];
     }
 
-    const docs = await ErrorEvent.find(filter)
-      .populate('userId', 'name phone')
-      .sort({ lastSeenAt: -1 })
-      .limit(Math.min(200, Math.max(1, parseInt(limit, 10) || 100)));
+    const [total, docs] = await Promise.all([
+      ErrorEvent.countDocuments(filter),
+      ErrorEvent.find(filter)
+        .populate('userId', 'name phone')
+        .sort({ lastSeenAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
 
     const openCount = await ErrorEvent.countDocuments({ status: 'open' });
     const fatalCount = await ErrorEvent.countDocuments({
@@ -120,7 +128,10 @@ async function listErrorsAdmin(req, res, next) {
 
     res.json({
       errors: docs.map(serializeError),
-      stats: { openCount, fatalCount, totalReturned: docs.length },
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+      stats: { openCount, fatalCount },
     });
   } catch (error) {
     next(error);

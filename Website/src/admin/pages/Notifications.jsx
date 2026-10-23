@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { Clock, Send, Users } from 'lucide-react';
 import api from '../services/api';
+import Pagination from '../components/Pagination';
 import { useTheme } from '../context/ThemeContext';
 
 const Notifications = () => {
@@ -13,6 +15,12 @@ const Notifications = () => {
     deliveryMethod: 'both',
   });
   const [drafts, setDrafts] = useState([]);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 10;
 
   const audienceOptions = [
     { value: 'all', label: 'All Users' },
@@ -30,25 +38,20 @@ const Notifications = () => {
 
   useEffect(() => {
     fetchRecentNotifications();
-  }, []);
+  }, [page]);
 
-  const fetchRecentNotifications = async () => {
+  const fetchRecentNotifications = useCallback(async () => {
     try {
-      const response = await api.get('/notifications/admin/broadcasts');
-      const notificationsData = response.data.broadcasts.map(notification => ({
-        id: notification._id,
-        title: notification.title,
-        message: notification.message || notification.body,
-        audience: notification.audience,
-        deliveryMethod: notification.deliveryMethod,
-        sentAt: notification.createdAt,
-        status: 'sent',
-      }));
-      setRecentNotifications(notificationsData);
+      const response = await api.get('/notifications/admin/broadcasts', {
+        params: { page, limit }
+      });
+      setRecentNotifications(response.data.broadcasts || []);
+      setTotal(response.data.total || 0);
+      setTotalPages(response.data.totalPages || 1);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
     }
-  };
+  }, [page, limit]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -226,15 +229,15 @@ const Notifications = () => {
                     <p>{notification.message}</p>
                     <div className="notification-meta">
                       <span className="meta-item">
-                        <span className="meta-icon">👥</span>
+                        <span className="meta-icon"><Users className="item-icon" aria-hidden /></span>
                         {getAudienceLabel(notification.audience)}
                       </span>
                       <span className="meta-item">
-                        <span className="meta-icon">📤</span>
+                        <span className="meta-icon"><Send className="item-icon" aria-hidden /></span>
                         {getDeliveryLabel(notification.deliveryMethod)}
                       </span>
                       <span className="meta-item">
-                        <span className="meta-icon">🕐</span>
+                        <span className="meta-icon"><Clock className="item-icon" aria-hidden /></span>
                         {formatTime(notification.sentAt)}
                       </span>
                     </div>
@@ -245,6 +248,13 @@ const Notifications = () => {
                 </div>
               ))}
             </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+            />
           </div>
         </div>
       </div>

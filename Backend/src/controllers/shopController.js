@@ -10,6 +10,33 @@ const {
   markVerificationPending,
   shopPublicFields,
 } = require('../utils/shopVerification');
+const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
+const { emitActivity } = require('../utils/realtime');
+const { shopActivityEvent } = require('../utils/activityEvents');
+
+function shopContentBag(shopLike) {
+  return {
+    shopName: shopLike.name,
+    shopDescription: shopLike.description,
+    shopTagline: shopLike.tagline,
+    shopCategory: shopLike.category,
+    shopAddress: [shopLike.address, shopLike.location].filter(Boolean).join(' '),
+  };
+}
+
+function shopProhibitedBody(result) {
+  const body = publicProhibitedBody(result);
+  const fieldErrors = { ...body.fieldErrors };
+  if (fieldErrors.shopName) fieldErrors.name = fieldErrors.shopName;
+  if (fieldErrors.shopDescription) fieldErrors.description = fieldErrors.shopDescription;
+  if (fieldErrors.shopTagline) fieldErrors.tagline = fieldErrors.shopTagline;
+  if (fieldErrors.shopCategory) fieldErrors.category = fieldErrors.shopCategory;
+  if (fieldErrors.shopAddress) {
+    fieldErrors.address = fieldErrors.shopAddress;
+    fieldErrors.location = fieldErrors.shopAddress;
+  }
+  return { ...body, fieldErrors };
+}
 
 const OPEN_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const PAYMENT_METHODS = ['Cash', 'eSewa', 'Khalti', 'Fonepay', 'Bank transfer', 'Card'];
@@ -71,6 +98,21 @@ async function createShop(req, res, next) {
       return res.status(400).json({ message: 'You already have an active shop' });
     }
 
+    const contentCheck = await evaluatePublicText(
+      shopContentBag({
+        name: name.trim(),
+        description: description?.trim() || '',
+        tagline: req.body.tagline,
+        category,
+        address,
+        location,
+      }),
+      'shop'
+    );
+    if (!contentCheck.ok) {
+      return res.status(contentCheck.httpStatus || 400).json(shopProhibitedBody(contentCheck));
+    }
+
     const panNumber = normalizeTaxId(req.body.panNumber);
     const vatNumber = normalizeTaxId(req.body.vatNumber);
     const businessDocuments = parseBusinessDocuments(req.body.businessDocuments) || [];
@@ -102,6 +144,7 @@ async function createShop(req, res, next) {
 
     markVerificationPending(shop);
     await shop.save();
+    emitActivity(shopActivityEvent(shop));
 
     res.status(201).json({ 
       message: 'Shop created successfully',
@@ -204,6 +247,11 @@ async function updateShop(req, res, next) {
         shop.businessDocuments = docs;
         taxOrDocsTouched = true;
       }
+    }
+
+    const contentCheck = await evaluatePublicText(shopContentBag(shop), 'shop');
+    if (!contentCheck.ok) {
+      return res.status(contentCheck.httpStatus || 400).json(shopProhibitedBody(contentCheck));
     }
 
     if (taxOrDocsTouched) {
@@ -342,7 +390,7 @@ async function updateShopStatus(req, res, next) {
 
 async function getAllShopsAdmin(req, res, next) {
   try {
-    const { status, isVerified } = req.query;
+    const { status, isVerified, q } = req.query;
     const filter = {};
 
     if (status) {
@@ -352,10 +400,25 @@ async function getAllShopsAdmin(req, res, next) {
       filter.isVerified = isVerified === 'true';
     }
 
-    const shops = await Shop.find(filter)
-      .populate('owner', 'name avatarUrl phone')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const search = String(q || '').trim();
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: re }, { location: re }, { category: re }];
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, shops] = await Promise.all([
+      Shop.countDocuments(filter),
+      Shop.find(filter)
+        .populate('owner', 'name avatarUrl phone')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
 
     // Add listing counts
     const shopIds = shops.map(s => s._id);
@@ -370,11 +433,17 @@ async function getAllShopsAdmin(req, res, next) {
     });
 
     const shopsWithCounts = shops.map(shop => ({
-      ...shop.toObject(),
+      ...shop,
       listingsCount: listingCountMap[shop._id.toString()] || 0
     }));
 
-    res.json({ shops: shopsWithCounts });
+    res.json({
+      shops: shopsWithCounts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

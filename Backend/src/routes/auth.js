@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, pinStore, unpinStore, getPinnedStores } = require('../controllers/authController');
+const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, deleteAdmin, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, getPinnedStores } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -52,6 +52,7 @@ router.get('/admin/all', requireAdmin, getAllAdmins);
 router.post('/admin/create', requireAdmin, createAdmin);
 router.delete('/admin/:adminId', requireAdmin, deleteAdmin);
 router.get('/admin/dashboard-stats', requireAdmin, getDashboardStats);
+router.get('/admin/live-activity', requireAdmin, getLiveActivity);
 router.patch('/admin/platform-alerts/:id', requireAdmin, updatePlatformAlert);
 router.get('/admin/users', requireAdmin, getAllUsers);
 router.patch('/admin/users/:userId/status', requireAdmin, updateUserStatus);

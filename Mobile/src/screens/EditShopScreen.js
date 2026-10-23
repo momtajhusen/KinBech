@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -26,6 +25,7 @@ import { useCategories } from '../utils/categories';
 import { resolveMediaUrl } from '../utils/listing';
 import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 import { uploadMediaUri } from '../utils/mediaUpload';
+import { pickFromLibrary } from '../utils/pickImage';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 const COVER_RATIO = 16 / 7;
@@ -149,20 +149,18 @@ export default function EditShopScreen({ navigation }) {
 
   const pickImage = async (kind) => {
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
+      const picked = await pickFromLibrary({
+        aspect: kind === 'cover' ? [16, 7] : [1, 1],
+        quality: 0.85,
+        maxWidth: kind === 'cover' ? 1600 : 800,
+      });
+      if (picked.error === 'permission') {
         fail('Permission Required', 'Allow photo access to update your store images.');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        aspect: kind === 'cover' ? [16, 7] : [1, 1],
-        quality: 0.85,
-      });
-      if (result.canceled || !result.assets?.[0]) return;
-      if (kind === 'cover') setCoverUri(result.assets[0].uri);
-      else setLogoUri(result.assets[0].uri);
+      if (!picked.uri) return;
+      if (kind === 'cover') setCoverUri(picked.uri);
+      else setLogoUri(picked.uri);
     } catch {
       fail('Error', 'Could not open your photos. Please try again.');
     }

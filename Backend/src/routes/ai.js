@@ -12,6 +12,7 @@ const {
 } = require('../utils/aiSettings');
 const AiSettings = require('../models/AiSettings');
 const AiUsageDaily = require('../models/AiUsageDaily');
+const { evaluateListingModeration } = require('../utils/listingModeration');
 
 const router = express.Router();
 
@@ -54,6 +55,20 @@ router.post('/listing-suggest', requireAuth, async (req, res) => {
       description: suggestion.description,
       createIfMissing: true,
     });
+    const moderation = await evaluateListingModeration({
+      title: suggestion.title,
+      description: suggestion.description,
+      category: suggestion.category,
+      searchWords: suggestion.searchWords,
+    });
+    if (!moderation.ok) {
+      suggestion.title = '';
+      suggestion.description = '';
+      suggestion.searchWords = [];
+      suggestion.contentBlocked = true;
+      suggestion.blockMessage = moderation.message;
+    }
+
     if (resolved?.name) {
       suggestion.category = resolved.name;
       suggestion.categoryCreated = Boolean(resolved.created);

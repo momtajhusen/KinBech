@@ -10,7 +10,24 @@ const { signUserToken, publicUser } = require('../utils/token');
 const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
 const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
 const PlatformAlert = require('../models/PlatformAlert');
+const Message = require('../models/Message');
+const Review = require('../models/Review');
+const SupportTicket = require('../models/SupportTicket');
+const ErrorEvent = require('../models/ErrorEvent');
 const { haversineDistanceKm } = require('../utils/listing');
+const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
+const { emitActivity } = require('../utils/realtime');
+const {
+  LIVE_ACTIVITY_TYPES,
+  userActivityEvent,
+  listingActivityEvent,
+  shopActivityEvent,
+  reportActivityEvent,
+  reviewActivityEvent,
+  ticketActivityEvent,
+  errorActivityEvent,
+  alertActivityEvent,
+} = require('../utils/activityEvents');
 
 function otpExpiry() {
   const minutes = Number(process.env.OTP_EXPIRES_MINUTES || 5);
@@ -58,6 +75,11 @@ async function signup(req, res, next) {
     const existing = await User.findOne({ phone });
     if (existing) {
       return res.status(409).json({ message: 'An account with this number already exists. Please log in instead.' });
+    }
+
+    const contentCheck = await evaluatePublicText({ name }, 'profile');
+    if (!contentCheck.ok) {
+      return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
     }
 
     const otp = await issueOtp(phone, 'signup', name);
@@ -151,6 +173,7 @@ async function verifyOtp(req, res, next) {
       });
       isNewUser = true;
       await ensureReferralCode(user);
+      emitActivity(userActivityEvent(user));
     }
 
     if (!user) {
@@ -235,6 +258,11 @@ async function completeSignup(req, res, next) {
       return res.status(409).json({ message: 'An account with this number already exists. Please log in instead.' });
     }
 
+    const contentCheck = await evaluatePublicText({ name }, 'profile');
+    if (!contentCheck.ok) {
+      return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
+    }
+
     const user = await User.create({
       phone,
       name,
@@ -243,6 +271,7 @@ async function completeSignup(req, res, next) {
     if (req.body.referralCode) {
       await applyReferralCode(user, req.body.referralCode);
     }
+    emitActivity(userActivityEvent(user));
 
     const token = signUserToken(user);
     return res.json({
@@ -279,6 +308,16 @@ async function updateMe(req, res, next) {
     }
     if (req.body.sellerTypePreference !== undefined) {
       req.user.sellerTypePreference = String(req.body.sellerTypePreference);
+    }
+
+    if (req.body.name !== undefined || req.body.bio !== undefined) {
+      const contentCheck = await evaluatePublicText(
+        { name: req.user.name, bio: req.user.bio },
+        'profile'
+      );
+      if (!contentCheck.ok) {
+        return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
+      }
     }
 
     await ensureReferralCode(req.user);
@@ -383,9 +422,21 @@ async function adminLogin(req, res, next) {
 
 async function getAllAdmins(req, res, next) {
   try {
-    const admins = await User.find({ role: { $in: ['admin', 'super_admin', 'moderator', 'support'] } })
-      .select('name email role createdAt')
-      .sort({ createdAt: -1 });
+    const filter = { role: { $in: ['admin', 'super_admin', 'moderator', 'support'] } };
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, admins] = await Promise.all([
+      User.countDocuments(filter),
+      User.find(filter)
+        .select('name email role createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
 
     const adminsWithAccess = admins.map(admin => ({
       id: admin._id,
@@ -398,7 +449,13 @@ async function getAllAdmins(req, res, next) {
       createdAt: admin.createdAt,
     }));
 
-    res.json({ admins: adminsWithAccess });
+    res.json({
+      admins: adminsWithAccess,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
     next(error);
   }
@@ -628,17 +685,38 @@ async function updatePlatformAlert(req, res, next) {
 
 async function getAllUsers(req, res, next) {
   try {
-    const { status } = req.query;
+    const { status, q } = req.query;
     const filter = { role: 'user' };
 
     if (status === 'suspended') {
       filter.status = 'suspended';
+    } else if (status === 'verified') {
+      filter.status = { $ne: 'suspended' };
+      filter.profileComplete = true;
+    } else if (status === 'unverified') {
+      filter.status = { $ne: 'suspended' };
+      filter.profileComplete = { $ne: true };
     }
 
-    const users = await User.find(filter)
-      .select('name email phone profileComplete soldCount boughtCount createdAt status')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const search = String(q || '').trim();
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: re }, { email: re }, { phone: re }];
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, users] = await Promise.all([
+      User.countDocuments(filter),
+      User.find(filter)
+        .select('name email phone profileComplete soldCount boughtCount createdAt status')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
 
     // Add listing counts
     const userIds = users.map(u => u._id);
@@ -663,7 +741,13 @@ async function getAllUsers(req, res, next) {
       status: user.status === 'suspended' ? 'suspended' : (user.profileComplete ? 'verified' : 'unverified'),
     }));
 
-    res.json({ users: usersWithCounts });
+    res.json({
+      users: usersWithCounts,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }
@@ -921,6 +1005,153 @@ async function getPinnedStores(req, res, next) {
   }
 }
 
+const PER_SOURCE_LIMIT = 25;
+
+/**
+ * Live platform activity for the admin "Live Activity" page.
+ * Returns a live pulse (counters) plus a merged, newest-first event feed
+ * built from signups, listings, shops, reports, reviews, tickets, errors and alerts.
+ */
+async function getLiveActivity(req, res, next) {
+  try {
+    const type = String(req.query.type || 'all').toLowerCase();
+    const requested = parseInt(req.query.limit, 10) || 40;
+    const limit = Math.min(100, Math.max(10, requested));
+
+    const now = Date.now();
+    const hourAgo = new Date(now - 60 * 60 * 1000);
+    const fifteenMinAgo = new Date(now - 15 * 60 * 1000);
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+
+    const [
+      onlineNow,
+      activeToday,
+      signupsToday,
+      listingsToday,
+      soldToday,
+      messagesLastHour,
+      errorsLastHour,
+      pendingReports,
+      pendingShops,
+      pendingReviews,
+      openTickets,
+      openAlerts,
+    ] = await Promise.all([
+      User.countDocuments({ role: 'user', lastActiveAt: { $gte: fifteenMinAgo } }),
+      User.countDocuments({ role: 'user', lastActiveAt: { $gte: startOfDay } }),
+      User.countDocuments({ role: 'user', createdAt: { $gte: startOfDay } }),
+      Listing.countDocuments({ createdAt: { $gte: startOfDay } }),
+      Listing.countDocuments({ status: 'sold', updatedAt: { $gte: startOfDay } }),
+      Message.countDocuments({ createdAt: { $gte: hourAgo } }),
+      ErrorEvent.countDocuments({ createdAt: { $gte: hourAgo }, severity: { $in: ['error', 'fatal'] } }),
+      Report.countDocuments({ status: 'pending' }),
+      Shop.countDocuments({ isVerified: false, status: 'active' }),
+      Review.countDocuments({ status: 'pending' }),
+      SupportTicket.countDocuments({ status: 'open' }),
+      PlatformAlert.countDocuments({ status: 'open' }),
+    ]);
+
+    const [userDocs, listingDocs, shopDocs, reportDocs, reviewDocs, ticketDocs, errorDocs, alertDocs] =
+      await Promise.all([
+        User.find({ role: 'user' })
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('name phone location profileComplete createdAt')
+          .lean(),
+        Listing.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('title category price status sellerType seller shopId createdAt')
+          .lean(),
+        Shop.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('name owner isVerified status category location createdAt')
+          .lean(),
+        Report.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('reporter reportedUser reportedListing reason details status createdAt')
+          .lean(),
+        Review.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('reviewer shopId listing rating review tags status createdAt')
+          .lean(),
+        SupportTicket.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('user name phone subject message status createdAt')
+          .lean(),
+        ErrorEvent.find({ status: { $in: ['open', 'acknowledged'] } })
+          .sort({ lastSeenAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('name message source path severity status statusCode occurrenceCount userLabel lastSeenAt createdAt')
+          .lean(),
+        PlatformAlert.find()
+          .sort({ createdAt: -1 })
+          .limit(PER_SOURCE_LIMIT)
+          .select('type title message metricValue baselineValue changePct status createdAt')
+          .lean(),
+      ]);
+
+    const events = [
+      ...userDocs.map(userActivityEvent),
+      ...listingDocs.map(listingActivityEvent),
+      ...shopDocs.map(shopActivityEvent),
+      ...reportDocs.map(reportActivityEvent),
+      ...reviewDocs.map(reviewActivityEvent),
+      ...ticketDocs.map(ticketActivityEvent),
+      ...errorDocs.map(errorActivityEvent),
+      ...alertDocs.map(alertActivityEvent),
+    ];
+
+    const actorIds = [...new Set(events.map((e) => e.actorId).filter(Boolean).map(String))];
+    if (actorIds.length) {
+      const actors = await User.find({ _id: { $in: actorIds } })
+        .select('name phone')
+        .lean();
+      const nameById = new Map(actors.map((a) => [String(a._id), a.name || a.phone || 'User']));
+      events.forEach((e) => {
+        if (e.actorId) e.actor = nameById.get(String(e.actorId)) || e.actor || 'User';
+        delete e.actorId;
+      });
+    }
+
+    events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    const counts = { all: events.length };
+    LIVE_ACTIVITY_TYPES.forEach((t) => {
+      counts[t] = events.filter((e) => e.type === t).length;
+    });
+
+    const filtered = type === 'all' ? events : events.filter((e) => e.type === type);
+
+    res.json({
+      pulse: {
+        onlineNow,
+        activeToday,
+        signupsToday,
+        listingsToday,
+        soldToday,
+        messagesLastHour,
+        errorsLastHour,
+        pendingReports,
+        pendingShops,
+        pendingReviews,
+        openTickets,
+        openAlerts,
+      },
+      events: filtered.slice(0, limit),
+      counts,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   signup,
   login,
@@ -941,6 +1172,7 @@ module.exports = {
   updatePlatformAlert,
   getAllUsers,
   updateUserStatus,
+  getLiveActivity,
   pinStore,
   unpinStore,
   getPinnedStores,

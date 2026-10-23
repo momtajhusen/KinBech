@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, Ban, Bot, RefreshCw, TrendingUp } from 'lucide-react';
 import api from '../services/api';
 
 function formatReset(until) {
@@ -159,14 +160,14 @@ export default function AiModels() {
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}>🤖</div>
+          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><Bot className="item-icon" aria-hidden /></div>
           <div className="stat-content">
             <h3>Model in use now</h3>
             <p className="stat-value ai-stat-text">{data?.activeModel || 'None available'}</p>
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}>📈</div>
+          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><TrendingUp className="item-icon" aria-hidden /></div>
           <div className="stat-content">
             <h3>Requests today</h3>
             <p className="stat-value">
@@ -179,7 +180,7 @@ export default function AiModels() {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}>⛔</div>
+          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><Ban className="item-icon" aria-hidden /></div>
           <div className="stat-content">
             <h3>Models at limit</h3>
             <p className="stat-value">{totals.blocked}</p>
@@ -187,7 +188,7 @@ export default function AiModels() {
           </div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}>🔁</div>
+          <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><RefreshCw className="item-icon" aria-hidden /></div>
           <div className="stat-content">
             <h3>Auto switch</h3>
             <label className="ai-switch">
@@ -279,7 +280,7 @@ export default function AiModels() {
                   <td>
                     <div className="action-buttons">
                       <button className="action-btn" disabled={saving || index === 0} onClick={() => move(index, -1)} title="Move up">
-                        ↑
+                        <ArrowUp className="item-icon" aria-hidden />
                       </button>
                       <button
                         className="action-btn"
@@ -287,7 +288,7 @@ export default function AiModels() {
                         onClick={() => move(index, 1)}
                         title="Move down"
                       >
-                        ↓
+                        <ArrowDown className="item-icon" aria-hidden />
                       </button>
                       {index !== 0 ? (
                         <button className="action-btn view" disabled={saving} onClick={() => makePrimary(index)}>

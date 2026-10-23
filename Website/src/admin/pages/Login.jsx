@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Lock, Mail, Moon, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { adminPath } from '../routes';
@@ -42,7 +43,7 @@ const Login = () => {
         onClick={toggleTheme}
         title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
       >
-        {theme === 'light' ? '🌙' : '☀️'}
+        {theme === 'light' ? <Moon className="item-icon" /> : <Sun className="item-icon" />}
       </button>
       <div className="login-card">
         <div className="login-header">
@@ -56,7 +57,7 @@ const Login = () => {
           <div className="form-group">
             <label htmlFor="email">Email</label>
             <div className="input-wrapper">
-              <span className="input-icon">📧</span>
+              <Mail className="input-icon" aria-hidden />
               <input
                 type="email"
                 id="email"
@@ -71,7 +72,7 @@ const Login = () => {
           <div className="form-group">
             <label htmlFor="password">Password</label>
             <div className="input-wrapper">
-              <span className="input-icon">🔒</span>
+              <Lock className="input-icon" aria-hidden />
               <input
                 type={showPassword ? 'text' : 'password'}
                 id="password"
@@ -87,7 +88,7 @@ const Login = () => {
                 onClick={togglePasswordVisibility}
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
-                {showPassword ? '🙈' : '👁️'}
+                {showPassword ? <EyeOff className="item-icon" /> : <Eye className="item-icon" />}
               </button>
             </div>
           </div>

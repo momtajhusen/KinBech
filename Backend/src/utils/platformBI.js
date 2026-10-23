@@ -2,6 +2,8 @@ const User = require('../models/User');
 const Listing = require('../models/Listing');
 const Notification = require('../models/Notification');
 const PlatformAlert = require('../models/PlatformAlert');
+const { emitActivity } = require('./realtime');
+const { alertActivityEvent } = require('./activityEvents');
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'moderator', 'support'];
 const ACTIVE_TOUCH_THROTTLE_MS = 5 * 60 * 1000;
@@ -256,6 +258,8 @@ async function detectAndAlertAnomalies(live) {
       body: message,
       route: 'dashboard',
     });
+
+    emitActivity(alertActivityEvent(alert));
 
     opened.push(alert);
   }

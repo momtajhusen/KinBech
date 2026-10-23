@@ -2,6 +2,8 @@ const Listing = require('../models/Listing');
 const Chat = require('../models/Chat');
 const SupportTicket = require('../models/SupportTicket');
 const { listingPayload } = require('../utils/listing');
+const { emitActivity } = require('../utils/realtime');
+const { ticketActivityEvent } = require('../utils/activityEvents');
 
 function mapAddress(doc) {
   return {
@@ -226,6 +228,7 @@ async function createSupportTicket(req, res, next) {
       subject,
       message,
     });
+    emitActivity(ticketActivityEvent(ticket));
     res.status(201).json({
       message: 'Support request sent. We will get back to you soon.',
       ticket: {

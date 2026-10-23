@@ -292,13 +292,19 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     return false;
   };
 
-  const pickPhoto = async (index) => {
+  const pickPhoto = useCallback(async (index) => {
+    console.log('pickPhoto called, index:', index);
     if (index !== 0 && !requireCover()) return;
     setPickingIndex(index);
     let pickedUri = null;
     try {
+      console.log('Calling pickListingPhoto...');
       const uri = await pickListingPhoto(index === 0 ? 'main' : 'extra');
-      if (!uri) return;
+      console.log('pickListingPhoto returned:', uri);
+      if (!uri) {
+        setPickingIndex(null);
+        return;
+      }
       pickedUri = uri;
       if (index === 0) clearFieldError('photo');
       setPhotos((prev) => {
@@ -307,6 +313,15 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
         next[index] = { id: `${Date.now()}-${index}`, uri, type: 'image' };
         return next.slice(0, MAX_MEDIA_SLOTS);
       });
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Photo selection failed',
+          message: 'Could not select photo. Please try again.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
     } finally {
       setPickingIndex(null);
     }
@@ -315,7 +330,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       if (!price.trim()) setTimeout(() => revealField(priceAnchorRef, priceRef), 350);
       if (!ai.limitReached) aiFillDetails({ silent: true, photoUri: pickedUri, onlyEmpty: true });
     }
-  };
+  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, price, ai, aiFillDetails, isEdit]);
 
   const pickVideo = async (index) => {
     setPickingIndex(index);
@@ -556,6 +571,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                 fieldErrors.photo && styles.photoSlotCoverError,
               ]}
               onPress={() => {
+                console.log('Cover photo pressed, hasPhoto:', !!photos[0]?.uri);
                 if (photos[0]?.uri) openMediaPreview(0);
                 else pickPhoto(0);
               }}

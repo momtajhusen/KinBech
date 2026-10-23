@@ -36,6 +36,7 @@ export default defineConfig({
       '/map': apiProxy(),
       '/health': apiProxy(),
       '/uploads': { target: 'http://localhost:5001', changeOrigin: true },
+      '/socket.io': { target: 'http://localhost:5001', changeOrigin: true, ws: true },
     },
   },
   preview: {
@@ -55,6 +56,7 @@ export default defineConfig({
       '/map': apiProxy(),
       '/health': apiProxy(),
       '/uploads': { target: 'http://localhost:5001', changeOrigin: true },
+      '/socket.io': { target: 'http://localhost:5001', changeOrigin: true, ws: true },
     },
   },
 });

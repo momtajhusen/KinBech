@@ -135,10 +135,11 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   label: {
-    marginTop: 18,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.3,
+    marginTop: 24,
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.5,
     color: '#E5E7EB',
+    textAlign: 'center',
   },
 });

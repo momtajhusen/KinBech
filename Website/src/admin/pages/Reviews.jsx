@@ -1,5 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { ChevronDown, Clock, Filter, Flag, Search, Star, Store, User, X } from 'lucide-react';
 import api from '../services/api';
+import ViewToggle, { useViewMode } from '../components/ViewToggle';
+import Pagination from '../components/Pagination';
+import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 
 const Reviews = () => {
@@ -7,16 +11,31 @@ const Reviews = () => {
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filter, setFilter] = useState('flagged');
+  const [filter, setFilter] = useState('pending');
+  const [view, setView] = useViewMode('reviews', 'list');
+  const debouncedSearch = useDebounce(searchTerm);
 
-  useEffect(() => {
-    fetchReviews();
-  }, []);
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
 
-  const fetchReviews = async () => {
+  const fetchReviews = useCallback(async () => {
+    setLoading(true);
     try {
-      const response = await api.get('/reviews/admin/all');
-      const reviewsData = response.data.reviews.map(review => ({
+      const response = await api.get('/reviews/admin/all', {
+        params: {
+          status: filter === 'all' ? undefined : filter,
+          q: debouncedSearch,
+          page,
+          limit
+        }
+      });
+      
+      const { reviews: data, total: totalCount, totalPages: pages } = response.data;
+      
+      const reviewsData = data.map(review => ({
         id: review._id,
         reviewText: review.review || 'No text provided',
         reviewer: review.reviewer,
@@ -29,16 +48,28 @@ const Reviews = () => {
         createdAt: review.createdAt,
         status: review.status === 'pending' ? 'flagged' : (review.status === 'approved' ? 'published' : 'rejected'),
       }));
+      
       setReviews(reviewsData);
+      setTotal(totalCount || 0);
+      setTotalPages(pages || 1);
     } catch (error) {
       console.error('Failed to fetch reviews:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filter, debouncedSearch, page, limit]);
+
+  useEffect(() => {
+    fetchReviews();
+  }, [fetchReviews]);
+
+  // Reset to page 1 when filter or search changes
+  useEffect(() => {
+    setPage(1);
+  }, [filter, debouncedSearch]);
 
   const filterOptions = [
-    { value: 'flagged', label: 'Flagged' },
+    { value: 'pending', label: 'Flagged' },
     { value: 'all', label: 'All Reviews' },
   ];
 
@@ -59,28 +90,25 @@ const Reviews = () => {
     }
   };
 
-  const filteredReviews = reviews.filter(review => {
-    const matchesSearch =
-      review.reviewText?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      review.reviewer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      review.reviewee?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter =
-      filter === 'all' ||
-      (filter === 'flagged' && review.status === 'flagged');
-
-    return matchesSearch && matchesFilter;
-  });
-
   const getStarRating = (rating) => {
-    return '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+    return (
+      <span className="rating-stars" aria-label={`${rating} out of 5`}>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <Star
+            key={index}
+            className={`star-icon ${index < rating ? 'filled' : 'empty'}`}
+            aria-hidden
+          />
+        ))}
+      </span>
+    );
   };
 
   const getFlagReasonBadge = (reason) => {
     if (!reason) return null;
     return (
       <span className="flag-reason-badge">
-        🚩 {reason}
+        <Flag className="item-icon" aria-hidden /> {reason}
       </span>
     );
   };
@@ -98,85 +126,143 @@ const Reviews = () => {
     return `${diffDays} days ago`;
   };
 
+  const renderActions = (review) => (
+    <div className="action-buttons">
+      <button className="action-btn view">View</button>
+      {review.status === 'flagged' && (
+        <>
+          <button className="action-btn keep" onClick={() => handleReviewAction(review.id, 'keep')}>Keep</button>
+          <button className="action-btn remove" onClick={() => handleReviewAction(review.id, 'remove')}>Remove</button>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="reviews-page">
-      <div className="page-header">
-        <div className="page-filters">
-          {filterOptions.map((option) => (
-            <button
-              key={option.value}
-              className={`filter-chip ${filter === option.value ? 'active' : ''}`}
-              onClick={() => setFilter(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
+      <div className="filter-bar">
+        <div className="filter-group left">
+          <div className="search-box">
+            <Search className="search-icon" />
+            <input
+              type="text"
+              placeholder="Search reviews..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="search-input"
+            />
+          </div>
         </div>
-        <input
-          type="text"
-          placeholder="Search reviews by text, reviewer, or reviewee..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="search-input"
-        />
+        <div className="filter-group right">
+          <ViewToggle view={view} onChange={setView} />
+          <div className="dropdown-filter">
+            <Filter className="filter-icon" />
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              {filterOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <ChevronDown className="chev-icon" />
+          </div>
+          {(searchTerm || filter !== 'pending') && (
+            <button className="clear-btn" onClick={() => { setSearchTerm(''); setFilter('pending'); }}>
+              <X className="item-icon" /> Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
         <div className="loading">Loading reviews...</div>
-      ) : (
+      ) : reviews.length === 0 ? (
         <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Review</th>
-                <th>About</th>
-                <th>By</th>
-                <th>Rating</th>
-                <th>Flag Reason</th>
-                <th>Time</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredReviews.map((review) => (
-                <tr key={review.id}>
-                  <td>
-                    <div className="review-text-cell">
-                      <div className="review-text">{review.reviewText}</div>
-                      <div className="review-rating">{getStarRating(review.rating)}</div>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="reviewee-cell">
-                      <span className="reviewee-type">
-                        {review.reviewee.type === 'shop' ? '🏪' : '👤'}
-                      </span>
-                      <span className="reviewee-name">{review.reviewee.name}</span>
-                    </div>
-                  </td>
-                  <td>{review.reviewer?.name || 'N/A'}</td>
-                  <td className="rating-cell">{review.rating}/5</td>
-                  <td>{getFlagReasonBadge(review.flagReason)}</td>
-                  <td>{formatTime(review.createdAt)}</td>
-                  <td>
-                    <div className="action-buttons">
-                      <button className="action-btn view">View</button>
-                      {review.status === 'flagged' && (
-                        <>
-                          <button className="action-btn keep" onClick={() => handleReviewAction(review.id, 'keep')}>Keep</button>
-                          <button className="action-btn remove" onClick={() => handleReviewAction(review.id, 'remove')}>Remove</button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {filteredReviews.length === 0 && (
-            <div className="empty-state">No reviews found</div>
-          )}
+          <div className="empty-state">No reviews found</div>
         </div>
+      ) : (
+        <>
+          {view === 'card' ? (
+            <div className="card-grid cols-5">
+              {reviews.map((review) => (
+                <article className="data-card" key={review.id}>
+                  <div className="data-card-body">
+                    <div className="data-card-head">
+                      <span className="user-avatar-small">
+                        {(review.reviewer?.name || 'N').charAt(0).toUpperCase()}
+                      </span>
+                      <div className="data-card-head-text">
+                        <div className="data-card-title">{review.reviewer?.name || 'N/A'}</div>
+                        <div className="data-card-sub">About: {review.reviewee?.name || 'Unknown'}</div>
+                      </div>
+                    </div>
+                    <div className="data-card-pricerow">
+                      {getStarRating(review.rating)}
+                      <span className="data-card-sub">{review.rating}/5</span>
+                    </div>
+                    <div className="data-card-desc">{review.reviewText}</div>
+                    <div className="data-card-meta">
+                      <span>
+                        <Clock className="item-icon" aria-hidden /> {formatTime(review.createdAt)}
+                      </span>
+                      {getFlagReasonBadge(review.flagReason)}
+                    </div>
+                    <div className="data-card-actions">{renderActions(review)}</div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Review</th>
+                    <th>About</th>
+                    <th>By</th>
+                    <th>Rating</th>
+                    <th>Flag Reason</th>
+                    <th>Time</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviews.map((review) => (
+                    <tr key={review.id}>
+                      <td>
+                        <div className="review-text-cell">
+                          <div className="review-text">{review.reviewText}</div>
+                          <div className="review-rating">{getStarRating(review.rating)}</div>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="reviewee-cell">
+                          <span className="reviewee-type">
+                            {review.reviewee.type === 'shop'
+                              ? <Store className="item-icon" aria-hidden />
+                              : <User className="item-icon" aria-hidden />}
+                          </span>
+                          <span className="reviewee-name">{review.reviewee.name}</span>
+                        </div>
+                      </td>
+                      <td>{review.reviewer?.name || 'N/A'}</td>
+                      <td className="rating-cell">{review.rating}/5</td>
+                      <td>{getFlagReasonBadge(review.flagReason)}</td>
+                      <td>{formatTime(review.createdAt)}</td>
+                      <td>{renderActions(review)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <Pagination 
+            page={page} 
+            totalPages={totalPages} 
+            total={total} 
+            limit={limit} 
+            onPageChange={setPage} 
+          />
+        </>
       )}
     </div>
   );

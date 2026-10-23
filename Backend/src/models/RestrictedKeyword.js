@@ -1,6 +1,25 @@
 const mongoose = require('mongoose');
 
-const MATCH_FIELDS = ['title', 'description', 'brand', 'sku', 'location', 'category'];
+const MATCH_FIELDS = [
+  'title',
+  'description',
+  'searchWords',
+  'brand',
+  'sku',
+  'location',
+  'category',
+  'variants',
+  'name',
+  'bio',
+  'shopName',
+  'shopDescription',
+  'shopTagline',
+  'shopCategory',
+  'shopAddress',
+  'review',
+];
+
+const SURFACES = ['listing', 'profile', 'shop', 'review'];
 
 const restrictedKeywordSchema = new mongoose.Schema(
   {
@@ -13,12 +32,22 @@ const restrictedKeywordSchema = new mongoose.Schema(
     },
     matchFields: {
       type: [{ type: String, enum: MATCH_FIELDS }],
-      default: ['title', 'description'],
+      default: ['title', 'description', 'searchWords', 'name', 'bio', 'shopName', 'shopDescription'],
       validate: {
         validator(arr) {
           return Array.isArray(arr) && arr.length > 0;
         },
         message: 'Select at least one match field',
+      },
+    },
+    surfaces: {
+      type: [{ type: String, enum: SURFACES }],
+      default: SURFACES,
+      validate: {
+        validator(arr) {
+          return Array.isArray(arr) && arr.length > 0;
+        },
+        message: 'Select at least one place to check',
       },
     },
     matchMode: {
@@ -29,7 +58,7 @@ const restrictedKeywordSchema = new mongoose.Schema(
     severity: {
       type: String,
       enum: ['hold', 'block'],
-      default: 'hold',
+      default: 'block',
       index: true,
     },
     isActive: { type: Boolean, default: true, index: true },
@@ -41,3 +70,4 @@ const restrictedKeywordSchema = new mongoose.Schema(
 
 module.exports = mongoose.model('RestrictedKeyword', restrictedKeywordSchema);
 module.exports.MATCH_FIELDS = MATCH_FIELDS;
+module.exports.SURFACES = SURFACES;

@@ -7,11 +7,13 @@ const { listingPayload, parsePrice, haversineDistanceKm, listingPoint, listingTr
 const { parseVariantsFromBody } = require('../utils/listingVariants');
 const { recordShopMetric, recordShopSale } = require('../utils/shopAnalytics');
 const listingQueryCache = require('../utils/listingQueryCache');
-const { evaluateListingModeration } = require('../utils/listingModeration');
+const { evaluateListingModeration, publicProhibitedBody } = require('../utils/listingModeration');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { resolveProductCategory } = require('../utils/productCategory');
+const { emitActivity } = require('../utils/realtime');
+const { listingActivityEvent } = require('../utils/activityEvents');
 const {
   normalize, searchTokens, queryFilter, scoreName, scoreListing, hasWordMatch,
 } = require('../utils/searchMatch');
@@ -748,11 +750,7 @@ async function createListing(req, res, next) {
 
     const moderation = await evaluateListingModeration(listingData);
     if (!moderation.ok) {
-      return res.status(moderation.httpStatus || 400).json({
-        message: moderation.reason,
-        matchedKeywords: moderation.matchedKeywords,
-        code: 'PROHIBITED_CONTENT',
-      });
+      return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
     }
 
     listingData.status = moderation.status;
@@ -761,6 +759,7 @@ async function createListing(req, res, next) {
     listingData.heldAt = moderation.status === 'pending' ? new Date() : null;
 
     const listing = await Listing.create(listingData);
+    emitActivity(listingActivityEvent(listing));
 
     await listing.populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences');
     if (listing.shopId) {
@@ -895,15 +894,14 @@ async function updateListing(req, res, next) {
           sku: listing.sku,
           location: listing.location,
           category: listing.category,
+          searchWords: listing.searchWords,
+          variantOptions: listing.variantOptions,
+          variants: listing.variants,
         },
         { currentStatus: listing.status }
       );
       if (!moderation.ok) {
-        return res.status(moderation.httpStatus || 400).json({
-          message: moderation.reason,
-          matchedKeywords: moderation.matchedKeywords,
-          code: 'PROHIBITED_CONTENT',
-        });
+        return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
       }
       listing.status = moderation.status;
       listing.moderationReason = moderation.reason || '';
@@ -989,18 +987,45 @@ async function getCategoryCounts(req, res, next) {
 
 async function getAllListingsAdmin(req, res, next) {
   try {
-    const { status } = req.query;
+    const { status, q } = req.query;
     const filter = {};
 
     if (status && status !== 'all') {
-      filter.status = status;
+      if (status === 'reported') {
+        const reportedIds = await Report.distinct('reportedListing', {
+          reportedListing: { $ne: null },
+        });
+        filter._id = { $in: reportedIds };
+      } else {
+        filter.status = status;
+      }
     }
 
-    const listings = await Listing.find(filter)
-      .populate('seller', 'name phone avatarUrl location bio preferences')
-      .populate('shopId', 'name logo')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const search = String(q || '').trim();
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { title: re },
+        { description: re },
+        { category: re },
+        { location: re },
+        { brand: re },
+        { sku: re },
+      ];
+    }
+
+    const { page, limit, skip } = parsePagination(req);
+
+    const [total, listings] = await Promise.all([
+      Listing.countDocuments(filter),
+      Listing.find(filter)
+        .populate('seller', 'name phone avatarUrl location bio preferences')
+        .populate('shopId', 'name logo')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
 
     // Add report counts
     const listingIds = listings.map(l => l._id);
@@ -1019,7 +1044,13 @@ async function getAllListingsAdmin(req, res, next) {
       reportsCount: reportCountMap[listing._id.toString()] || 0
     }));
 
-    res.json({ listings: listingsWithReports });
+    res.json({
+      listings: listingsWithReports,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

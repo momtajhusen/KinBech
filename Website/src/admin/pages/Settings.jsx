@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { Check, X } from 'lucide-react';
 import api from '../services/api';
+import Pagination from '../components/Pagination';
 import { useTheme } from '../context/ThemeContext';
 
 const Settings = () => {
@@ -18,20 +20,28 @@ const Settings = () => {
     role: 'moderator',
   });
 
-  useEffect(() => {
-    fetchAdmins();
-  }, []);
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
 
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     try {
-      const response = await api.get('/auth/admin/all');
-      setAdmins(response.data.admins);
+      const response = await api.get('/auth/admin/all', { params: { page, limit } });
+      setAdmins(response.data.admins || []);
+      setTotal(response.data.total || 0);
+      setTotalPages(response.data.totalPages || 1);
     } catch (error) {
       console.error('Failed to fetch admins:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, limit]);
+
+  useEffect(() => {
+    fetchAdmins();
+  }, [fetchAdmins]);
 
   const roleOptions = [
     { value: 'super_admin', label: 'Super Admin', description: 'Full access to all features' },
@@ -131,8 +141,9 @@ const Settings = () => {
                     <button
                       onClick={() => setShowInviteForm(false)}
                       className="close-btn"
+                      aria-label="Close"
                     >
-                      ✕
+                      <X className="item-icon" aria-hidden />
                     </button>
                   </div>
                   <form onSubmit={handleInviteSubmit}>
@@ -222,6 +233,13 @@ const Settings = () => {
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+            />
           </div>
         </div>
 
@@ -307,22 +325,22 @@ const Settings = () => {
                   </div>
                   <div className="role-access-list">
                     {role.value === 'super_admin' && (
-                      <span className="access-item">✓ All Access</span>
+                      <span className="access-item allowed"><Check className="item-icon" aria-hidden /> All Access</span>
                     )}
                     {role.value === 'moderator' && (
                       <>
-                        <span className="access-item">✓ Listings Management</span>
-                        <span className="access-item">✓ Reports Management</span>
-                        <span className="access-item">✗ User Management</span>
-                        <span className="access-item">✗ Settings Access</span>
+                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Listings Management</span>
+                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Reports Management</span>
+                        <span className="access-item denied"><X className="item-icon" aria-hidden /> User Management</span>
+                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Settings Access</span>
                       </>
                     )}
                     {role.value === 'support' && (
                       <>
-                        <span className="access-item">✓ User Management</span>
-                        <span className="access-item">✓ Support Tickets</span>
-                        <span className="access-item">✗ Listings Management</span>
-                        <span className="access-item">✗ Reports Management</span>
+                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> User Management</span>
+                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Support Tickets</span>
+                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Listings Management</span>
+                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Reports Management</span>
                       </>
                     )}
                   </div>

@@ -1,4 +1,6 @@
 const ErrorEvent = require('../models/ErrorEvent');
+const { emitActivity } = require('./realtime');
+const { errorActivityEvent } = require('./activityEvents');
 
 let sentryInitialized = false;
 
@@ -109,10 +111,11 @@ async function captureError(payload = {}) {
         existing.extra = { ...(existing.extra || {}), ...extra };
       }
       await existing.save();
+      emitActivity(errorActivityEvent(existing));
       return existing;
     }
 
-    return await ErrorEvent.create({
+    const created = await ErrorEvent.create({
       message: finalMessage,
       stack: finalStack,
       name: finalName,
@@ -137,6 +140,8 @@ async function captureError(payload = {}) {
       sentryEventId: sentryEventId || '',
       lastSeenAt: new Date(),
     });
+    emitActivity(errorActivityEvent(created));
+    return created;
   } catch (persistErr) {
     console.error('[monitoring] failed to persist error event', persistErr?.message || persistErr);
     return null;

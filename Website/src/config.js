@@ -33,3 +33,11 @@ export function apiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
   return API_BASE ? `${API_BASE}${p}` : p;
 }
+
+/** Turns a stored media path (e.g. `uploads/x.jpg`) into a usable image src. */
+export function mediaUrl(path) {
+  const value = String(path || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  return apiUrl(value);
+}

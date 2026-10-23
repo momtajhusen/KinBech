@@ -1,6 +1,9 @@
 const Report = require('../models/Report');
 const User = require('../models/User');
+const Listing = require('../models/Listing');
 const { maybeAutoRestrictFromReports } = require('../utils/userRestriction');
+const { emitActivity } = require('../utils/realtime');
+const { reportActivityEvent } = require('../utils/activityEvents');
 
 async function createReport(req, res, next) {
   try {
@@ -27,6 +30,7 @@ async function createReport(req, res, next) {
       reason,
       details: details || '',
     });
+    emitActivity(reportActivityEvent(report));
 
     // Block user if requested
     if (blockUser) {
@@ -124,21 +128,51 @@ async function getMyReports(req, res, next) {
 
 async function getAllReports(req, res, next) {
   try {
-    const { status } = req.query;
+    const { status, q } = req.query;
     const filter = {};
     
     if (status) {
       filter.status = status;
     }
 
-    const reports = await Report.find(filter)
-      .populate('reporter', 'name phone avatarUrl')
-      .populate('reportedUser', 'name phone avatarUrl')
-      .populate('reportedListing', 'title photos')
-      .sort({ createdAt: -1 })
-      .limit(100);
+    const search = String(q || '').trim();
+    if (search) {
+      const re = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const [userIds, listingIds] = await Promise.all([
+        User.find({ name: re }).select('_id').lean(),
+        Listing.find({ title: re }).select('_id').lean(),
+      ]);
+      filter.$or = [
+        { reason: re },
+        { reporter: { $in: userIds.map((u) => u._id) } },
+        { reportedUser: { $in: userIds.map((u) => u._id) } },
+        { reportedListing: { $in: listingIds.map((l) => l._id) } },
+      ];
+    }
 
-    res.json({ reports });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const skip = (page - 1) * limit;
+
+    const [total, reports] = await Promise.all([
+      Report.countDocuments(filter),
+      Report.find(filter)
+        .populate('reporter', 'name phone avatarUrl')
+        .populate('reportedUser', 'name phone avatarUrl')
+        .populate('reportedListing', 'title photos')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+    ]);
+
+    res.json({
+      reports,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
     next(error);
   }

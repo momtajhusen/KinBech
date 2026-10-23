@@ -1,8 +1,28 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  Activity,
+  FileText,
+  Flag,
+  Handshake,
+  LayoutList,
+  Package,
+  Settings,
+  Store,
+  UserPlus,
+  Users,
+  Zap,
+} from 'lucide-react';
 import api from '../services/api';
 
 const POLL_MS = 30000;
+
+const ACTIVITY_ICONS = {
+  report: Flag,
+  verification: FileText,
+  action: Zap,
+  system: Settings,
+};
 
 function formatPct(value) {
   if (value == null || Number.isNaN(Number(value))) return '0%';
@@ -111,14 +131,14 @@ const Dashboard = () => {
     {
       title: 'DAU (today)',
       value: stats.dau || 0,
-      icon: '📡',
+      icon: Activity,
       hint: 'Users active today',
       color: '#2563eb',
     },
     {
       title: 'Sign-ups today',
       value: stats.signupsToday || 0,
-      icon: '✍️',
+      icon: UserPlus,
       hint: formatPct(stats.signupsChangePct) + ' vs yesterday',
       trendUp: (stats.signupsChangePct || 0) >= 0,
       color: '#059669',
@@ -126,7 +146,7 @@ const Dashboard = () => {
     {
       title: 'Transactions today',
       value: stats.transactionsToday || 0,
-      icon: '🤝',
+      icon: Handshake,
       hint: formatPct(stats.transactionsChangePct) + ' vs yesterday · sold listings',
       trendUp: (stats.transactionsChangePct || 0) >= 0,
       color: '#d97706',
@@ -134,17 +154,17 @@ const Dashboard = () => {
     {
       title: 'New listings today',
       value: stats.newListingsToday || 0,
-      icon: '📦',
+      icon: Package,
       hint: 'Posted today',
       color: '#7c3aed',
     },
   ];
 
   const baseCards = [
-    { title: 'Total Users', value: stats.totalUsers || 0, icon: '👥', color: '#0f766e' },
-    { title: 'Active Listings', value: stats.activeListings || 0, icon: '🗂️', color: '#0284c7' },
-    { title: 'Pending Reports', value: stats.pendingReports || 0, icon: '🚩', color: '#dc2626' },
-    { title: 'Shops awaiting verify', value: stats.pendingShops || 0, icon: '🏪', color: '#ca8a04' },
+    { title: 'Total Users', value: stats.totalUsers || 0, icon: Users, color: '#0f766e' },
+    { title: 'Active Listings', value: stats.activeListings || 0, icon: LayoutList, color: '#0284c7' },
+    { title: 'Pending Reports', value: stats.pendingReports || 0, icon: Flag, color: '#dc2626' },
+    { title: 'Shops awaiting verify', value: stats.pendingShops || 0, icon: Store, color: '#ca8a04' },
   ];
 
   return (
@@ -189,7 +209,7 @@ const Dashboard = () => {
         {liveCards.map((stat) => (
           <div key={stat.title} className="stat-card" style={{ '--stat-accent': stat.color }}>
             <div className="stat-icon" style={{ backgroundColor: `${stat.color}18`, color: stat.color }}>
-              {stat.icon}
+              <stat.icon className="item-icon" aria-hidden />
             </div>
             <div className="stat-content">
               <h3>{stat.title}</h3>
@@ -206,7 +226,7 @@ const Dashboard = () => {
         {baseCards.map((stat) => (
           <div key={stat.title} className="stat-card" style={{ '--stat-accent': stat.color }}>
             <div className="stat-icon" style={{ backgroundColor: `${stat.color}18`, color: stat.color }}>
-              {stat.icon}
+              <stat.icon className="item-icon" aria-hidden />
             </div>
             <div className="stat-content">
               <h3>{stat.title}</h3>
@@ -299,20 +319,20 @@ const Dashboard = () => {
             {recentActivity.length === 0 ? (
               <div className="empty-state compact">No recent activity yet</div>
             ) : (
-              recentActivity.map((activity) => (
-                <div key={activity.id} className="activity-item">
-                  <div className={`activity-icon ${activity.type}`}>
-                    {activity.type === 'report' && '🚩'}
-                    {activity.type === 'verification' && '📄'}
-                    {activity.type === 'action' && '⚡'}
-                    {activity.type === 'system' && '⚙️'}
+              recentActivity.map((activity) => {
+                const ActivityIcon = ACTIVITY_ICONS[activity.type] || Settings;
+                return (
+                  <div key={activity.id} className="activity-item">
+                    <div className={`activity-icon ${activity.type}`}>
+                      <ActivityIcon className="item-icon" aria-hidden />
+                    </div>
+                    <div className="activity-content">
+                      <p className="activity-message">{activity.message}</p>
+                      <span className="activity-time">{activity.time}</span>
+                    </div>
                   </div>
-                  <div className="activity-content">
-                    <p className="activity-message">{activity.message}</p>
-                    <span className="activity-time">{activity.time}</span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

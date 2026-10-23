@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -228,13 +228,16 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     return false;
   };
 
-  const pickPhoto = async (index) => {
+  const pickPhoto = useCallback(async (index) => {
     if (index !== 0 && !requireCover()) return;
     setPickingIndex(index);
     let pickedUri = null;
     try {
       const uri = await pickListingPhoto(index === 0 ? 'main' : 'extra');
-      if (!uri) return;
+      if (!uri) {
+        setPickingIndex(null);
+        return;
+      }
       pickedUri = uri;
       if (index === 0) clearFieldError('photo');
       setPhotos((prev) => {
@@ -242,6 +245,15 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         next[index] = { id: `${Date.now()}-${index}`, uri, type: 'image' };
         return next.slice(0, MAX_LISTING_PHOTOS);
       });
+    } catch (error) {
+      console.error('Error picking photo:', error);
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Photo selection failed',
+          message: 'Could not select photo. Please try again.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
     } finally {
       setPickingIndex(null);
     }
@@ -250,7 +262,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       if (!price.trim()) setTimeout(() => revealField(priceAnchorRef, priceRef), 350);
       if (!ai.limitReached) ai.fill({ silent: true, photoUri: pickedUri, onlyEmpty: true });
     }
-  };
+  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, price, ai, isEdit]);
 
   const removePhoto = (index) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -500,7 +512,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 styles.photoSlotCover,
                 fieldErrors.photo && styles.photoSlotCoverError,
               ]}
-              onPress={() => pickPhoto(0)}
+              onPress={() => {
+                console.log('Cover photo pressed, hasPhoto:', !!mainPhoto);
+                pickPhoto(0);
+              }}
               disabled={pickingIndex === 0}
             >
               {mainPhoto ? (

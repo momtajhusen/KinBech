@@ -42,6 +42,7 @@ export default function WishlistScreen({ navigation }) {
   const [items, setItems] = useState([]);
 
   const loadWishlist = useCallback(async () => {
+    await refresh();
     const { data, error } = await api.getWishlist();
     if (error) {
       console.error('Failed to load wishlist:', error);
@@ -63,7 +64,7 @@ export default function WishlistScreen({ navigation }) {
         }))
       );
     }
-  }, []);
+  }, [refresh]);
 
   const { refreshing, onRefresh } = usePullRefresh(loadWishlist);
 
@@ -141,7 +142,7 @@ export default function WishlistScreen({ navigation }) {
                     hitSlop={8}
                     onPress={() => removeItem(item.id)}
                   >
-                    <Ionicons name="heart" size={18} color={colors.danger} />
+                    <Ionicons name="heart" size={15} color={colors.danger} />
                   </Pressable>
 
                   {item.priceDropped && (
@@ -239,11 +240,11 @@ const createStyles = (colors) => ({
   },
   heartBtn: {
     position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    top: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
