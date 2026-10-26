@@ -1,5 +1,6 @@
 import { coordsForPlaceName, haversineKm } from './locations';
 import { formatListingPrice } from './listingVariants';
+import { formatMoney } from './currency';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
 
 const CATEGORY_ICONS = {
@@ -44,9 +45,8 @@ export function resolveMediaUrl(url) {
   return base ? `${base}${path}` : path;
 }
 
-export function formatPrice(price) {
-  const amount = Number(price) || 0;
-  return `₹${amount.toLocaleString('en-IN')}`;
+export function formatPrice(price, options) {
+  return formatMoney(price, options);
 }
 
 /** Fisher–Yates shuffle — returns a new array, does not mutate input. */
@@ -71,6 +71,15 @@ export function timeAgo(dateValue) {
   if (hours < 24) return `${hours} hr ago`;
   const days = Math.round(hours / 24);
   return `Posted ${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/** "5h left" while a boost runs, '' once it has ended. */
+export function featuredTimeLeft(featuredUntil) {
+  if (!featuredUntil) return '';
+  const minutes = Math.ceil((new Date(featuredUntil).getTime() - Date.now()) / 60000);
+  if (!(minutes > 0)) return '';
+  if (minutes < 60) return `${minutes}m left`;
+  return `${Math.ceil(minutes / 60)}h left`;
 }
 
 export function categoryIcon(category) {
@@ -187,6 +196,12 @@ export function toCardItem(listing) {
     featuredUntil: listing.featuredUntil || null,
     listing,
   };
+}
+
+/** Price for a mapped card/detail item in the buyer's current currency (mapped `price` may be stale). */
+export function cardPrice(item) {
+  if (item?.listing) return formatListingPrice(item.listing, formatPrice);
+  return item?.price || '';
 }
 
 export function toDetailItem(listing) {

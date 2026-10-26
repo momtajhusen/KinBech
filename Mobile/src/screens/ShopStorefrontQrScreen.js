@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,7 +18,7 @@ import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
 import ScreenLoader from '../components/ScreenLoader';
 import EmptyState from '../components/EmptyState';
-import { api, getAuthToken } from '../services/api';
+import { api, ensureFreshToken, getAuthToken } from '../services/api';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
 import { BRAND_TAGLINE } from '../content/brand';
 import { resolveMediaUrl } from '../utils/listing';
@@ -99,6 +99,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
   };
 
   const downloadFile = async ({ pathSuffix, filename }) => {
+    await ensureFreshToken();
     const token = getAuthToken();
     const fileUri = `${FileSystem.cacheDirectory}${filename}`;
     let lastError = null;
@@ -160,7 +161,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
   const header = (
     <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
       <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
-        <Ionicons name="chevron-back" size={20} color={colors.onPrimary} />
+        <Icon name="chevron-back" size={20} color={colors.onPrimary} />
       </Pressable>
       <View style={styles.headerCopy}>
         <Text style={styles.headerTitle}>Store QR poster</Text>
@@ -168,7 +169,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
       </View>
       {storefront ? (
         <Pressable onPress={shareLink} hitSlop={12} style={styles.navBtn}>
-          <Ionicons name="share-social-outline" size={18} color={colors.onPrimary} />
+          <Icon name="share-social-outline" size={18} color={colors.onPrimary} />
         </Pressable>
       ) : (
         <View style={styles.navBtn} />
@@ -237,7 +238,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
               </View>
             ) : (
               <View style={styles.storePill}>
-                <Ionicons name="storefront" size={10} color={colors.primary} />
+                <Icon name="storefront" size={10} color={colors.primary} />
                 <Text style={styles.storePillText}>OUR STORE</Text>
               </View>
             )}
@@ -277,7 +278,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
             {STEPS.map((step, i) => (
               <View key={step.title} style={styles.step}>
                 <View style={styles.stepIcon}>
-                  <Ionicons name={step.icon} size={15} color={colors.onPrimary} />
+                  <Icon name={step.icon} size={15} color={colors.onPrimary} />
                   <View style={styles.stepNum}>
                     <Text style={styles.stepNumText}>{i + 1}</Text>
                   </View>
@@ -302,7 +303,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
             <ActivityIndicator color={colors.onPrimary} />
           ) : (
             <>
-              <Ionicons name="print-outline" size={18} color={colors.onPrimary} />
+              <Icon name="print-outline" size={18} color={colors.onPrimary} />
               <View>
                 <Text style={styles.primaryBtnText}>Download A4 poster (PDF)</Text>
                 <Text style={styles.primaryBtnSub}>Ready to print for your counter</Text>
@@ -321,13 +322,13 @@ export default function ShopStorefrontQrScreen({ navigation }) {
               <ActivityIndicator color={colors.primary} />
             ) : (
               <>
-                <Ionicons name="image-outline" size={16} color={colors.primary} />
+                <Icon name="image-outline" size={16} color={colors.primary} />
                 <Text style={styles.secondaryBtnText}>QR image</Text>
               </>
             )}
           </Pressable>
           <Pressable style={styles.secondaryBtn} onPress={shareLink}>
-            <Ionicons name="share-social-outline" size={16} color={colors.primary} />
+            <Icon name="share-social-outline" size={16} color={colors.primary} />
             <Text style={styles.secondaryBtnText}>Share link</Text>
           </Pressable>
         </View>
@@ -339,7 +340,7 @@ export default function ShopStorefrontQrScreen({ navigation }) {
             ['sunny-outline', 'Keep it in a well-lit spot for easy scanning'],
           ].map(([icon, text]) => (
             <View key={text} style={styles.tipRow}>
-              <Ionicons name={icon} size={14} color={colors.primary} />
+              <Icon name={icon} size={14} color={colors.primary} />
               <Text style={styles.tipText}>{text}</Text>
             </View>
           ))}

@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,6 +59,41 @@ const createStyles = (colors) => ({
   button: {
     alignSelf: 'stretch',
   },
+  points: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginBottom: 24,
+  },
+  point: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  pointBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.iconBackground,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pointNumber: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  pointText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.text,
+  },
 });
 
 export default function InfoScreen({ navigation, route }) {
@@ -68,6 +103,7 @@ export default function InfoScreen({ navigation, route }) {
   const {
     title = 'KinBech',
     body = 'More details will appear here.',
+    points = [],
     buttonLabel,
     buttonRoute,
     buttonTab,
@@ -95,7 +131,7 @@ export default function InfoScreen({ navigation, route }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+          <Icon name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>{title}</Text>
         <View style={styles.back} />
@@ -103,10 +139,22 @@ export default function InfoScreen({ navigation, route }) {
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.iconWrap}>
-          <Ionicons name="information-circle" size={42} color={colors.primary} />
+          <Icon name="information-circle" size={42} color={colors.primary} />
         </View>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.body}>{body}</Text>
+        {points.length ? (
+          <View style={styles.points}>
+            {points.map((point, index) => (
+              <View key={point} style={styles.point}>
+                <View style={styles.pointBadge}>
+                  <Text style={styles.pointNumber}>{index + 1}</Text>
+                </View>
+                <Text style={styles.pointText}>{point}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         {buttonLabel ? (
           <GradientButton title={buttonLabel} onPress={handlePress} style={styles.button} />
         ) : null}

@@ -1,5 +1,5 @@
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { useTheme, useThemedStyles } from '../theme';
 
 /** Sparkle button that asks AI to fill the form from the cover photo. */
@@ -17,7 +17,7 @@ export function AiFillButton({ filling, onPress }) {
       {filling ? (
         <ActivityIndicator size="small" color={colors.primary} />
       ) : (
-        <Ionicons name="sparkles" size={14} color={colors.primary} />
+        <Icon name="sparkles" size={14} color={colors.primary} />
       )}
     </Pressable>
   );
@@ -31,7 +31,7 @@ export function AiFillNotice({ filling, error }) {
   if (!error) return null;
   return (
     <View style={styles.noticeRow}>
-      <Ionicons name="information-circle" size={14} color={colors.warning || '#F59E0B'} />
+      <Icon name="information-circle" size={14} color={colors.warning || '#F59E0B'} />
       <Text style={styles.noticeText}>{error}</Text>
     </View>
   );

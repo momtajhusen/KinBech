@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -72,7 +72,7 @@ export default function LegalHubScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+          <Icon name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>Legal & Policies</Text>
         <View style={styles.back} />
@@ -97,13 +97,13 @@ export default function LegalHubScreen({ navigation }) {
               onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: item.key })}
             >
               <View style={styles.iconCircle}>
-                <Ionicons name={item.icon} size={20} color={colors.primary} />
+                <Icon name={item.icon} size={20} color={colors.primary} />
               </View>
               <View style={styles.rowText}>
                 <Text style={styles.rowLabel}>{item.label}</Text>
                 <Text style={styles.rowSubtitle}>{item.subtitle}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+              <Icon name="chevron-forward" size={20} color={colors.primary} />
             </Pressable>
           ))}
         </View>

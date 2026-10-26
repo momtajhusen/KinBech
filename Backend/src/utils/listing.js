@@ -74,7 +74,8 @@ function resolveListingVerification(listing) {
       verified: true,
       verificationKind: 'phone',
       verificationLabel: 'Phone Verified',
-      trustBoost: 12,
+      // Every account is OTP-verified, so this says nothing extra; seller score ranks instead.
+      trustBoost: 0,
     };
   }
 
@@ -86,8 +87,65 @@ function resolveListingVerification(listing) {
   };
 }
 
+/** Nightly seller score boost (−20…+30), 0 until admins enable score ranking. */
+function sellerScoreBoost(listing) {
+  const boost = Number(listing?.seller?.rankBoost);
+  return Number.isFinite(boost) ? boost : 0;
+}
+
 function listingTrustBoost(listing) {
-  return (resolveListingVerification(listing).trustBoost || 0) + featuredTrustBoost(listing);
+  return (resolveListingVerification(listing).trustBoost || 0)
+    + featuredTrustBoost(listing)
+    + sellerScoreBoost(listing)
+    - (Number(listing?.trust?.rankPenalty) || 0);
+}
+
+function openNow(shop, now = new Date()) {
+  const days = Array.isArray(shop?.openDays) ? shop.openDays : [];
+  const hours = shop?.openingHours;
+  if (!days.length && !hours) return null;
+  const nst = new Date(now.getTime() + (5 * 60 + 45) * 60 * 1000);
+  const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const today = dayNames[nst.getUTCDay()];
+  if (days.length && !days.some((d) => String(d).toLowerCase().startsWith(today))) return false;
+  const match = String(hours || '').match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*[-–to]+\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (!match) return days.length ? true : null;
+  const toMin = (h, m, ap) => {
+    let hour = Number(h) % 12;
+    if (!ap) hour = Number(h);
+    else if (ap.toLowerCase() === 'pm') hour += 12;
+    return hour * 60 + (Number(m) || 0);
+  };
+  const open = toMin(match[1], match[2], match[3]);
+  const close = toMin(match[4], match[5], match[6] || (Number(match[4]) < Number(match[1]) ? 'pm' : ''));
+  const minutes = nst.getUTCHours() * 60 + nst.getUTCMinutes();
+  return close > open ? minutes >= open && minutes < close : minutes >= open || minutes < close;
+}
+
+/** Builds `statusChange` for a status write: who (seller / auto / admin) and why. */
+function statusChange(status, by, reason = '') {
+  return { status, by, reason, at: new Date() };
+}
+
+/** Who set the current status. Older listings without a matching record fall back to what the fields imply. */
+function statusSource(listing) {
+  const saved = listing.statusChange || {};
+  if (saved.by && saved.status === listing.status) {
+    return { statusBy: saved.by, statusReason: saved.reason || '', statusAt: saved.at || null };
+  }
+  const fallback = {
+    sold: listing.trust?.autoSoldAt
+      ? ['auto', 'deal_completed', listing.trust.autoSoldAt]
+      : ['seller', 'marked_sold', listing.soldAt],
+    hidden: [
+      listing.autoHidden?.reason === 'account_suspended' ? 'admin' : 'auto',
+      listing.autoHidden?.reason || '',
+      listing.autoHidden?.at,
+    ],
+    pending: ['auto', 'review', listing.heldAt],
+    removed: ['admin', 'rejected', listing.heldAt],
+  }[listing.status] || ['seller', 'posted', listing.createdAt];
+  return { statusBy: fallback[0], statusReason: fallback[1], statusAt: fallback[2] || null };
 }
 
 function listingPayload(listing, distanceKm, extras = {}) {
@@ -97,10 +155,10 @@ function listingPayload(listing, distanceKm, extras = {}) {
   const verification = resolveListingVerification(listing);
   const featured = isListingFeatured(listing);
 
-  // KinBech accounts are created via phone OTP, so the registered number is always
-  // exposed here — the item detail screen needs it to place a call.
+  // The number is shown only when the seller turned on "Show phone number";
+  // otherwise buyers see it in chat after a meetup is confirmed.
   const seller = listing.seller && listing.seller._id
-    ? { ...publicUser(listing.seller), phone: String(listing.seller.phone || '') }
+    ? publicUser(listing.seller)
     : listing.seller;
 
   const shop = listing.shopId && listing.shopId._id
@@ -116,6 +174,7 @@ function listingPayload(listing, distanceKm, extras = {}) {
         phone: listing.shopId.phone || '',
         location: listing.shopId.location || listing.shopId.address || '',
         coordinates: listing.shopId.coordinates,
+        openNow: openNow(listing.shopId),
       }
     : listing.shopId;
 
@@ -152,6 +211,14 @@ function listingPayload(listing, distanceKm, extras = {}) {
     isFeatured: featured,
     featuredUntil: featured ? listing.featuredUntil : null,
     featuredSource: featured ? listing.featuredSource || '' : '',
+    listingKind: listing.listingKind || (listing.sellerType === 'shop' ? 'stock' : 'single'),
+    lowStockLimit: Number(listing.lowStockLimit) || 0,
+    stockState: listing.trust?.stockState || '',
+    availabilityConfirmedAt: listing.availabilityConfirmedAt || null,
+    autoHiddenReason: listing.status === 'hidden' ? listing.autoHidden?.reason || '' : '',
+    autoSold: listing.status === 'sold' && Boolean(listing.trust?.autoSoldAt),
+    needsConfirm: listing.status === 'active' && Boolean(listing.trust?.confirmBy),
+    ...statusSource(listing),
     createdAt: listing.createdAt,
     updatedAt: listing.updatedAt,
     distanceKm:
@@ -195,4 +262,5 @@ module.exports = {
   listingPoint,
   resolveListingVerification,
   listingTrustBoost,
+  statusChange,
 };

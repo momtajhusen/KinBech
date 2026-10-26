@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 import {
   Image,
   PermissionsAndroid,
@@ -13,7 +14,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../services/api';
 import { openItemDetail } from '../navigation/helpers';
-import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import { formatDistanceLabel, formatPrice, resolveMediaUrl } from '../utils/listing';
+import { haversineKm } from '../utils/locations';
 import {
   declineIncomingCall,
   dismissIncomingCallNotification,
@@ -49,6 +51,7 @@ export default function CallScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
   const { name, image, chatId } = route?.params || {};
   const [listing, setListing] = useState(route?.params?.listing || null);
+  const [userCoords, setUserCoords] = useState(null);
   const incomingRef = useRef(Boolean(route?.params?.incoming));
   const isIncoming = incomingRef.current;
   const autoAnswer = Boolean(route?.params?.autoAnswer) && isIncoming && !isCallDeclined(chatId);
@@ -85,13 +88,32 @@ export default function CallScreen({ navigation, route }) {
   useEffect(() => {
     if (!chatId) return undefined;
     let cancelled = false;
-    api.getMessages(chatId).then(({ data }) => {
+    api.getMessages(chatId, { limit: 1 }).then(({ data }) => {
       if (!cancelled && data?.listing) setListing(data.listing);
     });
     return () => {
       cancelled = true;
     };
   }, [chatId]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted' || !active) return;
+        const last = await Location.getLastKnownPositionAsync();
+        const position = last || await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!active || !position?.coords) return;
+        setUserCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
+      } catch {
+        /* distance stays hidden */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isIncoming || !isCallDeclined(chatId)) return undefined;
@@ -343,6 +365,13 @@ export default function CallScreen({ navigation, route }) {
   const listingId = listing?.id || listing?._id;
   const listingPhoto = listing?.photos?.[0] ? resolveMediaUrl(listing.photos[0]) : '';
   const listingPrice = listing?.price != null && listing?.price !== '' ? formatPrice(listing.price) : '';
+  const listingPlace = String(listing?.location || '').trim();
+  const listingLat = Number(listing?.coordinates?.lat);
+  const listingLng = Number(listing?.coordinates?.lng);
+  const distanceLabel =
+    userCoords && Number.isFinite(listingLat) && Number.isFinite(listingLng)
+      ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, listingLat, listingLng))
+      : '';
 
   const openListing = () => {
     if (!listingId) return;
@@ -395,7 +424,7 @@ export default function CallScreen({ navigation, route }) {
         <View style={styles.headerContent}>
           <Pressable onPress={endCall} hitSlop={12} style={styles.backBtn}>
             <View style={styles.backBtnInner}>
-              <Ionicons name="arrow-down" size={24} color={colors.onGradient} />
+              <Icon name="arrow-down" size={24} color={colors.onGradient} />
             </View>
           </Pressable>
 
@@ -408,7 +437,7 @@ export default function CallScreen({ navigation, route }) {
 
           <View style={styles.headerRight}>
             <Pressable hitSlop={15} style={styles.headerActionBtn}>
-              <Ionicons name="ellipsis-vertical" size={24} color={colors.onGradient} />
+              <Icon name="ellipsis-vertical" size={24} color={colors.onGradient} />
             </Pressable>
           </View>
         </View>
@@ -432,20 +461,31 @@ export default function CallScreen({ navigation, route }) {
 
         {listing?.title ? (
           <View style={styles.itemCard}>
-            {listingPhoto ? (
-              <Image source={{ uri: listingPhoto }} style={styles.itemPhoto} />
-            ) : (
-              <View style={styles.itemPhotoFallback}>
-                <Ionicons name="image-outline" size={22} color={colors.textMuted} />
+            <View style={styles.itemTop}>
+              {listingPhoto ? (
+                <Image source={{ uri: listingPhoto }} style={styles.itemPhoto} />
+              ) : (
+                <View style={styles.itemPhotoFallback}>
+                  <Icon name="image-outline" size={22} color={colors.textMuted} />
+                </View>
+              )}
+              <View style={styles.itemCopy}>
+                <Text style={styles.itemTitle} numberOfLines={2}>{listing.title}</Text>
+                {listingPrice ? <Text style={styles.itemPrice}>{listingPrice}</Text> : null}
               </View>
-            )}
-            <View style={styles.itemCopy}>
-              <Text style={styles.itemTitle} numberOfLines={2}>{listing.title}</Text>
-              {listingPrice ? <Text style={styles.itemPrice}>{listingPrice}</Text> : null}
+              <Pressable style={styles.detailsBtn} onPress={openListing}>
+                <Text style={styles.detailsBtnText}>View details</Text>
+              </Pressable>
             </View>
-            <Pressable style={styles.detailsBtn} onPress={openListing}>
-              <Text style={styles.detailsBtnText}>View details</Text>
-            </Pressable>
+            {listingPlace || distanceLabel ? (
+              <View style={styles.itemMeta}>
+                <Icon name="location-outline" size={14} color={colors.textMuted} />
+                <Text style={styles.itemPlace} numberOfLines={1}>
+                  {listingPlace || 'Location'}
+                </Text>
+                {distanceLabel ? <Text style={styles.itemDistance}>{distanceLabel}</Text> : null}
+              </View>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -455,13 +495,13 @@ export default function CallScreen({ navigation, route }) {
           <View style={styles.endCallRow}>
             <View style={styles.incomingAction}>
               <Pressable style={styles.endCallBtn} onPress={endCall}>
-                <Ionicons name="call" size={32} color={colors.onGradient} />
+                <Icon name="call" size={32} color={colors.onGradient} />
               </Pressable>
               <Text style={styles.controlLabel}>Decline</Text>
             </View>
             <View style={styles.incomingAction}>
               <Pressable style={styles.answerBtn} onPress={answerCall}>
-                <Ionicons name="call" size={32} color={colors.onGradient} />
+                <Icon name="call" size={32} color={colors.onGradient} />
               </Pressable>
               <Text style={styles.controlLabel}>Answer</Text>
             </View>
@@ -480,7 +520,7 @@ export default function CallScreen({ navigation, route }) {
                 isMuted && { backgroundColor: colors.primary },
               ]}
             >
-              <Ionicons
+              <Icon
                 name={isMuted ? 'mic-off' : 'mic'}
                 size={26}
                 color={isMuted ? colors.onPrimary : colors.text}
@@ -499,7 +539,7 @@ export default function CallScreen({ navigation, route }) {
                 isSpeakerOn && { backgroundColor: colors.primary },
               ]}
             >
-              <Ionicons
+              <Icon
                 name={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                 size={26}
                 color={isSpeakerOn ? colors.onPrimary : colors.text}
@@ -511,7 +551,7 @@ export default function CallScreen({ navigation, route }) {
 
         <View style={styles.endCallRow}>
           <Pressable style={styles.endCallBtn} onPress={endCall}>
-            <Ionicons name="call" size={32} color={colors.onGradient} />
+            <Icon name="call" size={32} color={colors.onGradient} />
           </Pressable>
         </View>
         </>
@@ -643,14 +683,17 @@ const createStyles = (colors) => StyleSheet.create({
   itemCard: {
     marginTop: 28,
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    gap: 10,
     padding: 12,
     borderRadius: 18,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  itemTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   itemPhoto: {
     width: 56,
@@ -679,6 +722,27 @@ const createStyles = (colors) => StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.primaryBright || colors.primary,
+  },
+  itemMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  itemPlace: {
+    flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  itemDistance: {
+    flexShrink: 0,
+    marginLeft: 8,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.primary,
   },
   detailsBtn: {
     paddingHorizontal: 10,

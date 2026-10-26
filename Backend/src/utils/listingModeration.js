@@ -208,8 +208,7 @@ function publicProhibitedBody(result) {
 
 /**
  * Decide listing status for create/update.
- * - block keywords → reject with 400
- * - hold keywords OR category requiresPreApproval → pending
+ * - block or hold keywords OR category requiresPreApproval → pending (manual review)
  * - else → active (unless already sold)
  */
 async function evaluateListingModeration(listingLike, { currentStatus } = {}) {
@@ -241,10 +240,15 @@ async function evaluateListingModeration(listingLike, { currentStatus } = {}) {
 
   if (!publicCheck.ok) {
     return {
-      ...publicCheck,
+      ok: true,
+      prohibited: true,
       status: 'pending',
+      matchedKeywords: publicCheck.matchedKeywords || [],
       requiresPreApproval: false,
-      reason: publicCheck.message,
+      reason: 'Title or description has words that may break KinBech rules (adult, violence, weapons or drugs).',
+      message: publicCheck.message,
+      httpStatus: 200,
+      fieldErrors: {},
     };
   }
 

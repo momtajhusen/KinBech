@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const { sealField } = require('../utils/fieldCrypto');
+const { audiencePlugin } = require('../utils/audience');
 
 const shopSchema = new mongoose.Schema(
   {
@@ -83,16 +85,18 @@ const shopSchema = new mongoose.Schema(
       default: false,
       index: true 
     },
-    /** Nepal business tax IDs — optional; used for admin verification badge */
+    /** Nepal business tax IDs — optional; encrypted at rest (utils/fieldCrypto). */
     panNumber: {
       type: String,
       trim: true,
       default: '',
+      set: sealField,
     },
     vatNumber: {
       type: String,
       trim: true,
       default: '',
+      set: sealField,
     },
     businessDocuments: [
       {
@@ -116,6 +120,25 @@ const shopSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Admin review checklist; approve needs nameMatches plus panValid or documentClear. */
+    verificationChecklist: {
+      panValid: { type: Boolean, default: false },
+      nameMatches: { type: Boolean, default: false },
+      documentClear: { type: Boolean, default: false },
+      addressMatches: { type: Boolean, default: false },
+      phoneReachable: { type: Boolean, default: false },
+    },
+    verificationReviewedAt: { type: Date, default: null },
+    verificationReviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    verificationHistory: [
+      {
+        action: { type: String, enum: ['submitted', 'approved', 'rejected', 'revoked', 'note'], required: true },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+        byName: { type: String, default: '' },
+        note: { type: String, trim: true, default: '' },
+        at: { type: Date, default: Date.now },
+      },
+    ],
     ratingAverage: { 
       type: Number, 
       default: 0,
@@ -137,15 +160,20 @@ const shopSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    lastStockReminderAt: { type: Date, default: null },
     status: {
       type: String,
       enum: ['active', 'inactive', 'suspended'],
       default: 'active',
       index: true
-    }
+    },
+    /** Owned by a tester account; visible only to testers (utils/audience). */
+    isTest: { type: Boolean, default: false, index: true }
   },
   { timestamps: true, collection: 'shops' }
 );
+
+shopSchema.plugin(audiencePlugin);
 
 // Indexes for better query performance
 shopSchema.index({ owner: 1, status: 1 });

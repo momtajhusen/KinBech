@@ -6,9 +6,17 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import LiveActivity from './pages/LiveActivity';
 import Users from './pages/Users';
+import UserDetail from './pages/UserDetail';
+import Support from './pages/Support';
+import TestAccounts from './pages/TestAccounts';
+import ScamMonitor from './pages/ScamMonitor';
+import FraudSignals from './pages/FraudSignals';
+import ShopVerification from './pages/ShopVerification';
 import Listings from './pages/Listings';
+import PendingReview from './pages/PendingReview';
 import Shops from './pages/Shops';
 import Reports from './pages/Reports';
+import Trust from './pages/Trust';
 import Reviews from './pages/Reviews';
 import Notifications from './pages/Notifications';
 import Settings from './pages/Settings';
@@ -16,15 +24,63 @@ import Categories from './pages/Categories';
 import RestrictedKeywords from './pages/RestrictedKeywords';
 import ErrorLog from './pages/ErrorLog';
 import AiModels from './pages/AiModels';
+import ChangePassword from './pages/ChangePassword';
+import Activity from './pages/Activity';
+import Security from './pages/Security';
 import { adminPath } from './routes';
+import { PAGE_SCOPES, canAccess, firstAllowedPath } from './utils/access';
 import './admin.css';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="loading">Loading...</div>;
   if (!user) return <Navigate to={adminPath('login')} replace />;
+  if (user.mustChangePassword) return <ChangePassword />;
+  if (user.twoFactorSetupRequired) return <Security forced />;
   return children;
 }
+
+function NoAccess() {
+  return (
+    <div className="card" style={{ padding: 24 }}>
+      <h2>No access</h2>
+      <p>Your admin role can&apos;t open this page. Ask a super admin if you need it.</p>
+    </div>
+  );
+}
+
+/** Render a page only when the admin's role has its RBAC scope. */
+function Scoped({ page, children }) {
+  const { user } = useAuth();
+  if (canAccess(user, PAGE_SCOPES[page])) return children;
+  const fallback = firstAllowedPath(user);
+  if (fallback && fallback !== adminPath(page)) return <Navigate to={fallback} replace />;
+  return <NoAccess />;
+}
+
+const PAGES = [
+  ['dashboard', Dashboard],
+  ['live-activity', LiveActivity],
+  ['users', Users],
+  ['support', Support],
+  ['testers', TestAccounts],
+  ['shops', Shops],
+  ['shop-verification', ShopVerification],
+  ['pending-review', PendingReview],
+  ['listings', Listings],
+  ['categories', Categories],
+  ['restricted-keywords', RestrictedKeywords],
+  ['reports', Reports],
+  ['trust', Trust],
+  ['scam-monitor', ScamMonitor],
+  ['fraud-signals', FraudSignals],
+  ['error-log', ErrorLog],
+  ['reviews', Reviews],
+  ['notifications', Notifications],
+  ['ai-models', AiModels],
+  ['settings', Settings],
+  ['activity', Activity],
+];
 
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
@@ -55,19 +111,26 @@ export default function AdminApp() {
             )}
           >
             <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
-            <Route path="live-activity" element={<LiveActivity />} />
-            <Route path="users" element={<Users />} />
-            <Route path="shops" element={<Shops />} />
-            <Route path="listings" element={<Listings />} />
-            <Route path="categories" element={<Categories />} />
-            <Route path="restricted-keywords" element={<RestrictedKeywords />} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="error-log" element={<ErrorLog />} />
-            <Route path="reviews" element={<Reviews />} />
-            <Route path="notifications" element={<Notifications />} />
-            <Route path="ai-models" element={<AiModels />} />
-            <Route path="settings" element={<Settings />} />
+            {PAGES.map(([page, Page]) => (
+              <Route
+                key={page}
+                path={page}
+                element={(
+                  <Scoped page={page}>
+                    <Page />
+                  </Scoped>
+                )}
+              />
+            ))}
+            <Route
+              path="users/:userId"
+              element={(
+                <Scoped page="users">
+                  <UserDetail />
+                </Scoped>
+              )}
+            />
+            <Route path="account-security" element={<Security />} />
           </Route>
           <Route path="*" element={<Navigate to={adminPath('login')} replace />} />
         </Routes>

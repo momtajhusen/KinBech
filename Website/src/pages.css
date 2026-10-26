@@ -254,6 +254,17 @@
   box-shadow: var(--glass-shadow);
 }
 
+.human-check {
+  text-align: center;
+}
+
+.human-check .turnstile-box {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+  min-height: 65px;
+}
+
 .page-info-card h3 {
   font-size: 20px;
   font-weight: 800;

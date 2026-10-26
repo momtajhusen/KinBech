@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   Keyboard,
   Pressable,
@@ -15,14 +14,20 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FormScroll, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
-import ScreenLoader from '../components/ScreenLoader';
+import { FormScroll, revealFocusedInput, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
 import SearchWordsField from '../components/SearchWordsField';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar, formFieldStyles, formInputStyle, formLabelStyle, FORM_ERROR_COLOR } from '../theme';
-import { useCategories } from '../utils/categories';
+import {
+  mapApiCategory,
+  noteUserListedCategory,
+  refreshUserCategoryRank,
+  upsertCategoryMemory,
+  useCategories,
+  withCategoryFirst,
+} from '../utils/categories';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
@@ -96,7 +101,7 @@ function CompactHeader({ insets, onBack, colors, styles, title }) {
     >
       <View style={styles.headerRow}>
         <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={colors.onGradient} />
+          <Icon name="chevron-back" size={22} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>{title}</Text>
         <View style={styles.backBtn} />
@@ -121,7 +126,12 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const categories = useCategories('product');
+  const allCategories = useCategories('product');
+  const [shopCategories, setShopCategories] = useState(null);
+  const [shopCategoriesLoading, setShopCategoriesLoading] = useState(true);
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [aiCategory, setAiCategory] = useState(null);
+  const chipScrollRef = useRef(null);
   const scrollRef = useRef(null);
   const photoAnchorRef = useRef(null);
   const titleAnchorRef = useRef(null);
@@ -159,8 +169,11 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     Array.isArray(editListing?.searchWords) ? editListing.searchWords : []
   );
   const [category, setCategory] = useState(editListing?.category || 'Mobiles');
+  const categoryTouchedRef = useRef(isEdit);
   const [condition, setCondition] = useState(editListing?.condition || 'New');
   const [price, setPrice] = useState(editListing?.price != null ? String(editListing.price) : '');
+  const priceTextRef = useRef(price);
+  priceTextRef.current = price;
   const [originalPrice, setOriginalPrice] = useState(
     editListing?.originalPrice != null && editListing.originalPrice !== ''
       ? String(editListing.originalPrice)
@@ -197,6 +210,43 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data, error } = await api.getMyShopCategories();
+      if (!active) return;
+      if (!error) {
+        const list = (data?.categories || []).map(mapApiCategory);
+        list.forEach((item) => upsertCategoryMemory('product', item));
+        setShopCategories(list);
+      }
+      setShopCategoriesLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const categories = useMemo(() => {
+    const base = shopCategories?.length && !showAllCategories ? shopCategories : allCategories;
+    let list = base;
+    if (categoryTouchedRef.current && category && !base.some((item) => item.label === category)) {
+      const current = allCategories.find((item) => item.label === category) || {
+        label: category,
+        icon: 'pricetag-outline',
+        color: colors.primary,
+      };
+      list = [current, ...base];
+    }
+    return withCategoryFirst(list, aiCategory?.label, aiCategory);
+  }, [shopCategories, showAllCategories, allCategories, category, aiCategory, colors.primary]);
+
+  useEffect(() => {
+    if (categoryTouchedRef.current) return;
+    const first = categories[0]?.label;
+    if (first) setCategory(first);
+  }, [categories]);
+
   const handleBack = () => {
     if (alertConfig) {
       setAlertConfig(null);
@@ -215,9 +265,47 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const ai = useListingAiFill({
     categories,
     conditions: CONDITIONS,
-    fields: { setTitle, setDescription, setSearchWords, setCategory, setCondition },
+    forShop: true,
+    fields: {
+      setTitle,
+      setDescription,
+      setSearchWords,
+      setCategory: (value, item) => {
+        categoryTouchedRef.current = true;
+        setCategory(value);
+        setAiCategory(item || { label: value, icon: 'pricetag-outline', color: colors.primary });
+        chipScrollRef.current?.scrollTo({ x: 0, animated: true });
+        if (item) {
+          setShopCategories((list) =>
+            list?.length && !list.some((cat) => cat.label === value) ? [item, ...list] : list
+          );
+        }
+      },
+      setCondition,
+    },
     onTitleFilled: () => clearFieldError('title'),
+    onRemoveFlaggedPhoto: (flaggedUri) => {
+      setPhotos((prev) => prev.filter((item) => item?.uri !== flaggedUri));
+      setFieldErrors((current) => ({ ...current, photo: 'Choose another photo' }));
+    },
     setAlertConfig,
+  });
+  const imageFlag =
+    ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
+      ? { issue: ai.imageFlag.issue, reason: ai.imageFlag.reason }
+      : null;
+
+  const manualReviewAlert = (reason, onDone) => ({
+    type: 'warning',
+    title: 'Sent for manual review',
+    message: `${String(reason || '').replace(/\s*Held for manual review\.?\s*$/i, '').trim()}\n\nYour product will go live after our team checks it.`.trim(),
+    primaryButton: {
+      text: 'OK',
+      onPress: () => {
+        setAlertConfig(null);
+        onDone();
+      },
+    },
   });
 
   const requireCover = () => {
@@ -258,17 +346,30 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       setPickingIndex(null);
     }
     if (index === 0 && pickedUri && !isEdit) {
-      // The picker activity needs a moment to close before the input can take focus.
-      if (!price.trim()) setTimeout(() => revealField(priceAnchorRef, priceRef), 350);
-      if (!ai.limitReached) ai.fill({ silent: true, photoUri: pickedUri, onlyEmpty: true });
+      // Open the keyboard for price only once AI is done, so it does not jump while the photo is read.
+      const focusPrice = () => {
+        if (priceTextRef.current.trim() || TextInput.State?.currentlyFocusedInput?.()) return;
+        revealField(priceAnchorRef, priceRef);
+      };
+      if (ai.limitReached) {
+        setTimeout(focusPrice, 350);
+      } else {
+        ai.fill({ silent: true, photoUri: pickedUri, onlyEmpty: true }).then((result) => {
+          if (result !== 'blocked') setTimeout(focusPrice, 250);
+        });
+      }
     }
-  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, price, ai, isEdit]);
+  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, isEdit]);
 
   const removePhoto = (index) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
   };
 
   const validateStep1 = () => {
+    if (loadingShop) {
+      Alert.alert('One moment', 'Your shop is still loading. Try again in a second.');
+      return false;
+    }
     if (!userShop) {
       Alert.alert('No Shop Found', 'You need to create a shop first to post shop products.', [
         { text: 'Cancel', style: 'cancel' },
@@ -294,6 +395,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     setTimeout(run, 50);
     setTimeout(run, 280);
     if (inputRef) setTimeout(() => inputRef.current?.focus?.(), 40);
+  };
+
+  const focusField = () => {
+    setTimeout(() => revealFocusedInput(scrollRef), 120);
   };
 
   const publish = async () => {
@@ -364,6 +469,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       originalPrice: originalPrice ? Number(originalPrice) : null,
       isOnSale,
       hasVariants,
+      ...(imageFlag ? { imageFlag } : {}),
     };
 
     if (hasVariants) {
@@ -374,7 +480,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     }
 
     if (isEdit) {
-      const { error } = await api.updateListing(listingId, payload);
+      const { data: saved, error } = await api.updateListing(listingId, payload);
       setSubmitting(false);
       if (error) {
         setAlertConfig(
@@ -384,6 +490,12 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
             onConfirm: () => setAlertConfig(null),
           })
         );
+        return;
+      }
+      noteUserListedCategory(category);
+      refreshUserCategoryRank({ force: true }).catch(() => {});
+      if (saved?.moderation?.status === 'pending') {
+        setAlertConfig(manualReviewAlert(saved.moderation.reason, () => navigation.goBack()));
         return;
       }
       navigation.goBack();
@@ -406,17 +518,26 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       );
       return;
     }
-    navigation.replace(ROUTES.LISTING_SUCCESS, {
-      listing: {
-        id: data.listing.id,
-        title: data.listing.title,
-        price: String(data.listing.price),
-        location: data.listing.location || userShop?.location || '',
-        imageUrl: data.listing.photos?.[0] || mainPhoto,
-        condition: data.listing.condition,
-        category: data.listing.category,
-      },
-    });
+    noteUserListedCategory(category);
+    refreshUserCategoryRank({ force: true }).catch(() => {});
+    const openSuccess = () =>
+      navigation.navigate(ROUTES.LISTING_SUCCESS, {
+        listing: {
+          id: data.listing.id,
+          title: data.listing.title,
+          price: String(data.listing.price),
+          location: data.listing.location || userShop?.location || '',
+          imageUrl: data.listing.photos?.[0] || mainPhoto,
+          condition: data.listing.condition,
+          category: data.listing.category,
+          status: data.listing.status,
+        },
+      });
+    if (data.moderation?.status === 'pending') {
+      setAlertConfig(manualReviewAlert(data.moderation.reason, openSuccess));
+      return;
+    }
+    openSuccess();
   };
 
   const handleDelete = () => {
@@ -440,10 +561,6 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
 
   if (!colors) return null;
 
-  if (loadingShop) {
-    return <ScreenLoader label="Loading shop" />;
-  }
-
   const photoCount = photos.filter(Boolean).length;
 
   return (
@@ -460,21 +577,16 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       <View style={styles.flex}>
         <FormScroll
           ref={scrollRef}
-          lift={false}
-          autoScroll={false}
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingBottom:
-                keyboardHeight > 0
-                  ? Math.max(240, Math.round(Dimensions.get('window').height * 0.46))
-                  : insets.bottom + 12,
-            },
-          ]}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 }]}
         >
-          {userShop ? (
+          {loadingShop && !userShop ? (
             <View style={styles.shopInfoCard}>
-              <Ionicons name="storefront" size={16} color={colors.primary} />
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.shopInfoText} numberOfLines={1}>Loading your shop…</Text>
+            </View>
+          ) : userShop ? (
+            <View style={styles.shopInfoCard}>
+              <Icon name="storefront" size={16} color={colors.primary} />
               <Text style={styles.shopInfoText} numberOfLines={1}>
                 {userShop.name}
               </Text>
@@ -484,9 +596,9 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
               style={styles.shopMissingCard}
               onPress={() => navigation.navigate(ROUTES.CREATE_SHOP)}
             >
-              <Ionicons name="alert-circle-outline" size={16} color={colors.warning} />
+              <Icon name="alert-circle-outline" size={16} color={colors.warning} />
               <Text style={styles.shopMissingText}>Create a shop first</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              <Icon name="chevron-forward" size={16} color={colors.textSecondary} />
             </Pressable>
           )}
 
@@ -494,7 +606,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
             <Text style={styles.sectionTitle}>Photos</Text>
             <View style={styles.mediaCountRow}>
               <View style={styles.countChip}>
-                <Ionicons name="image" size={11} color={colors.primary} />
+                <Icon name="image" size={11} color={colors.primary} />
                 <Text style={styles.countChipText}>
                   {photoCount}/{MAX_LISTING_PHOTOS}
                 </Text>
@@ -525,14 +637,14 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                     <Text style={styles.coverBadgeText}>Cover</Text>
                   </View>
                   <Pressable style={styles.removeBadge} onPress={() => removePhoto(0)} hitSlop={6}>
-                    <Ionicons name="close" size={12} color="#fff" />
+                    <Icon name="close" size={12} color="#fff" />
                   </Pressable>
                 </>
               ) : pickingIndex === 0 ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
                 <>
-                  <Ionicons name="camera" size={20} color={colors.primary} />
+                  <Icon name="camera" size={20} color={colors.primary} />
                   <Text style={styles.slotLabel}>Cover</Text>
                 </>
               )}
@@ -552,14 +664,14 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                         onPress={() => removePhoto(slotIndex)}
                         hitSlop={6}
                       >
-                        <Ionicons name="close" size={11} color="#fff" />
+                        <Icon name="close" size={11} color="#fff" />
                       </Pressable>
                     </>
                   ) : loading ? (
                     <ActivityIndicator size="small" color={colors.primary} />
                   ) : (
                     <Pressable style={styles.slotFill} onPress={() => pickPhoto(slotIndex)}>
-                      <Ionicons name="add" size={18} color={colors.primary} />
+                      <Icon name="add" size={18} color={colors.primary} />
                     </Pressable>
                   )}
                 </View>
@@ -584,7 +696,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 inputRef={titleRef}
                 anchorRef={titleAnchorRef}
                 error={fieldErrors.title}
-                onFocus={() => revealField(titleAnchorRef)}
+                onFocus={focusField}
               />
             </View>
             <View style={styles.pairPrice}>
@@ -602,7 +714,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 inputRef={priceRef}
                 anchorRef={priceAnchorRef}
                 error={fieldErrors.price}
-                onFocus={() => revealField(priceAnchorRef)}
+                onFocus={focusField}
               />
             </View>
           </View>
@@ -617,19 +729,26 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
             styles={styles}
             inputRef={descRef}
             anchorRef={descAnchorRef}
-            onFocus={() => revealField(descAnchorRef)}
+            onFocus={focusField}
           />
 
           <View ref={searchAnchorRef} collapsable={false}>
             <SearchWordsField
               words={searchWords}
               onChange={setSearchWords}
-              onFocus={() => revealField(searchAnchorRef)}
+              onFocus={focusField}
             />
           </View>
 
           <Text style={styles.fieldLabel}>Category</Text>
+          {shopCategoriesLoading && !shopCategories ? (
+            <View style={styles.categoryHintRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+              <Text style={styles.categoryHint}>Finding categories for your store…</Text>
+            </View>
+          ) : null}
           <ScrollView
+            ref={chipScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -647,12 +766,15 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                     active && styles.categoryChipActive,
                     active && { backgroundColor: categoryColor, borderColor: categoryColor },
                   ]}
-                  onPress={() => setCategory(cat.label)}
+                  onPress={() => {
+                    categoryTouchedRef.current = true;
+                    setCategory(cat.label);
+                  }}
                 >
                   {cat.imageUrl ? (
                     <Image source={{ uri: cat.imageUrl }} style={styles.catIcon} />
                   ) : (
-                    <Ionicons
+                    <Icon
                       name={cat.icon}
                       size={13}
                       color={active ? colors.onPrimary : colors.textSecondary}
@@ -664,6 +786,21 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 </Pressable>
               );
             })}
+            {shopCategories?.length ? (
+              <Pressable
+                style={styles.categoryChip}
+                onPress={() => setShowAllCategories((value) => !value)}
+              >
+                <Icon
+                  name={showAllCategories ? 'remove' : 'add'}
+                  size={13}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.categoryChipText}>
+                  {showAllCategories ? 'Store only' : 'More'}
+                </Text>
+              </Pressable>
+            ) : null}
           </ScrollView>
 
           <View style={styles.pairRow}>
@@ -700,7 +837,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                   inputRef={stockRef}
                   anchorRef={stockAnchorRef}
                   error={fieldErrors.stock}
-                  onFocus={() => revealField(stockAnchorRef)}
+                  onFocus={focusField}
                 />
               </View>
             ) : null}
@@ -742,7 +879,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 colors={colors}
                 styles={styles}
                 anchorRef={originalAnchorRef}
-                onFocus={() => revealField(originalAnchorRef)}
+                onFocus={focusField}
               />
             </View>
             <View style={styles.priceCol}>
@@ -755,7 +892,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 styles={styles}
                 inputRef={brandRef}
                 anchorRef={brandAnchorRef}
-                onFocus={() => revealField(brandAnchorRef)}
+                onFocus={focusField}
               />
             </View>
           </View>
@@ -771,7 +908,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 styles={styles}
                 inputRef={skuRef}
                 anchorRef={skuAnchorRef}
-                onFocus={() => revealField(skuAnchorRef)}
+                onFocus={focusField}
               />
             </View>
             <View style={[styles.pairPrice, styles.floatingWrap]}>
@@ -800,7 +937,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
                 />
               </View>
               <Pressable style={styles.deleteBtn} onPress={handleDelete} hitSlop={6}>
-                <Ionicons name="trash-outline" size={15} color={FORM_ERROR_COLOR} />
+                <Icon name="trash-outline" size={15} color={FORM_ERROR_COLOR} />
                 <Text style={styles.deleteText}>Delete</Text>
               </Pressable>
             </View>
@@ -1011,6 +1148,16 @@ const createStyles = (colors) => ({
     width: 14,
     height: 14,
     borderRadius: 3,
+  },
+  categoryHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  categoryHint: {
+    fontSize: 12,
+    color: colors.textTertiary,
   },
   categoryChip: {
     flexDirection: 'row',

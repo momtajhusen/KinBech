@@ -82,9 +82,61 @@ export function mapApiCategory(item) {
 
 const categoriesMemory = {};
 const categoryListeners = new Set();
+/** @type {{ name: string, count: number }[] | null} */
+let userCategoryRank = null;
+let userCategoryRankPromise = null;
 
 function emitCategories(type) {
   categoryListeners.forEach((fn) => fn(type));
+}
+
+export function orderCategoriesForUser(list) {
+  if (!userCategoryRank?.length || !list?.length) return list;
+  const score = new Map(userCategoryRank.map((row, index) => [row.name, userCategoryRank.length - index]));
+  return list
+    .map((item, index) => ({ item, index, score: score.get(item.label) || 0 }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((row) => row.item);
+}
+
+export function getUserTopCategory() {
+  return userCategoryRank?.[0]?.name || '';
+}
+
+export function noteUserListedCategory(name) {
+  const label = String(name || '').trim();
+  if (!label) return;
+  const rows = (userCategoryRank || []).map((row) => ({ ...row }));
+  const found = rows.find((row) => row.name === label);
+  if (found) found.count += 1;
+  else rows.push({ name: label, count: 1 });
+  rows.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  userCategoryRank = rows;
+  emitCategories('product');
+}
+
+export function refreshUserCategoryRank({ force = false } = {}) {
+  if (!force && userCategoryRank) return Promise.resolve(userCategoryRank);
+  if (!force && userCategoryRankPromise) return userCategoryRankPromise;
+  userCategoryRankPromise = (async () => {
+    const { data, error } = await api.getMyCategoryUsage();
+    userCategoryRankPromise = null;
+    if (error) return userCategoryRank || [];
+    userCategoryRank = (data?.categories || [])
+      .filter((row) => row?.name)
+      .map((row) => ({ name: row.name, count: Number(row.count) || 0 }));
+    emitCategories('product');
+    return userCategoryRank;
+  })();
+  return userCategoryRankPromise;
+}
+
+/** Moves the category named `label` to the front; `fallback` is used when the list lacks it. */
+export function withCategoryFirst(list, label, fallback = null) {
+  if (!label) return list;
+  const found = list.find((item) => item.label === label) || fallback;
+  if (!found) return list;
+  return [found, ...list.filter((item) => item.label !== label)];
 }
 
 export function upsertCategoryMemory(type, category) {
@@ -123,9 +175,10 @@ export function useCategories(type = 'product') {
       if (!active || !list.length) return;
       setCategories(list);
     })();
+    if (type === 'product') refreshUserCategoryRank();
     const onChange = (changedType) => {
       if (changedType && changedType !== type) return;
-      if (categoriesMemory[type]?.length) setCategories(categoriesMemory[type]);
+      if (categoriesMemory[type]?.length) setCategories([...categoriesMemory[type]]);
     };
     categoryListeners.add(onChange);
     return () => {
@@ -134,10 +187,11 @@ export function useCategories(type = 'product') {
     };
   }, [type]);
 
-  return categories;
+  return type === 'product' ? orderCategoriesForUser(categories) : categories;
 }
 
-export function mergeSidebarCategories(presets, counts, allOption) {
+/** `interests`: category names this buyer engages with most, strongest first. */
+export function mergeSidebarCategories(presets, counts, allOption, interests = [], { hideEmpty = false, keep = [] } = {}) {
   const fromData = Object.keys(counts).map((label) => {
     const preset = presets.find((c) => c.label === label);
     return {
@@ -151,10 +205,29 @@ export function mergeSidebarCategories(presets, counts, allOption) {
 
   const merged = [...fromData];
   for (const preset of presets) {
+    if (hideEmpty && !keep.includes(preset.label)) continue;
     if (!merged.find((c) => c.label === preset.label)) {
       merged.push({ ...preset, count: 0 });
     }
   }
+  if (interests.length) {
+    const rank = new Map(interests.map((name, index) => [name, index]));
+    const rankOf = (item) => (rank.has(item.label) ? rank.get(item.label) : Infinity);
+    merged.sort((a, b) => {
+      const diff = rankOf(a) - rankOf(b);
+      return Number.isNaN(diff) ? 0 : diff;
+    });
+    merged.unshift(allOption);
+    return merged;
+  }
   merged.unshift(allOption);
+  const top = getUserTopCategory();
+  if (top) {
+    const index = merged.findIndex((item, i) => i > 0 && item.label === top);
+    if (index > 1) {
+      const [item] = merged.splice(index, 1);
+      merged.splice(1, 0, item);
+    }
+  }
   return merged;
 }

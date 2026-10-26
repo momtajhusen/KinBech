@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
@@ -257,7 +257,7 @@ export default function CreateShopScreen({ navigation, route }) {
       >
         <View style={styles.headerTop}>
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
+            <Icon name="chevron-back" size={24} color={colors.onGradient} />
           </Pressable>
           <View style={{ flex: 1 }} />
         </View>
@@ -303,7 +303,7 @@ export default function CreateShopScreen({ navigation, route }) {
                 {cat.imageUrl ? (
                   <Image source={{ uri: cat.imageUrl }} style={{ width: 16, height: 16, borderRadius: 4, marginRight: 6 }} />
                 ) : (
-                  <Ionicons
+                  <Icon
                     name={cat.icon}
                     size={14}
                     color={category === cat.label ? colors.onPrimary : colors.textSecondary}
@@ -370,7 +370,7 @@ export default function CreateShopScreen({ navigation, route }) {
                 {locating ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Ionicons name="location" size={20} color={colors.primary} />
+                  <Icon name="location" size={20} color={colors.primary} />
                 )}
               </Pressable>
             }
@@ -421,14 +421,14 @@ export default function CreateShopScreen({ navigation, route }) {
               style={styles.verifyLink}
               onPress={() => navigation.navigate(ROUTES.SHOP_VERIFICATION)}
             >
-              <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+              <Icon name="shield-checkmark-outline" size={18} color={colors.primary} />
               <Text style={styles.verifyLinkText}>Upload documents & request verification</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+              <Icon name="chevron-forward" size={16} color={colors.primary} />
             </Pressable>
           ) : null}
 
           <View style={styles.infoCard}>
-            <Ionicons name="information-circle" size={20} color={colors.primary} />
+            <Icon name="information-circle" size={20} color={colors.primary} />
             <Text style={styles.infoText}>
               You can update these details and submit KYC documents later from Business verification.
             </Text>

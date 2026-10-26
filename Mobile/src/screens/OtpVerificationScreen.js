@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Keyboard, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Keyboard, Pressable, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
 import { FormScroll } from '../components/FormScroll';
@@ -258,6 +258,9 @@ export default function OtpVerificationScreen({ navigation, route }) {
     } else {
       await saveSession(data.token, data.user);
       navigation.replace(ROUTES.MAIN_TABS);
+      if (data.deletionCancelled) {
+        Alert.alert('Welcome back', 'Your account deletion was cancelled. Your listings and shop are visible again.');
+      }
     }
   };
 
@@ -282,7 +285,7 @@ export default function OtpVerificationScreen({ navigation, route }) {
         style={[styles.header, { paddingTop: insets.top + 4 }]}
       >
         <Pressable onPress={() => navigation.goBack()} style={styles.back} hitSlop={12}>
-          <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+          <Icon name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
       </LinearGradient>
 
@@ -310,7 +313,7 @@ export default function OtpVerificationScreen({ navigation, route }) {
             end={{ x: 1, y: 1 }}
             style={styles.shield}
           >
-            <Ionicons name="checkmark" size={30} color={colors.onGradient} />
+            <Icon name="checkmark" size={30} color={colors.onGradient} />
           </LinearGradient>
         </View>
 
@@ -381,7 +384,7 @@ export default function OtpVerificationScreen({ navigation, route }) {
 
         <View style={styles.secure}>
           <View style={styles.secureBadge}>
-            <Ionicons name="lock-closed" size={12} color={colors.primary} />
+            <Icon name="lock-closed" size={12} color={colors.primary} />
           </View>
           <Text style={styles.secureText}>Your information is secure with us</Text>
         </View>

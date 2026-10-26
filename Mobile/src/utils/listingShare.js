@@ -1,6 +1,7 @@
 import { STOREFRONT_BASE_URL } from '../config/storefront';
 import { BRAND_TAGLINE } from '../content/brand';
-import { formatPrice, resolveMediaUrl } from './listing';
+import { resolveMediaUrl } from './listing';
+import { formatNpr } from './currency';
 
 export const SHARE_CARD_WIDTH = 1080;
 export const SHARE_CARD_HEIGHT = 1920;
@@ -14,7 +15,7 @@ export function buildListingShareUrl(listingId) {
 
 export function formatSharePrice(price) {
   const amount = Number(String(price ?? '').replace(/[^\d]/g, '')) || 0;
-  return formatPrice(amount);
+  return formatNpr(amount);
 }
 
 export function buildShareMessage(listing) {

@@ -1,99 +1,53 @@
 import { useCallback, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import {
-  ActivityIndicator,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import Icon from '../components/Icon';
+import { Linking, Pressable, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import GradientButton from '../components/GradientButton';
 import { FormScroll } from '../components/FormScroll';
+import HeroHeader, { HeroStat } from '../components/HeroHeader';
+import { EditField } from '../components/ProfileEditKit';
+import { PressableScale, Reanimated, enterUp } from '../components/Motion';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { useTheme, useThemedStyles, ThemeStatusBar, formInputStyle, formLabelStyle } from '../theme';
+import { timeAgo } from '../utils/listing';
+import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
-const SUBJECTS = ['Account help', 'Listing issue', 'Payment / meetup', 'Report a bug', 'Other'];
+const SUBJECTS = [
+  { key: 'Account help', icon: 'person-circle-outline', tint: '#3B82F6' },
+  { key: 'Listing issue', icon: 'pricetag-outline', tint: '#10B981' },
+  { key: 'Payment / meetup', icon: 'cash-outline', tint: '#F59E0B' },
+  { key: 'Report a bug', icon: 'bug-outline', tint: '#EF4444' },
+  { key: 'Other', icon: 'ellipsis-horizontal-circle-outline', tint: '#8B5CF6' },
+];
 
-const createStyles = (colors) => ({
-  root: { flex: 1, backgroundColor: colors.surface },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 18,
-  },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: colors.white },
-  content: { padding: 20, paddingBottom: 40, gap: 16 },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 16,
-    gap: 12,
-  },
-  contactRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.pastelIndigo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  contactTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
-  contactSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  label: formLabelStyle(colors),
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.iconBackground,
-  },
-  chipActive: { backgroundColor: colors.pastelIndigo, borderColor: colors.primary },
-  chipText: { fontSize: 13, fontWeight: '700', color: colors.text },
-  input: formInputStyle(colors),
-  ticket: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 14,
-    padding: 12,
-    gap: 4,
-  },
-  ticketSubject: { fontSize: 14, fontWeight: '700', color: colors.text },
-  ticketMeta: { fontSize: 12, color: colors.textMuted },
-  badge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginTop: 4,
-  },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-});
+const MESSAGE_MAX = 1000;
+const DEFAULT_EMAIL = 'support@kinbech.com';
+
+function subjectMeta(key) {
+  return SUBJECTS.find((s) => s.key === key) || SUBJECTS[SUBJECTS.length - 1];
+}
 
 export default function ContactUsScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const [subject, setSubject] = useState(SUBJECTS[0]);
+  const [subject, setSubject] = useState(SUBJECTS[0].key);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
   const [tickets, setTickets] = useState([]);
+  const [supportEmail, setSupportEmail] = useState(DEFAULT_EMAIL);
+  const [expanded, setExpanded] = useState(null);
   const [alertConfig, setAlertConfig] = useState(null);
+
+  const closeAlert = () => setAlertConfig(null);
 
   const load = useCallback(async () => {
     const { data } = await api.getSupportTickets();
     setTickets(Array.isArray(data?.tickets) ? data.tickets : []);
+    if (data?.supportEmail) setSupportEmail(data.supportEmail);
   }, []);
 
   const { refreshing, onRefresh } = usePullRefresh(load);
@@ -104,31 +58,34 @@ export default function ContactUsScreen({ navigation }) {
     }, [load])
   );
 
-  const send = async () => {
-    if (!message.trim()) {
+  const emailUs = () => {
+    Linking.openURL(`mailto:${supportEmail}?subject=${encodeURIComponent(`KinBech: ${subject}`)}`).catch(() => {
       setAlertConfig(
         showErrorAlert({
-          title: 'Message required',
-          message: 'Tell us what you need help with.',
-          onConfirm: () => setAlertConfig(null),
+          title: 'No email app',
+          message: `Write to us at ${supportEmail}, or send a ticket below.`,
+          onConfirm: closeAlert,
+        })
+      );
+    });
+  };
+
+  const send = async () => {
+    if (message.trim().length < 10) {
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Tell us a bit more',
+          message: 'Describe the problem in a sentence or two so we can help.',
+          onConfirm: closeAlert,
         })
       );
       return;
     }
     setSending(true);
-    const { data, error } = await api.createSupportTicket({
-      subject,
-      message: message.trim(),
-    });
+    const { data, error } = await api.createSupportTicket({ subject, message: message.trim() });
     setSending(false);
     if (error) {
-      setAlertConfig(
-        showErrorAlert({
-          title: 'Could not send',
-          message: error,
-          onConfirm: () => setAlertConfig(null),
-        })
-      );
+      setAlertConfig(showErrorAlert({ title: 'Could not send', message: error, onConfirm: closeAlert }));
       return;
     }
     setMessage('');
@@ -137,124 +94,236 @@ export default function ContactUsScreen({ navigation }) {
       showSuccessAlert({
         title: 'Request sent',
         message: data?.message || 'Our team will follow up on your registered phone or in-app notifications.',
-        onConfirm: () => setAlertConfig(null),
+        onConfirm: closeAlert,
       })
     );
   };
 
+  const openCount = tickets.filter((t) => t.status !== 'resolved').length;
+  const resolvedCount = tickets.length - openCount;
+
   return (
     <SafeAreaView style={styles.root} edges={['left', 'right']}>
       <ThemeStatusBar variant="header" />
-      <LinearGradient
-        colors={[colors.gradientStart, colors.gradientEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.header, { paddingTop: insets.top + 8 }]}
+      <HeroHeader
+        icon="chatbubbles"
+        title="Contact Us"
+        subtitle="Tell us what went wrong and our team will look into it."
+        onBack={() => navigation.goBack()}
       >
-        <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
-        </Pressable>
-        <Text style={styles.headerTitle}>Contact Us</Text>
-        <View style={{ width: 24 }} />
-      </LinearGradient>
+        <View style={styles.statRow}>
+          <HeroStat icon="time-outline" value={openCount} label="Open" />
+          <HeroStat icon="checkmark-done-outline" value={resolvedCount} label="Resolved" />
+          <HeroStat icon="receipt-outline" value={tickets.length} label="Tickets" />
+        </View>
+      </HeroHeader>
 
       <FormScroll
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
-          <View style={styles.card}>
-            <View style={styles.contactRow}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="mail-outline" size={18} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.contactTitle}>support@kinbech.app</Text>
-                <Text style={styles.contactSub}>Email for account and listing help</Text>
-              </View>
+        <View style={styles.quickRow}>
+          <PressableScale style={styles.flex1} contentStyle={styles.quickCard} onPress={() => navigation.navigate(ROUTES.HELP)}>
+            <View style={[styles.quickIcon, { backgroundColor: colors.pastelGreen }]}>
+              <Icon name="help-buoy-outline" size={20} color={colors.primary} />
             </View>
-            <View style={styles.contactRow}>
-              <View style={styles.iconCircle}>
-                <Ionicons name="call-outline" size={18} color={colors.primary} />
-              </View>
-              <View>
-                <Text style={styles.contactTitle}>+977-1-5900000</Text>
-                <Text style={styles.contactSub}>Weekdays 10:00–18:00 NST</Text>
-              </View>
+            <Text style={styles.quickTitle}>Help Center</Text>
+            <Text style={styles.quickSub}>Quick answers to common questions</Text>
+          </PressableScale>
+          <PressableScale style={styles.flex1} contentStyle={styles.quickCard} onPress={emailUs}>
+            <View style={[styles.quickIcon, { backgroundColor: colors.pastelBlue }]}>
+              <Icon name="mail-outline" size={20} color={colors.info} />
+            </View>
+            <Text style={styles.quickTitle}>Email us</Text>
+            <Text style={styles.quickSub} numberOfLines={1}>{supportEmail}</Text>
+          </PressableScale>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHead}>
+            <View style={[styles.cardHeadIcon, { backgroundColor: `${subjectMeta(subject).tint}1F` }]}>
+              <Icon name="create-outline" size={17} color={subjectMeta(subject).tint} />
+            </View>
+            <View style={styles.flex1}>
+              <Text style={styles.cardTitle}>Send a ticket</Text>
+              <Text style={styles.cardSub}>Pick a topic and describe the issue</Text>
             </View>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.label}>Topic</Text>
-            <View style={styles.chips}>
-              {SUBJECTS.map((item) => (
+          <View style={styles.topicGrid}>
+            {SUBJECTS.map((item) => {
+              const active = subject === item.key;
+              return (
                 <Pressable
-                  key={item}
-                  style={[styles.chip, subject === item && styles.chipActive]}
-                  onPress={() => setSubject(item)}
+                  key={item.key}
+                  onPress={() => setSubject(item.key)}
+                  style={[styles.topic, active && { borderColor: item.tint, backgroundColor: `${item.tint}14` }]}
                 >
-                  <Text style={styles.chipText}>{item}</Text>
+                  <Icon name={item.icon} size={17} color={active ? item.tint : colors.textMuted} />
+                  <Text style={[styles.topicText, active && { color: colors.text }]} numberOfLines={1}>
+                    {item.key}
+                  </Text>
                 </Pressable>
-              ))}
-            </View>
-            <Text style={styles.label}>Message</Text>
-            <TextInput
-              value={message}
-              onChangeText={setMessage}
-              placeholder="Describe the issue. Include listing title or seller name if relevant."
-              placeholderTextColor={colors.textTertiary}
-              style={[styles.input, { minHeight: 96, textAlignVertical: 'top' }]}
-              multiline
-            />
-            <GradientButton
-              title={sending ? 'Sending…' : 'Send to support'}
-              icon="send"
-              disabled={sending}
-              onPress={send}
-            />
-            {sending ? <ActivityIndicator color={colors.primary} /> : null}
+              );
+            })}
           </View>
 
-          {tickets.length > 0 ? (
-            <View style={styles.card}>
-              <Text style={styles.contactTitle}>Your recent requests</Text>
-              {tickets.map((ticket) => (
-                <View key={ticket.id} style={styles.ticket}>
-                  <Text style={styles.ticketSubject}>{ticket.subject}</Text>
-                  <Text style={styles.ticketMeta} numberOfLines={2}>
-                    {ticket.message}
-                  </Text>
-                  <View
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor:
-                          ticket.status === 'resolved' ? colors.pastelLime : colors.pastelCyan,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.badgeText,
-                        {
-                          color:
-                            ticket.status === 'resolved' ? colors.statusActive : colors.info,
-                        },
-                      ]}
-                    >
-                      {ticket.status === 'resolved' ? 'Resolved' : 'Open'}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ) : null}
+          <EditField
+            label="Message"
+            icon="chatbox-ellipses-outline"
+            value={message}
+            onChangeText={setMessage}
+            placeholder="What happened? Add the listing title or seller name if it helps."
+            multiline
+            maxLength={MESSAGE_MAX}
+            hint="We reply in your notifications or on your registered phone."
+          />
+
+          <GradientButton title={sending ? 'Sending…' : 'Send to support'} icon="send" disabled={sending} onPress={send} />
+        </View>
+
+        <View style={styles.safetyCard}>
+          <Icon name="warning-outline" size={18} color={colors.warning} />
+          <Text style={styles.safetyText}>
+            Someone asking for advance payment or your OTP? Report them from the chat ⋮ menu so we can act fast.
+          </Text>
+        </View>
+
+        {tickets.length > 0 ? (
+          <View style={styles.ticketsWrap}>
+            <Text style={styles.sectionLabel}>Your requests</Text>
+            {tickets.map((ticket, index) => {
+              const meta = subjectMeta(ticket.subject);
+              const resolved = ticket.status === 'resolved';
+              const open = expanded === ticket.id;
+              return (
+                <Reanimated.View key={ticket.id} entering={enterUp(index)}>
+                  <Pressable style={styles.ticket} onPress={() => setExpanded(open ? null : ticket.id)}>
+                    <View style={[styles.ticketIcon, { backgroundColor: `${meta.tint}1F` }]}>
+                      <Icon name={meta.icon} size={18} color={meta.tint} />
+                    </View>
+                    <View style={styles.flex1}>
+                      <View style={styles.ticketTop}>
+                        <Text style={styles.ticketSubject} numberOfLines={1}>{ticket.subject}</Text>
+                        <View style={[styles.statusPill, { backgroundColor: resolved ? colors.pastelLime : colors.pastelOrange }]}>
+                          <Icon
+                            name={resolved ? 'checkmark-circle' : 'time'}
+                            size={11}
+                            color={resolved ? colors.success : colors.warning}
+                          />
+                          <Text style={[styles.statusText, { color: resolved ? colors.success : colors.warning }]}>
+                            {resolved ? 'Resolved' : 'Open'}
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.ticketMessage} numberOfLines={open ? undefined : 2}>{ticket.message}</Text>
+                      {ticket.reply ? (
+                        <View style={styles.replyBox}>
+                          <View style={styles.replyHead}>
+                            <Icon name="chatbubble-ellipses" size={12} color={colors.primary} />
+                            <Text style={styles.replyLabel}>KinBech support</Text>
+                          </View>
+                          <Text style={styles.replyText} numberOfLines={open ? undefined : 3}>{ticket.reply}</Text>
+                        </View>
+                      ) : null}
+                      <Text style={styles.ticketDate}>{timeAgo(ticket.createdAt).replace(/^Posted /, '')}</Text>
+                    </View>
+                  </Pressable>
+                </Reanimated.View>
+              );
+            })}
+          </View>
+        ) : null}
       </FormScroll>
 
-      <AlertModal
-        visible={!!alertConfig}
-        onClose={() => setAlertConfig(null)}
-        {...(alertConfig || {})}
-      />
+      <AlertModal visible={!!alertConfig} onClose={closeAlert} {...(alertConfig || {})} />
     </SafeAreaView>
   );
 }
+
+const createStyles = (colors) => ({
+  root: { flex: 1, backgroundColor: colors.background },
+  flex1: { flex: 1 },
+  statRow: { flexDirection: 'row', gap: 8 },
+  content: { padding: 16, gap: 14 },
+  quickRow: { flexDirection: 'row', gap: 10 },
+  quickCard: {
+    padding: 14,
+    gap: 6,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  quickIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  quickTitle: { fontSize: 14.5, fontWeight: '800', color: colors.text },
+  quickSub: { fontSize: 11.5, lineHeight: 15, color: colors.textMuted },
+  card: {
+    padding: 16,
+    gap: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardHeadIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { fontSize: 15.5, fontWeight: '900', color: colors.text },
+  cardSub: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
+  topicGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  topic: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  topicText: { fontSize: 12.5, fontWeight: '700', color: colors.textSecondary },
+  safetyCard: {
+    flexDirection: 'row',
+    gap: 10,
+    padding: 13,
+    borderRadius: 16,
+    backgroundColor: colors.pastelOrange,
+  },
+  safetyText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
+  ticketsWrap: { gap: 10 },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+  },
+  ticket: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 13,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  ticketIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  ticketTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  ticketSubject: { flex: 1, fontSize: 14, fontWeight: '800', color: colors.text },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9,
+  },
+  statusText: { fontSize: 11, fontWeight: '800' },
+  ticketMessage: { marginTop: 4, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
+  ticketDate: { marginTop: 6, fontSize: 11, fontWeight: '600', color: colors.textTertiary },
+  replyBox: { marginTop: 8, padding: 10, borderRadius: 12, backgroundColor: `${colors.primary}12`, borderLeftWidth: 3, borderLeftColor: colors.primary },
+  replyHead: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 3 },
+  replyLabel: { fontSize: 11, fontWeight: '800', color: colors.primary },
+  replyText: { fontSize: 12.5, lineHeight: 18, color: colors.text },
+});

@@ -80,7 +80,8 @@ function ocrEnabled() {
 }
 
 function failOpen() {
-  return envFlag('IMAGE_SAFETY_FAIL_OPEN', true);
+  // Production fails closed: listing photos go to manual review, other uploads get a retry message.
+  return envFlag('IMAGE_SAFETY_FAIL_OPEN', process.env.NODE_ENV !== 'production');
 }
 
 function shouldDeepScan(folder) {

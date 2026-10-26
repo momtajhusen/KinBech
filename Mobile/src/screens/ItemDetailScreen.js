@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
@@ -14,6 +14,9 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { GestureHandlerRootView, ScrollView as GestureScrollView } from 'react-native-gesture-handler';
+import { useIsFocused } from '@react-navigation/native';
+import ZoomableImage from '../components/ZoomableImage';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
@@ -21,7 +24,9 @@ import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import ProductCard from '../components/ProductCard';
 import VariantPicker from '../components/VariantPicker';
+import { useDisplayCurrency } from '../utils/currency';
 import {
+  cardPrice,
   categoryIcon,
   attachDistanceToCard,
   resolveListingCoords,
@@ -31,16 +36,18 @@ import {
 } from '../utils/listing';
 import { getDefaultVariantSelection } from '../utils/listingVariants';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
-import { useSharedTransition } from '../context/SharedTransitionContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { rememberViewedListing } from '../utils/recentlyViewed';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const RELATED_GUTTER = 8;
 const RELATED_CARD_WIDTH = (SCREEN_WIDTH - 32 - RELATED_GUTTER) / 2;
-const THUMB_SIZE = 44;
-const THUMB_BOX_WIDTH = 60;
+const THUMB_SIZE = 36;
+const THUMB_GAP = 6;
+const THUMB_PAD = 8;
 const IMAGE_HEIGHT = 340;
+const AUTO_SLIDE_MS = 2500;
+const HERO_WIDTH = SCREEN_WIDTH - 32;
 
 function isVideoUri(uri) {
   const value = String(uri || '').toLowerCase();
@@ -76,23 +83,27 @@ export default function ItemDetailScreen({ navigation, route }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  useDisplayCurrency();
   const { isSaved, toggle } = useWishlist();
-  const { isIOS } = useSharedTransition();
   const [activeIndex, setActiveIndex] = useState(0);
   const [descOpen, setDescOpen] = useState(true);
   const [listing, setListing] = useState(route?.params?.item || null);
   const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerZoomed, setViewerZoomed] = useState(false);
   const [ptrReady, setPtrReady] = useState(false);
   const [variantSelection, setVariantSelection] = useState({});
   const [distanceLabel, setDistanceLabel] = useState(null);
   const [relatedItems, setRelatedItems] = useState([]);
   const pagerRef = useRef(null);
+  const thumbsRef = useRef(null);
+  const photoCountRef = useRef(0);
+  const thumbStripWidthRef = useRef(0);
+  const [autoPaused, setAutoPaused] = useState(false);
+  const isFocused = useIsFocused();
   const viewerRef = useRef(null);
+  const viewerThumbsRef = useRef(null);
+  const viewerThumbWidthRef = useRef(0);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
-  const sharedId = route?.params?.sharedId || listingId;
-  const photoTag = isIOS && sharedId ? `item.${sharedId}.photo` : undefined;
-  const titleTag = isIOS && sharedId ? `item.${sharedId}.title` : undefined;
-  const priceTag = isIOS && sharedId ? `item.${sharedId}.price` : undefined;
 
   const loadListing = useCallback(async () => {
     if (!listingId) return;
@@ -184,6 +195,28 @@ export default function ItemDetailScreen({ navigation, route }) {
     };
   }, [listing?.title, listing?.category, listingId]);
 
+  useEffect(() => {
+    if (photoCountRef.current < 2) return;
+    const step = THUMB_SIZE + THUMB_GAP;
+    const stripWidth = thumbStripWidthRef.current || HERO_WIDTH - 32;
+    const x = Math.max(0, THUMB_PAD + activeIndex * step - (stripWidth - THUMB_SIZE) / 2);
+    thumbsRef.current?.scrollTo({ x, animated: true });
+    const viewerWidth = viewerThumbWidthRef.current || SCREEN_WIDTH - 32;
+    const viewerX = Math.max(0, THUMB_PAD + activeIndex * step - (viewerWidth - THUMB_SIZE) / 2);
+    viewerThumbsRef.current?.scrollTo({ x: viewerX, animated: true });
+  }, [activeIndex]);
+
+  useEffect(() => {
+    const count = photoCountRef.current;
+    if (!listing || count < 2 || autoPaused || viewerOpen || !isFocused) return undefined;
+    const timer = setTimeout(() => {
+      const next = (activeIndex + 1) % count;
+      setActiveIndex(next);
+      pagerRef.current?.scrollTo({ x: next * HERO_WIDTH, animated: true });
+    }, AUTO_SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [activeIndex, autoPaused, viewerOpen, isFocused, listing]);
+
   if (!listing) {
     return (
       <View style={styles.root}>
@@ -216,6 +249,18 @@ export default function ItemDetailScreen({ navigation, route }) {
 
   const sellerPhone = String(item.sellerData?.phone || '').trim();
   const shopPhone = String(listing.shopId?.phone || '').trim();
+  const signals = item.sellerData?.signals;
+  const sellerTrustLine = signals
+    ? [
+        signals.badge,
+        signals.replyText,
+        signals.dealsCompleted ? `${signals.dealsCompleted} deal${signals.dealsCompleted === 1 ? '' : 's'}` : '',
+        signals.reviewCount ? `★ ${Number(signals.ratingAverage).toFixed(1)} (${signals.reviewCount})` : '',
+      ].filter(Boolean).join(' · ')
+    : '';
+  const stockLine = { low_stock: 'Only a few left', out_of_stock: 'Out of stock' }[listing.stockState] || '';
+  const shopOpenLine = listing.shopId?.openNow === true ? 'Open now' : listing.shopId?.openNow === false ? 'Closed now' : '';
+  const shopTrustLine = [shopOpenLine, stockLine].filter(Boolean).join(' · ');
 
   const handleOpenMap = async () => {
     const coords = resolveListingCoords(listing);
@@ -243,7 +288,8 @@ export default function ItemDetailScreen({ navigation, route }) {
       }))
     : [{ icon: categoryIcon(listing?.category), bg: colors.photoDark1, type: 'image' }];
   const hasThumbs = resolvedPhotos.length > 1;
-  const heroWidth = SCREEN_WIDTH - 32 - (hasThumbs ? THUMB_BOX_WIDTH : 0);
+  const heroWidth = HERO_WIDTH;
+  photoCountRef.current = resolvedPhotos.length;
 
   const selectMedia = (index) => {
     setActiveIndex(index);
@@ -269,12 +315,39 @@ export default function ItemDetailScreen({ navigation, route }) {
   };
 
   const showMedia = (index) => {
+    setViewerZoomed(false);
     setActiveIndex(index);
     viewerRef.current?.scrollTo({ x: index * SCREEN_WIDTH, animated: true });
   };
 
+  const renderThumb = (photo, index, onSelect) => (
+    <Pressable
+      key={`${photo.uri || 'empty'}-${index}`}
+      onPress={() => onSelect(index)}
+      style={[styles.thumb, index === activeIndex && styles.thumbActive]}
+    >
+      {photo.uri && photo.type !== 'video' ? (
+        <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
+      ) : (
+        <View style={[styles.thumbFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
+          <Icon
+            name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
+            size={12}
+            color="#fff"
+          />
+        </View>
+      )}
+      {photo.type === 'video' ? (
+        <View style={styles.thumbPlay}>
+          <Icon name="play" size={8} color="#fff" />
+        </View>
+      ) : null}
+    </Pressable>
+  );
+
   const closeViewer = () => {
     setViewerOpen(false);
+    setViewerZoomed(false);
     requestAnimationFrame(() => {
       pagerRef.current?.scrollTo({ x: activeIndex * heroWidth, animated: false });
     });
@@ -283,7 +356,7 @@ export default function ItemDetailScreen({ navigation, route }) {
   const renderContactActions = () => (
     <View style={styles.priceActions}>
       <Pressable style={styles.viewMapBtn} onPress={handleOpenMap}>
-        <Ionicons name="map-outline" size={14} color={colors.link} />
+        <Icon name="map-outline" size={14} color={colors.link} />
         <Text style={styles.viewMapText}>View map</Text>
       </Pressable>
       <Pressable
@@ -321,7 +394,7 @@ export default function ItemDetailScreen({ navigation, route }) {
           end={{ x: 1, y: 0 }}
           style={styles.chatBtn}
         >
-          <Ionicons name="chatbubble-ellipses" size={15} color={colors.onGradient} />
+          <Icon name="chatbubble-ellipses" size={15} color={colors.onGradient} />
           <Text style={styles.chatText}>Chat Now</Text>
         </LinearGradient>
       </Pressable>
@@ -338,51 +411,17 @@ export default function ItemDetailScreen({ navigation, route }) {
         refreshControl={ptrReady ? refreshControl(colors, refreshing, onRefresh) : undefined}
       >
         <View style={styles.imageWrap}>
-          {hasThumbs ? (
-            <View style={styles.thumbRailBox}>
-              <ScrollView
-                nestedScrollEnabled
-                contentContainerStyle={styles.thumbRailContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {resolvedPhotos.map((photo, index) => {
-                  const selected = index === activeIndex;
-                  return (
-                    <Pressable
-                      key={`${photo.uri || 'empty'}-${index}`}
-                      onPress={() => selectMedia(index)}
-                      style={[styles.thumb, selected && styles.thumbActive]}
-                    >
-                      {photo.uri && photo.type !== 'video' ? (
-                        <Image source={{ uri: photo.uri }} style={styles.thumbImage} />
-                      ) : (
-                        <View style={[styles.thumbFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
-                          <Ionicons
-                            name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
-                            size={15}
-                            color="#fff"
-                          />
-                        </View>
-                      )}
-                      {photo.type === 'video' ? (
-                        <View style={styles.thumbPlay}>
-                          <Ionicons name="play" size={10} color="#fff" />
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
-          ) : null}
-
           <View style={styles.heroArea}>
             <ScrollView
               ref={pagerRef}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              onMomentumScrollEnd={onPagerEnd}
+              onScrollBeginDrag={() => setAutoPaused(true)}
+              onMomentumScrollEnd={(event) => {
+                onPagerEnd(event);
+                setAutoPaused(false);
+              }}
               style={styles.heroPager}
             >
               {resolvedPhotos.map((photo, index) => (
@@ -396,15 +435,13 @@ export default function ItemDetailScreen({ navigation, route }) {
                       source={{ uri: photo.uri }}
                       style={styles.heroImage}
                       resizeMode="cover"
-                      sharedTransitionTag={index === 0 ? photoTag : undefined}
                     />
                   ) : (
                     <View style={[styles.heroFallback, { backgroundColor: photo.bg || colors.photoDark1 }]}>
-                      <Ionicons
+                      <Icon
                         name={photo.type === 'video' ? 'videocam' : photo.icon || 'cube-outline'}
                         size={64}
                         color="rgba(255,255,255,0.9)"
-                        sharedTransitionTag={index === 0 ? photoTag : undefined}
                       />
                       {photo.type === 'video' ? (
                         <Text style={styles.heroHint}>Tap to view video</Text>
@@ -414,7 +451,7 @@ export default function ItemDetailScreen({ navigation, route }) {
                   {photo.type === 'video' && photo.uri ? (
                     <View style={styles.heroPlay} pointerEvents="none">
                       <View style={styles.heroPlayBtn}>
-                        <Ionicons name="play" size={22} color="#fff" />
+                        <Icon name="play" size={22} color="#fff" />
                       </View>
                     </View>
                   ) : null}
@@ -422,28 +459,47 @@ export default function ItemDetailScreen({ navigation, route }) {
               ))}
             </ScrollView>
 
-            <View style={styles.counterPill}>
-              <Text style={styles.counterText}>
-                {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
-              </Text>
-            </View>
-
             <View style={styles.imageActions} pointerEvents="box-none">
               <Pressable style={styles.headerBtn} onPress={() => navigation.goBack()} hitSlop={10}>
-                <Ionicons name="chevron-back" size={22} color="#fff" />
+                <Icon name="chevron-back" size={22} color="#fff" />
               </Pressable>
               <Pressable
                 style={styles.headerBtn}
                 onPress={() => listingId && toggle(listingId)}
                 hitSlop={10}
               >
-                <Ionicons
+                <Icon
                   name={isSaved(listingId) ? 'heart' : 'heart-outline'}
                   size={20}
                   color={isSaved(listingId) ? colors.danger : '#fff'}
                 />
               </Pressable>
             </View>
+
+            {hasThumbs ? (
+              <View style={styles.thumbOverlay} pointerEvents="box-none">
+                <ScrollView
+                  ref={thumbsRef}
+                  horizontal
+                  nestedScrollEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.thumbStrip}
+                  contentContainerStyle={styles.thumbStripContent}
+                  onLayout={(event) => {
+                    thumbStripWidthRef.current = event.nativeEvent.layout.width;
+                  }}
+                  onScrollBeginDrag={() => setAutoPaused(true)}
+                  onMomentumScrollEnd={() => setAutoPaused(false)}
+                >
+                  {resolvedPhotos.map((photo, index) => renderThumb(photo, index, selectMedia))}
+                </ScrollView>
+                <View style={styles.counterPill}>
+                  <Text style={styles.counterText}>
+                    {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -452,7 +508,7 @@ export default function ItemDetailScreen({ navigation, route }) {
             style={styles.titleRow}
 
           >
-            <Text style={styles.title} sharedTransitionTag={titleTag}>{item.title}</Text>
+            <Text style={styles.title}>{item.title}</Text>
             <View style={styles.conditionPill}>
               <Text style={styles.conditionText}>{item.condition}</Text>
             </View>
@@ -460,12 +516,8 @@ export default function ItemDetailScreen({ navigation, route }) {
 
           {!listing.hasVariants ? (
             <View style={styles.priceRow}>
-              <Text
-                style={styles.price}
-                sharedTransitionTag={priceTag}
-                numberOfLines={1}
-              >
-                {item.price}
+              <Text style={styles.price} numberOfLines={1}>
+                {cardPrice(item)}
               </Text>
               {renderContactActions()}
             </View>
@@ -484,7 +536,7 @@ export default function ItemDetailScreen({ navigation, route }) {
 
           <View style={styles.metaRow}>
             <View style={styles.metaPlace}>
-              <Ionicons name="location" size={15} color={colors.primary} />
+              <Icon name="location" size={15} color={colors.primary} />
               <Text style={styles.metaText} numberOfLines={1}>
                 {String(item.location || '').split(',')[0].trim() || 'Location'}
               </Text>
@@ -508,21 +560,31 @@ export default function ItemDetailScreen({ navigation, route }) {
                   {item.sellerData?.avatarUrl ? (
                     <Image source={{ uri: item.sellerData.avatarUrl }} style={styles.sellerAvatarImage} />
                   ) : (
-                    <Ionicons name="person" size={26} color={colors.onGradient} />
+                    <Icon name="person" size={26} color={colors.onGradient} />
                   )}
                 </View>
                 <View style={styles.sellerInfo}>
                   <Text style={styles.sellerName}>{item.seller}</Text>
-                  <View style={styles.sellerMetaRow}>
-                    <Ionicons name="call" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText} numberOfLines={1}>
-                      {sellerPhone || listing.verificationLabel || 'Phone Verified'}
-                    </Text>
-                  </View>
+                  {sellerPhone ? (
+                    <View style={styles.sellerMetaRow}>
+                      <Icon name="call" size={14} color={colors.success} />
+                      <Text style={styles.sellerMetaText} numberOfLines={1}>
+                        {sellerPhone}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {sellerTrustLine ? (
+                    <Text style={styles.sellerTrustText} numberOfLines={1}>{sellerTrustLine}</Text>
+                  ) : null}
                 </View>
-                <View style={styles.viewProfileRow}>
-                  <Text style={styles.viewProfile}>View Profile</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.link} />
+                <View style={styles.shopSide}>
+                  <View style={styles.shopTag}>
+                    <Text style={styles.shopTagText}>INDIVIDUAL</Text>
+                  </View>
+                  <View style={styles.viewProfileRow}>
+                    <Text style={styles.viewProfile}>View Profile</Text>
+                    <Icon name="chevron-forward" size={16} color={colors.link} />
+                  </View>
                 </View>
               </Pressable>
             )}
@@ -533,32 +595,11 @@ export default function ItemDetailScreen({ navigation, route }) {
                 style={styles.shopCard}
                 onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: listing.shopId._id || listing.shopId.id || listing.shopId })}
               >
-                <View style={styles.shopBanner}>
-                  {listing.shopId?.coverImage ? (
-                    <Image
-                      source={{ uri: resolveMediaUrl(listing.shopId.coverImage) }}
-                      style={styles.sellerAvatarImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <LinearGradient
-                      colors={colors.gradient}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.sellerAvatarImage}
-                    />
-                  )}
-                  <View style={styles.shopBannerTag}>
-                    <Ionicons name="storefront" size={10} color="#fff" />
-                    <Text style={styles.shopBannerTagText}>STORE</Text>
-                  </View>
-                </View>
-                <View style={styles.shopCardBody}>
                 <View style={styles.shopLogo}>
                   {listing.shopId?.logo ? (
                     <Image source={{ uri: resolveMediaUrl(listing.shopId.logo) }} style={styles.sellerAvatarImage} />
                   ) : (
-                    <Ionicons name="storefront" size={24} color={colors.primary} />
+                    <Icon name="storefront" size={22} color={colors.primary} />
                   )}
                 </View>
                 <View style={styles.sellerInfo}>
@@ -568,32 +609,28 @@ export default function ItemDetailScreen({ navigation, route }) {
                       {listing.shopId.tagline}
                     </Text>
                   ) : null}
-                  <View style={styles.sellerRatingRow}>
-                    <Ionicons name="star" size={14} color={colors.rating} />
-                    <Text style={styles.sellerRating}>{listing.shopId?.ratingAverage?.toFixed(1) || '0.0'}</Text>
-                    <Text style={styles.sellerReviewCount}>({listing.shopId?.reviewCount || 0})</Text>
-                  </View>
                   {shopPhone ? (
                     <View style={styles.sellerMetaRow}>
-                      <Ionicons name="call" size={13} color={colors.success} />
+                      <Icon name="call" size={13} color={colors.success} />
                       <Text style={styles.sellerMetaText} numberOfLines={1}>
                         {shopPhone}
                       </Text>
                     </View>
                   ) : null}
-                  {(listing.shopId?.isVerified || listing.verificationKind === 'business') && (
-                    <View style={styles.sellerMetaRow}>
-                      <Ionicons name="shield-checkmark" size={12} color={colors.primary} />
-                      <Text style={styles.sellerMetaText}>
-                        {listing.verificationLabel || 'Business Verified'}
-                      </Text>
-                    </View>
-                  )}
+                  {shopTrustLine ? (
+                    <Text style={[styles.sellerTrustText, listing.stockState === 'out_of_stock' && { color: colors.deleteRed }]} numberOfLines={1}>
+                      {shopTrustLine}
+                    </Text>
+                  ) : null}
                 </View>
-                <View style={styles.viewProfileRow}>
-                  <Text style={styles.viewProfile}>View Shop</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.link} />
-                </View>
+                <View style={styles.shopSide}>
+                  <View style={styles.shopTag}>
+                    <Text style={styles.shopTagText}>STORE</Text>
+                  </View>
+                  <View style={styles.viewProfileRow}>
+                    <Text style={styles.viewProfile}>View Store</Text>
+                    <Icon name="chevron-forward" size={16} color={colors.link} />
+                  </View>
                 </View>
               </Pressable>
             )}
@@ -608,21 +645,31 @@ export default function ItemDetailScreen({ navigation, route }) {
                   {item.sellerData?.avatarUrl ? (
                     <Image source={{ uri: item.sellerData.avatarUrl }} style={styles.sellerAvatarImage} />
                   ) : (
-                    <Ionicons name="person" size={26} color={colors.onGradient} />
+                    <Icon name="person" size={26} color={colors.onGradient} />
                   )}
                 </View>
                 <View style={styles.sellerInfo}>
                   <Text style={styles.sellerName}>{item.seller}</Text>
-                  <View style={styles.sellerMetaRow}>
-                    <Ionicons name="call" size={14} color={colors.success} />
-                    <Text style={styles.sellerMetaText} numberOfLines={1}>
-                      {sellerPhone || listing.verificationLabel || 'Phone Verified'}
-                    </Text>
-                  </View>
+                  {sellerPhone ? (
+                    <View style={styles.sellerMetaRow}>
+                      <Icon name="call" size={14} color={colors.success} />
+                      <Text style={styles.sellerMetaText} numberOfLines={1}>
+                        {sellerPhone}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {sellerTrustLine ? (
+                    <Text style={styles.sellerTrustText} numberOfLines={1}>{sellerTrustLine}</Text>
+                  ) : null}
                 </View>
-                <View style={styles.viewProfileRow}>
-                  <Text style={styles.viewProfile}>View Profile</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.link} />
+                <View style={styles.shopSide}>
+                  <View style={styles.shopTag}>
+                    <Text style={styles.shopTagText}>INDIVIDUAL</Text>
+                  </View>
+                  <View style={styles.viewProfileRow}>
+                    <Text style={styles.viewProfile}>View Profile</Text>
+                    <Icon name="chevron-forward" size={16} color={colors.link} />
+                  </View>
                 </View>
               </Pressable>
             )}
@@ -638,10 +685,10 @@ export default function ItemDetailScreen({ navigation, route }) {
           >
             <Pressable style={styles.sectionHeaderRow} onPress={() => setDescOpen((v) => !v)}>
               <View style={styles.sectionHeaderLeft}>
-                <Ionicons name="document-text-outline" size={18} color={colors.text} />
+                <Icon name="document-text-outline" size={18} color={colors.text} />
                 <Text style={styles.sectionTitle}>Description</Text>
               </View>
-              <Ionicons
+              <Icon
                 name={descOpen ? 'chevron-up' : 'chevron-down'}
                 size={18}
                 color={colors.primary}
@@ -655,7 +702,7 @@ export default function ItemDetailScreen({ navigation, route }) {
           >
             <Pressable style={styles.safetyBanner} onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.SafetyTips)}>
               <View style={styles.safetyIcon}>
-                <Ionicons name="shield-checkmark" size={22} color={colors.onGradient} />
+                <Icon name="shield-checkmark" size={22} color={colors.onGradient} />
               </View>
               <View style={styles.safetyText}>
                 <Text style={styles.safetyTitle}>Stay Safe with Each Other</Text>
@@ -663,7 +710,7 @@ export default function ItemDetailScreen({ navigation, route }) {
                   Meet in public places and check the item before making payment.
                 </Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.link} />
+              <Icon name="chevron-forward" size={18} color={colors.link} />
             </Pressable>
           </View>
 
@@ -697,31 +744,46 @@ export default function ItemDetailScreen({ navigation, route }) {
         visible={viewerOpen}
         animationType="fade"
         onRequestClose={closeViewer}
-        onShow={() => viewerRef.current?.scrollTo({ x: activeIndex * SCREEN_WIDTH, animated: false })}
+        onShow={() => {
+          viewerRef.current?.scrollTo({ x: activeIndex * SCREEN_WIDTH, animated: false });
+          const width = viewerThumbWidthRef.current || SCREEN_WIDTH - 32;
+          const x = Math.max(0, THUMB_PAD + activeIndex * (THUMB_SIZE + THUMB_GAP) - (width - THUMB_SIZE) / 2);
+          viewerThumbsRef.current?.scrollTo({ x, animated: false });
+        }}
       >
-        <View style={styles.viewer}>
+        <GestureHandlerRootView style={styles.viewer}>
           <Pressable style={[styles.viewerClose, { top: insets.top + 8 }]} onPress={closeViewer}>
-            <Ionicons name="close" size={24} color="#fff" />
+            <Icon name="close" size={24} color="#fff" />
           </Pressable>
-          <ScrollView
+          <GestureScrollView
             ref={viewerRef}
             horizontal
             pagingEnabled
+            scrollEnabled={!viewerZoomed}
             showsHorizontalScrollIndicator={false}
             onMomentumScrollEnd={onViewerEnd}
             style={styles.viewerBody}
           >
-            {resolvedPhotos.map((photo, index) => (
-              <Pressable
-                key={`viewer-${photo.uri || 'empty'}-${index}`}
-                style={styles.viewerSlide}
-                onPress={closeViewer}
-              >
-                {photo.uri && photo.type !== 'video' ? (
-                  <Image source={{ uri: photo.uri }} style={styles.viewerImage} resizeMode="contain" />
-                ) : (
+            {resolvedPhotos.map((photo, index) =>
+              photo.uri && photo.type !== 'video' ? (
+                <View key={`viewer-${photo.uri}-${index}`} style={styles.viewerSlide}>
+                  <ZoomableImage
+                    uri={photo.uri}
+                    style={styles.viewerImage}
+                    active={index === activeIndex}
+                    zoomed={viewerZoomed && index === activeIndex}
+                    onZoomChange={setViewerZoomed}
+                    onTap={closeViewer}
+                  />
+                </View>
+              ) : (
+                <Pressable
+                  key={`viewer-${photo.uri || 'empty'}-${index}`}
+                  style={styles.viewerSlide}
+                  onPress={closeViewer}
+                >
                   <View style={styles.viewerFallback}>
-                    <Ionicons
+                    <Icon
                       name={photo.type === 'video' ? 'videocam' : 'image-outline'}
                       size={64}
                       color="#fff"
@@ -730,28 +792,46 @@ export default function ItemDetailScreen({ navigation, route }) {
                       {photo.type === 'video' ? 'Video preview' : 'No preview'}
                     </Text>
                   </View>
-                )}
-              </Pressable>
-            ))}
-          </ScrollView>
+                </Pressable>
+              )
+            )}
+          </GestureScrollView>
           <View style={[styles.viewerBar, { paddingBottom: insets.bottom + 16 }]}>
-            <Pressable
-              style={styles.viewerNav}
-              onPress={() => showMedia(activeIndex === 0 ? resolvedPhotos.length - 1 : activeIndex - 1)}
-            >
-              <Ionicons name="chevron-back" size={22} color="#fff" />
-            </Pressable>
-            <Text style={styles.counterText}>
-              {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
-            </Text>
-            <Pressable
-              style={styles.viewerNav}
-              onPress={() => showMedia((activeIndex + 1) % resolvedPhotos.length)}
-            >
-              <Ionicons name="chevron-forward" size={22} color="#fff" />
-            </Pressable>
+            {hasThumbs ? (
+              <ScrollView
+                ref={viewerThumbsRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.viewerThumbStrip}
+                contentContainerStyle={styles.thumbStripContent}
+                onLayout={(event) => {
+                  viewerThumbWidthRef.current = event.nativeEvent.layout.width;
+                }}
+              >
+                {resolvedPhotos.map((photo, index) => renderThumb(photo, index, showMedia))}
+              </ScrollView>
+            ) : null}
+            <View style={styles.viewerNavRow}>
+              <Pressable
+                style={styles.viewerNav}
+                onPress={() => showMedia(activeIndex === 0 ? resolvedPhotos.length - 1 : activeIndex - 1)}
+              >
+                <Icon name="chevron-back" size={22} color="#fff" />
+              </Pressable>
+              <View style={[styles.counterPill, styles.viewerCounter]}>
+                <Text style={styles.counterText}>
+                  {Math.min(activeIndex + 1, resolvedPhotos.length)} / {resolvedPhotos.length}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.viewerNav}
+                onPress={() => showMedia((activeIndex + 1) % resolvedPhotos.length)}
+              >
+                <Icon name="chevron-forward" size={22} color="#fff" />
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </GestureHandlerRootView>
       </Modal>
     </View>
   );
@@ -783,22 +863,29 @@ const createStyles = (colors) => ({
   imageWrap: {
     height: IMAGE_HEIGHT,
     backgroundColor: colors.surface,
-    flexDirection: 'row',
     borderRadius: 16,
     overflow: 'hidden',
     marginHorizontal: 16,
   },
-  thumbRailBox: {
-    width: THUMB_BOX_WIDTH,
-    backgroundColor: colors.surface,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
-  },
-  thumbRailContent: {
+  thumbOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 8,
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 7,
+    zIndex: 2,
+  },
+  thumbStrip: {
+    flexGrow: 0,
+    maxWidth: HERO_WIDTH - 32,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+  },
+  thumbStripContent: {
+    alignItems: 'center',
+    gap: THUMB_GAP,
+    paddingHorizontal: THUMB_PAD,
+    paddingVertical: 6,
   },
   heroArea: {
     flex: 1,
@@ -910,6 +997,20 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
   },
   viewerBar: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  viewerThumbStrip: {
+    flexGrow: 0,
+    maxWidth: SCREEN_WIDTH - 32,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  viewerCounter: {
+    marginTop: 0,
+  },
+  viewerNavRow: {
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -924,9 +1025,8 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
   },
   counterPill: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
+    marginTop: 6,
+    alignSelf: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
     borderRadius: 10,
     paddingHorizontal: 10,
@@ -949,19 +1049,19 @@ const createStyles = (colors) => ({
   },
   title: {
     flex: 1,
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     color: colors.text,
-    lineHeight: 28,
+    lineHeight: 24,
   },
   conditionPill: {
     backgroundColor: colors.conditionColor,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   conditionText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.onPrimary,
   },
@@ -973,8 +1073,8 @@ const createStyles = (colors) => ({
   },
   price: {
     flex: 1,
-    fontSize: 26,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.price,
   },
   priceActions: {
@@ -1036,8 +1136,8 @@ const createStyles = (colors) => ({
   },
   variantPickerPrice: {
     flex: 1,
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 20,
+    fontWeight: '700',
     color: colors.price,
   },
   variantPickerStock: {
@@ -1095,6 +1195,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     marginTop: 18,
     padding: 14,
+    gap: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1108,54 +1209,48 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  sellerTrustText: {
+    marginTop: 3,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
   sellerAvatarImage: {
     width: '100%',
     height: '100%',
   },
   shopCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 18,
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
-    overflow: 'hidden',
     backgroundColor: colors.surface,
+    gap: 12,
   },
-  shopBanner: {
-    height: 72,
+  shopSide: {
+    alignSelf: 'stretch',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
   },
-  shopBannerTag: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+  shopTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.primarySoft || `${colors.primary}18`,
   },
-  shopBannerTagText: {
-    fontSize: 9.5,
+  shopTagText: {
+    fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.4,
-    color: '#fff',
-  },
-  shopCardBody: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingTop: 8,
-    paddingBottom: 12,
+    color: colors.primary,
   },
   shopLogo: {
-    alignSelf: 'flex-start',
-    width: 58,
-    height: 58,
-    marginTop: -34,
+    width: 48,
+    height: 48,
     borderRadius: 14,
-    borderWidth: 3,
-    borderColor: colors.surface,
     backgroundColor: colors.pastelGreen,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1168,11 +1263,12 @@ const createStyles = (colors) => ({
   },
   sellerInfo: {
     flex: 1,
-    marginLeft: 12,
+    minWidth: 0,
   },
   sellerName: {
-    fontSize: 16,
-    fontWeight: '800',
+    flexShrink: 1,
+    fontSize: 15,
+    fontWeight: '700',
     color: colors.text,
   },
   sellerRatingRow: {
@@ -1204,6 +1300,9 @@ const createStyles = (colors) => ({
   viewProfileRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-end',
+    flexShrink: 0,
+    gap: 2,
   },
   viewProfile: {
     fontSize: 13,

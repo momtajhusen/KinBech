@@ -32,8 +32,8 @@ async function ensureAuthToken() {
   try {
     const { getAuthToken, setAuthToken } = require('./api');
     if (getAuthToken()) return;
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    const stored = await AsyncStorage.getItem('kinbech_token');
+    const { readToken } = require('./tokenStorage');
+    const stored = await readToken();
     if (stored) setAuthToken(stored);
   } catch {
     /* decline still dismisses the notification */

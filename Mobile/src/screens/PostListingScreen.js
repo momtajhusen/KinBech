@@ -11,7 +11,7 @@ export default function PostListingScreen({ navigation, route }) {
     return <ShopPostListingScreen navigation={navigation} />;
   }
   if (preference === 'both') {
-    return <SellerTypeSelectionScreen navigation={navigation} route={route || { params: {} }} />;
+    return <SellerTypeSelectionScreen navigation={navigation} route={route || { params: {} }} postMode />;
   }
   return <IndividualPostListingScreen navigation={navigation} />;
 }

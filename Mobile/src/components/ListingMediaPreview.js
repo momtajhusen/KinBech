@@ -1,5 +1,5 @@
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
@@ -34,7 +34,7 @@ export default function ListingMediaPreview({ visible, item, onClose }) {
         <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
           <Text style={styles.headerTitle}>{label}</Text>
           <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Ionicons name="close" size={24} color="#fff" />
+            <Icon name="close" size={24} color="#fff" />
           </Pressable>
         </View>
 
@@ -45,7 +45,7 @@ export default function ListingMediaPreview({ visible, item, onClose }) {
             <Image source={{ uri: resolveMediaUrl(item.uri) }} style={styles.image} resizeMode="contain" />
           ) : (
             <View style={styles.empty}>
-              <Ionicons name="image-outline" size={48} color="rgba(255,255,255,0.6)" />
+              <Icon name="image-outline" size={48} color="rgba(255,255,255,0.6)" />
               <Text style={styles.emptyText}>Nothing to preview</Text>
             </View>
           )}

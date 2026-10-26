@@ -33,6 +33,10 @@ async function connectWithUri(uri, label) {
   mongoose.set('strictQuery', true);
   await mongoose.connect(uri, {
     dbName: process.env.MONGODB_DB_NAME || 'KinBech',
+    // Bounded pool + timeouts: a slow or stuck query fails instead of hanging requests.
+    maxPoolSize: Number(process.env.MONGODB_MAX_POOL) || 50,
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
   });
   const { host, name } = mongoose.connection;
   console.log(`${label} connected: ${host} / ${name}`);
@@ -90,4 +94,33 @@ async function connectDb() {
   }
 }
 
-module.exports = { connectDb, buildAtlasUri };
+// Older databases have a non-sparse unique phone index, so a second phone-less
+// admin (email login) fails with a duplicate-key error.
+async function ensureUserPhoneIndex() {
+  const users = mongoose.connection.db.collection('users');
+  const indexes = await users.indexes();
+  const phoneIndex = indexes.find((index) => index.name === 'phone_1');
+  if (phoneIndex?.sparse) return;
+  if (phoneIndex) await users.dropIndex('phone_1');
+  await users.createIndex({ phone: 1 }, { name: 'phone_1', unique: true, sparse: true, background: true });
+  console.log('User phone index rebuilt as sparse');
+}
+
+// Shops saved before field encryption still hold plaintext PAN/VAT; seal them once.
+async function sealPlaintextTaxIds() {
+  const { sealField } = require('../utils/fieldCrypto');
+  const shops = mongoose.connection.db.collection('shops');
+  const plain = { $nin: ['', null], $not: /^enc:/ };
+  const cursor = shops.find({ $or: [{ panNumber: plain }, { vatNumber: plain }] }, { projection: { panNumber: 1, vatNumber: 1 } });
+  let sealed = 0;
+  for await (const shop of cursor) {
+    await shops.updateOne(
+      { _id: shop._id },
+      { $set: { panNumber: sealField(shop.panNumber || ''), vatNumber: sealField(shop.vatNumber || '') } }
+    );
+    sealed += 1;
+  }
+  if (sealed) console.log(`Encrypted PAN/VAT on ${sealed} shop(s)`);
+}
+
+module.exports = { connectDb, buildAtlasUri, ensureUserPhoneIndex, sealPlaintextTaxIds };

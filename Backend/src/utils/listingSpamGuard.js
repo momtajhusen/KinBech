@@ -1,4 +1,5 @@
 const Listing = require('../models/Listing');
+const { getTrustSettings } = require('./listingTrust');
 
 /** Same title + price within this window = duplicate spam */
 const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -81,6 +82,20 @@ async function assertListingNotSpam(user, { title, price, sellerType, shop }) {
         'You already posted a listing with the same title and price in the last 24 hours. Edit the existing one or wait before posting again.',
       meta: { existingListingId: String(dup._id) },
     };
+  }
+
+  if (user.trustTier === 'watch') {
+    const { watchDailyListings } = await getTrustSettings();
+    const used = await countListingsInWindow(user._id);
+    if (used >= watchDailyListings) {
+      return {
+        ok: false,
+        httpStatus: 429,
+        code: 'DAILY_LISTING_LIMIT',
+        message: `You can post up to ${watchDailyListings} listings per day for now. Reply to buyers and keep listings up to date to raise this limit.`,
+        meta: { limit: watchDailyListings, used, windowHours: 24 },
+      };
+    }
   }
 
   if (!isRestrictedSeller(user, { sellerType, shop })) {

@@ -1,7 +1,7 @@
-import { Animated, View, Dimensions } from 'react-native';
+import { Animated, View, Dimensions, useWindowDimensions } from 'react-native';
 import { useRef, useEffect } from 'react';
 import { useTheme } from '../theme';
-import { compactCardLayout } from './ProductCard';
+import { compactCardLayout, peekCardWidth, CARD_GAP, CARD_ROW_PADDING } from './ProductCard';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -107,6 +107,22 @@ export function ProductCardSkeleton({ width, compact = true }) {
           <Skeleton width={12} height={12} borderRadius={6} />
           <Skeleton width={width * 0.4} height={12} borderRadius={4} />
         </View>
+      </View>
+    </View>
+  );
+}
+
+/** A section title and one row of cards, sized like ProductCardCarousel. */
+export function ProductCarouselSkeleton({ count = 3 }) {
+  const { width } = useWindowDimensions();
+  const cardWidth = peekCardWidth(width);
+  return (
+    <View style={{ marginTop: 18 }}>
+      <View style={{ paddingHorizontal: CARD_ROW_PADDING, marginBottom: 10 }}>
+        <Skeleton width={150} height={16} borderRadius={6} />
+      </View>
+      <View style={{ flexDirection: 'row', paddingLeft: CARD_ROW_PADDING, gap: CARD_GAP, overflow: 'hidden' }}>
+        {Array.from({ length: count }, (_, i) => <ProductCardSkeleton key={i} width={cardWidth} />)}
       </View>
     </View>
   );

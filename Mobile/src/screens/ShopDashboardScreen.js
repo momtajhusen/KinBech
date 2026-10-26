@@ -6,13 +6,14 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScreenLoader from '../components/ScreenLoader';
 import { api } from '../services/api';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import { convertFromNpr, currencySymbol } from '../utils/currency';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -54,7 +55,7 @@ function compactNumber(value) {
 }
 
 function compactPrice(value) {
-  return `₹${compactNumber(value)}`;
+  return `${currencySymbol()}${compactNumber(convertFromNpr(value))}`;
 }
 
 function pct(part, whole) {
@@ -89,7 +90,7 @@ function TrendChip({ trend, styles, colors, light }) {
   const tint = up ? colors.success : colors.danger;
   return (
     <View style={[styles.trendChip, light ? styles.trendChipLight : { backgroundColor: `${tint}1A` }]}>
-      <Ionicons name={up ? 'arrow-up' : 'arrow-down'} size={10} color={light ? colors.white : tint} />
+      <Icon name={up ? 'arrow-up' : 'arrow-down'} size={10} color={light ? colors.white : tint} />
       <Text style={[styles.trendText, { color: light ? colors.white : tint }]}>
         {Math.abs(changePct)}%
       </Text>
@@ -123,7 +124,7 @@ function Kpi({ icon, tint, value, label, trend, sub, styles, colors }) {
     <View style={styles.kpi}>
       <View style={styles.kpiTop}>
         <View style={[styles.kpiIcon, { backgroundColor: `${tint}1F` }]}>
-          <Ionicons name={icon} size={14} color={tint} />
+          <Icon name={icon} size={14} color={tint} />
         </View>
         <TrendChip trend={trend} styles={styles} colors={colors} />
       </View>
@@ -165,7 +166,7 @@ function ActivityChart({ chart, mode, colors, styles }) {
         </View>
         {total > 0 && focus == null ? (
           <View style={styles.bestDay}>
-            <Ionicons name="trophy-outline" size={12} color={tint} />
+            <Icon name="trophy-outline" size={12} color={tint} />
             <Text style={styles.bestDayText}>
               Best {dayLabel(rows[bestIndex].date, short)} · {mode === 'sales' ? compactPrice(values[bestIndex]) : values[bestIndex]}
             </Text>
@@ -224,7 +225,7 @@ function ProductRow({ item, rank, colors, styles, onPress, showHint }) {
         {item.photos?.[0] ? (
           <Image source={{ uri: resolveMediaUrl(item.photos[0]) }} style={styles.fill} />
         ) : (
-          <Ionicons name="cube-outline" size={18} color={colors.textMuted} />
+          <Icon name="cube-outline" size={18} color={colors.textMuted} />
         )}
       </View>
       <View style={styles.productInfo}>
@@ -239,21 +240,21 @@ function ProductRow({ item, rank, colors, styles, onPress, showHint }) {
         <View style={styles.productMetaRow}>
           <Text style={styles.productPrice}>{formatPrice(item.price)}</Text>
           <View style={styles.metaChip}>
-            <Ionicons name="eye-outline" size={11} color={colors.textMuted} />
+            <Icon name="eye-outline" size={11} color={colors.textMuted} />
             <Text style={styles.metaChipText}>{item.views ?? 0}</Text>
           </View>
           <View style={styles.metaChip}>
-            <Ionicons name="chatbubble-outline" size={11} color={colors.textMuted} />
+            <Icon name="chatbubble-outline" size={11} color={colors.textMuted} />
             <Text style={styles.metaChipText}>{item.inquiries ?? 0}</Text>
           </View>
           <View style={styles.metaChip}>
-            <Ionicons name="trending-up-outline" size={11} color={colors.textMuted} />
+            <Icon name="trending-up-outline" size={11} color={colors.textMuted} />
             <Text style={styles.metaChipText}>{item.conversion ?? 0}%</Text>
           </View>
         </View>
         {showHint && item.hint ? (
           <View style={styles.hintRow}>
-            <Ionicons name="bulb-outline" size={12} color={colors.warning} />
+            <Icon name="bulb-outline" size={12} color={colors.warning} />
             <Text style={styles.hintText} numberOfLines={2}>{item.hint}</Text>
           </View>
         ) : null}
@@ -384,7 +385,7 @@ export default function ShopDashboardScreen({ navigation }) {
         <ThemeStatusBar variant="header" />
         <View style={[styles.plainHeader, { paddingTop: insets.top + 8 }]}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.onPrimary} />
+            <Icon name="chevron-back" size={24} color={colors.onPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Shop Dashboard</Text>
           <View style={styles.navBtn} />
@@ -434,11 +435,11 @@ export default function ShopDashboardScreen({ navigation }) {
 
           <View style={styles.headerRow}>
             <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
-              <Ionicons name="chevron-back" size={22} color={colors.onPrimary} />
+              <Icon name="chevron-back" size={22} color={colors.onPrimary} />
             </Pressable>
             <Text style={styles.headerTitle}>Sales & Performance</Text>
             <Pressable onPress={() => navigation.navigate(ROUTES.EDIT_SHOP)} hitSlop={12} style={styles.navBtn}>
-              <Ionicons name="create-outline" size={20} color={colors.onPrimary} />
+              <Icon name="create-outline" size={20} color={colors.onPrimary} />
             </Pressable>
           </View>
 
@@ -447,7 +448,7 @@ export default function ShopDashboardScreen({ navigation }) {
               {shop?.logo ? (
                 <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fill} />
               ) : (
-                <Ionicons name="storefront" size={22} color={colors.onPrimary} />
+                <Icon name="storefront" size={22} color={colors.onPrimary} />
               )}
             </View>
             <View style={styles.shopMeta}>
@@ -455,7 +456,7 @@ export default function ShopDashboardScreen({ navigation }) {
               <View style={styles.shopSubRow}>
                 <Text style={styles.shopSub} numberOfLines={1}>{shop?.category || 'Shop'}</Text>
                 <Text style={styles.shopDot}>·</Text>
-                <Ionicons name="star" size={11} color="#FBBF24" />
+                <Icon name="star" size={11} color="#FBBF24" />
                 <Text style={styles.shopSub}>
                   {Number(shop?.ratingAverage) > 0 ? Number(shop.ratingAverage).toFixed(1) : 'New'}
                   {shop?.reviewCount ? ` (${shop.reviewCount})` : ''}
@@ -466,7 +467,7 @@ export default function ShopDashboardScreen({ navigation }) {
               style={[styles.verifyPill, shop?.isVerified && styles.verifyPillOn]}
               onPress={() => navigation.navigate(ROUTES.SHOP_VERIFICATION)}
             >
-              <Ionicons
+              <Icon
                 name={shop?.isVerified ? 'shield-checkmark' : 'shield-outline'}
                 size={12}
                 color={shop?.isVerified ? colors.primary : colors.onPrimary}
@@ -584,7 +585,7 @@ export default function ShopDashboardScreen({ navigation }) {
                     <View key={step.key} style={styles.funnelStepWrap}>
                       {index > 0 ? (
                         <View style={styles.funnelArrow}>
-                          <Ionicons name="chevron-forward" size={12} color={colors.textTertiary} />
+                          <Icon name="chevron-forward" size={12} color={colors.textTertiary} />
                           <Text style={styles.funnelRate}>{pct(step.value, prev.value)}%</Text>
                         </View>
                       ) : null}
@@ -611,7 +612,7 @@ export default function ShopDashboardScreen({ navigation }) {
                       style={[styles.modeBtn, active && styles.modeBtnActive]}
                       onPress={() => setChartMode(m.key)}
                     >
-                      <Ionicons name={m.icon} size={12} color={active ? colors.onPrimary : colors.textMuted} />
+                      <Icon name={m.icon} size={12} color={active ? colors.onPrimary : colors.textMuted} />
                       <Text style={[styles.modeText, active && styles.modeTextActive]}>{m.label}</Text>
                     </Pressable>
                   );
@@ -645,7 +646,7 @@ export default function ShopDashboardScreen({ navigation }) {
                       key={item.key}
                       style={[styles.healthCell, alert && { borderColor: `${item.tint}66`, backgroundColor: `${item.tint}10` }]}
                     >
-                      <Ionicons name={item.icon} size={14} color={alert || !item.warn ? item.tint : colors.textTertiary} />
+                      <Icon name={item.icon} size={14} color={alert || !item.warn ? item.tint : colors.textTertiary} />
                       <Text style={[styles.healthValue, alert && { color: item.tint }]}>{item.value}</Text>
                       <Text style={styles.healthLabel} numberOfLines={1}>{item.label}</Text>
                     </View>
@@ -654,7 +655,7 @@ export default function ShopDashboardScreen({ navigation }) {
               </View>
               {healthTip ? (
                 <View style={styles.tipRow}>
-                  <Ionicons name="bulb-outline" size={13} color={colors.warning} />
+                  <Icon name="bulb-outline" size={13} color={colors.warning} />
                   <Text style={styles.tipText}>{healthTip}</Text>
                 </View>
               ) : null}
@@ -720,7 +721,7 @@ export default function ShopDashboardScreen({ navigation }) {
                 <>
                   {insights.peakWindow ? (
                     <View style={styles.peakRow}>
-                      <Ionicons name="time" size={13} color={colors.primary} />
+                      <Icon name="time" size={13} color={colors.primary} />
                       <Text style={styles.peakText}>Peak time: {insights.peakWindow}</Text>
                     </View>
                   ) : null}
@@ -758,7 +759,7 @@ export default function ShopDashboardScreen({ navigation }) {
                 onPress={action.onPress}
               >
                 <View style={styles.actionIcon}>
-                  <Ionicons name={action.icon} size={20} color={colors.primary} />
+                  <Icon name={action.icon} size={20} color={colors.primary} />
                 </View>
                 <Text style={styles.actionText} numberOfLines={1}>{action.label}</Text>
               </Pressable>

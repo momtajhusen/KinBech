@@ -1,24 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, Copy, KeyRound, UserCog, UserPlus, X } from 'lucide-react';
 import api from '../services/api';
+import Modal, { OptionCards } from '../components/Modal';
 import Pagination from '../components/Pagination';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 
 const Settings = () => {
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
   const [admins, setAdmins] = useState([]);
+  const [createdAdmin, setCreatedAdmin] = useState(null);
   const [platformSettings, setPlatformSettings] = useState({
-    listingExpiryDays: 30,
-    minListingPrice: 100,
+    listingExpiryDays: 0,
+    minListingPrice: 0,
     defaultCurrency: 'NPR',
     supportEmail: 'support@kinbech.com',
   });
+  const [editingAdmin, setEditingAdmin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteForm, setInviteForm] = useState({
     email: '',
     role: 'moderator',
   });
+  const [modalBusy, setModalBusy] = useState(false);
+  const [modalError, setModalError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -43,8 +52,17 @@ const Settings = () => {
     fetchAdmins();
   }, [fetchAdmins]);
 
+  useEffect(() => {
+    api.get('/auth/admin/settings')
+      .then((response) => {
+        if (response.data.settings) setPlatformSettings(response.data.settings);
+      })
+      .catch((error) => console.error('Failed to load platform settings:', error));
+  }, []);
+
   const roleOptions = [
     { value: 'super_admin', label: 'Super Admin', description: 'Full access to all features' },
+    { value: 'admin', label: 'Admin', description: 'Everything except managing admins' },
     { value: 'moderator', label: 'Moderator', description: 'Listings & reports management' },
     { value: 'support', label: 'Support', description: 'Users & tickets management' },
   ];
@@ -53,6 +71,8 @@ const Settings = () => {
     switch (role) {
       case 'super_admin':
         return <span className="role-badge super-admin">Super Admin</span>;
+      case 'admin':
+        return <span className="role-badge super-admin">Admin</span>;
       case 'moderator':
         return <span className="role-badge moderator">Moderator</span>;
       case 'support':
@@ -67,26 +87,52 @@ const Settings = () => {
     return access.map(a => a.charAt(0).toUpperCase() + a.slice(1)).join(', ');
   };
 
-  const handleInviteSubmit = async (e) => {
-    e.preventDefault();
+  const openInvite = () => {
+    setInviteForm({ email: '', role: 'moderator' });
+    setModalError('');
+    setShowInviteForm(true);
+  };
+
+  const openEdit = (admin) => {
+    setModalError('');
+    setEditingAdmin({ id: admin.id, name: admin.name, role: admin.role, email: admin.email });
+  };
+
+  const handleInviteSubmit = async () => {
+    if (!/^\S+@\S+\.\S+$/.test(inviteForm.email.trim())) {
+      setModalError('Enter a valid email address');
+      return;
+    }
+    setModalBusy(true);
+    setModalError('');
     try {
-      // Generate a temporary password for the new admin
-      const tempPassword = Math.random().toString(36).slice(-8);
-      
-      await api.post('/auth/admin/create', {
-        email: inviteForm.email,
-        password: tempPassword,
+      // The server generates a strong one-time password; the new admin must change it at first login.
+      const response = await api.post('/auth/admin/create', {
+        email: inviteForm.email.trim(),
         role: inviteForm.role,
-        name: inviteForm.email.split('@')[0],
+        name: inviteForm.email.trim().split('@')[0],
       });
-      
-      setInviteForm({ email: '', role: 'moderator' });
+
       setShowInviteForm(false);
-      alert('Admin created successfully! Temporary password: ' + tempPassword);
-      fetchAdmins(); // Refresh the list
+      setCopied(false);
+      setCreatedAdmin({
+        email: response.data.admin?.email || inviteForm.email,
+        password: response.data.temporaryPassword || '',
+      });
+      fetchAdmins();
     } catch (error) {
-      console.error('Failed to create admin:', error);
-      alert('Failed to create admin');
+      setModalError(error.response?.data?.message || 'Failed to create admin');
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const copyPassword = async () => {
+    try {
+      await navigator.clipboard?.writeText(createdAdmin.password);
+      setCopied(true);
+    } catch {
+      setCopied(false);
     }
   };
 
@@ -97,11 +143,44 @@ const Settings = () => {
 
   const handleSaveSettings = async () => {
     try {
-      // Simulated API call - replace with actual API call
-      alert('Platform settings saved successfully!');
+      const response = await api.put('/auth/admin/settings', platformSettings);
+      if (response.data.settings) setPlatformSettings(response.data.settings);
+      alert('Platform settings saved');
     } catch (error) {
       console.error('Failed to save settings:', error);
-      alert('Failed to save settings');
+      alert(error.response?.data?.message || 'Failed to save settings');
+    }
+  };
+
+  const handleEditAdmin = async () => {
+    if (!editingAdmin.name.trim()) {
+      setModalError('Name is required');
+      return;
+    }
+    setModalBusy(true);
+    setModalError('');
+    try {
+      await api.patch(`/auth/admin/${editingAdmin.id}`, {
+        name: editingAdmin.name.trim(),
+        role: editingAdmin.role,
+      });
+      setEditingAdmin(null);
+      fetchAdmins();
+    } catch (error) {
+      setModalError(error.response?.data?.message || 'Failed to update admin');
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const handleResetTwoFactor = async (admin) => {
+    if (!window.confirm(`Reset two-step verification for ${admin.email}? They will be signed out and must set it up again.`)) return;
+    try {
+      const response = await api.post(`/auth/admin/${admin.id}/reset-2fa`);
+      alert(response.data.message);
+      fetchAdmins();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Could not reset two-step verification');
     }
   };
 
@@ -125,69 +204,90 @@ const Settings = () => {
           <div className="card">
             <div className="card-header">
               <h3>Admin Roles</h3>
-              <button
-                onClick={() => setShowInviteForm(true)}
-                className="btn btn-primary"
-              >
-                + Invite Admin
-              </button>
+              {isSuperAdmin ? (
+                <button
+                  onClick={openInvite}
+                  className="btn btn-primary"
+                >
+                  + Invite Admin
+                </button>
+              ) : null}
             </div>
 
-            {showInviteForm && (
-              <div className="invite-form-overlay">
-                <div className="invite-form">
-                  <div className="invite-form-header">
-                    <h4>Invite New Admin</h4>
-                    <button
-                      onClick={() => setShowInviteForm(false)}
-                      className="close-btn"
-                      aria-label="Close"
-                    >
-                      <X className="item-icon" aria-hidden />
+            {createdAdmin && (
+              <Modal
+                icon={KeyRound}
+                title="Admin created"
+                subtitle={`Share these sign-in details privately with ${createdAdmin.email}.`}
+                size="sm"
+                onClose={() => setCreatedAdmin(null)}
+                footer={(
+                  <>
+                    <button type="button" className="btn btn-secondary" onClick={copyPassword}>
+                      {copied ? <Check className="item-icon" aria-hidden /> : <Copy className="item-icon" aria-hidden />}
+                      {copied ? 'Copied' : 'Copy password'}
                     </button>
-                  </div>
-                  <form onSubmit={handleInviteSubmit}>
-                    <div className="form-group">
-                      <label>Email Address *</label>
-                      <input
-                        type="email"
-                        value={inviteForm.email}
-                        onChange={(e) => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
-                        placeholder="admin@kinbech.com"
-                        className="form-input"
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Role *</label>
-                      <select
-                        value={inviteForm.role}
-                        onChange={(e) => setInviteForm(prev => ({ ...prev, role: e.target.value }))}
-                        className="form-select"
-                        required
-                      >
-                        {roleOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-actions">
-                      <button
-                        type="button"
-                        onClick={() => setShowInviteForm(false)}
-                        className="btn btn-secondary"
-                      >
-                        Cancel
-                      </button>
-                      <button type="submit" className="btn btn-primary">
-                        Send Invitation
-                      </button>
-                    </div>
-                  </form>
+                    <button type="button" className="btn btn-primary" onClick={() => setCreatedAdmin(null)}>Done</button>
+                  </>
+                )}
+              >
+                <div className="form-group">
+                  <label>Email</label>
+                  <div className="kb-secret"><span>{createdAdmin.email}</span></div>
                 </div>
-              </div>
+                <div className="form-group">
+                  <label>One-time password</label>
+                  <div className="kb-secret"><span>{createdAdmin.password}</span></div>
+                </div>
+                <div className="u360-banner warning compact">
+                  <div>
+                    <strong>Shown only once</strong>
+                    <span>The new admin must change this password and set up two-step verification at first login.</span>
+                  </div>
+                </div>
+              </Modal>
+            )}
+
+            {showInviteForm && (
+              <Modal
+                icon={UserPlus}
+                title="Invite new admin"
+                subtitle="A one-time password is created for them. You'll see it after you invite."
+                size="md"
+                busy={modalBusy}
+                onClose={() => setShowInviteForm(false)}
+                onSubmit={handleInviteSubmit}
+                footer={(
+                  <>
+                    <button type="button" className="btn btn-secondary" onClick={() => setShowInviteForm(false)} disabled={modalBusy}>Cancel</button>
+                    <button type="submit" className="btn btn-primary" disabled={modalBusy}>
+                      {modalBusy ? 'Creating…' : 'Create admin'}
+                    </button>
+                  </>
+                )}
+              >
+                <div className="form-group">
+                  <label htmlFor="invite-email">Email address *</label>
+                  <input
+                    id="invite-email"
+                    type="email"
+                    value={inviteForm.email}
+                    onChange={(e) => setInviteForm((prev) => ({ ...prev, email: e.target.value }))}
+                    placeholder="name@company.com"
+                    className="form-input"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Role</label>
+                  <OptionCards
+                    value={inviteForm.role}
+                    onChange={(role) => setInviteForm((prev) => ({ ...prev, role }))}
+                    options={roleOptions.map((option) => ({ value: option.value, label: option.label, description: option.description }))}
+                  />
+                </div>
+                {modalError ? <div className="u360-error">{modalError}</div> : null}
+              </Modal>
             )}
 
             <div className="admins-table">
@@ -198,6 +298,7 @@ const Settings = () => {
                     <th>Email</th>
                     <th>Role</th>
                     <th>Access</th>
+                    <th>2FA</th>
                     <th>Added</th>
                     <th>Actions</th>
                   </tr>
@@ -214,10 +315,31 @@ const Settings = () => {
                       <td>{admin.email}</td>
                       <td>{getRoleBadge(admin.role)}</td>
                       <td className="access-cell">{getAccessList(admin.access)}</td>
+                      <td>
+                        <span className={`status-badge ${admin.twoFactorEnabled ? 'active' : 'pending'}`}>
+                          {admin.twoFactorEnabled ? 'On' : 'Off'}
+                        </span>
+                      </td>
                       <td>{new Date(admin.createdAt).toLocaleDateString()}</td>
                       <td>
+                        {isSuperAdmin ? (
                         <div className="action-buttons">
-                          <button className="action-btn small">Edit</button>
+                          <button
+                            type="button"
+                            className="action-btn small"
+                            onClick={() => openEdit(admin)}
+                          >
+                            Edit
+                          </button>
+                          {admin.twoFactorEnabled ? (
+                            <button
+                              type="button"
+                              className="action-btn small"
+                              onClick={() => handleResetTwoFactor(admin)}
+                            >
+                              Reset 2FA
+                            </button>
+                          ) : null}
                           {admin.role !== 'super_admin' && (
                             <button
                               onClick={() => handleRemoveAdmin(admin.id)}
@@ -227,6 +349,7 @@ const Settings = () => {
                             </button>
                           )}
                         </div>
+                        ) : <span className="form-hint">Super admin only</span>}
                       </td>
                     </tr>
                   ))}
@@ -259,7 +382,7 @@ const Settings = () => {
                   className="form-input"
                   min="1"
                 />
-                <p className="form-hint">Listings will be automatically removed after this period</p>
+                <p className="form-hint">0 keeps listings up. A number hides active listings older than that many days from the public app.</p>
               </div>
 
               <div className="form-group">
@@ -272,7 +395,7 @@ const Settings = () => {
                   className="form-input"
                   min="0"
                 />
-                <p className="form-hint">Set minimum price to prevent spam listings</p>
+                <p className="form-hint">0 allows any price. New listings below this amount are rejected.</p>
               </div>
 
               <div className="form-group">
@@ -298,7 +421,7 @@ const Settings = () => {
                   onChange={handleSettingsChange}
                   className="form-input"
                 />
-                <p className="form-hint">Email shown to users for support requests</p>
+                <p className="form-hint">Saved with the other platform settings</p>
               </div>
 
               <div className="form-actions">
@@ -350,6 +473,44 @@ const Settings = () => {
           </div>
         </div>
       </div>
+
+      {editingAdmin ? (
+        <Modal
+          icon={UserCog}
+          title="Edit admin"
+          subtitle={editingAdmin.email}
+          size="md"
+          busy={modalBusy}
+          onClose={() => setEditingAdmin(null)}
+          onSubmit={handleEditAdmin}
+          footer={(
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setEditingAdmin(null)} disabled={modalBusy}>Cancel</button>
+              <button type="submit" className="btn btn-primary" disabled={modalBusy}>{modalBusy ? 'Saving…' : 'Save changes'}</button>
+            </>
+          )}
+        >
+          <div className="form-group">
+            <label htmlFor="edit-admin-name">Name</label>
+            <input
+              id="edit-admin-name"
+              className="form-input"
+              value={editingAdmin.name}
+              onChange={(e) => setEditingAdmin((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label>Role</label>
+            <OptionCards
+              value={editingAdmin.role}
+              onChange={(role) => setEditingAdmin((prev) => ({ ...prev, role }))}
+              options={roleOptions.map((option) => ({ value: option.value, label: option.label, description: option.description }))}
+            />
+          </div>
+          {modalError ? <div className="u360-error">{modalError}</div> : null}
+        </Modal>
+      ) : null}
     </div>
   );
 };

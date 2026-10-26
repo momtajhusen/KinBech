@@ -1,5 +1,5 @@
 import { memo, useCallback } from 'react';
-import { ScrollView, useWindowDimensions } from 'react-native';
+import { ScrollView, useWindowDimensions, View } from 'react-native';
 import ProductCard, {
   CARD_GAP,
   CARD_ROW_PADDING,
@@ -31,18 +31,22 @@ function ProductCardCarousel({ items, onPressItem, contentWidth }) {
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={{
         paddingLeft: CARD_ROW_PADDING,
-        paddingRight: CARD_ROW_PADDING,
-        gap: CARD_GAP,
+        paddingRight: CARD_ROW_PADDING - CARD_GAP,
       }}
       overScrollMode="never"
     >
       {safeItems.map((item, index) => (
-        <CarouselCard
+        <View
           key={item.id || `${item.title}-${index}`}
-          item={item}
-          width={cardWidth}
-          onPressItem={onPressItem}
-        />
+          collapsable={false}
+          style={{ width: cardWidth, marginRight: CARD_GAP, flexShrink: 0 }}
+        >
+          <CarouselCard
+            item={item}
+            width={cardWidth}
+            onPressItem={onPressItem}
+          />
+        </View>
       ))}
     </ScrollView>
   );

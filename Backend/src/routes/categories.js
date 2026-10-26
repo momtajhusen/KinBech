@@ -1,9 +1,11 @@
-const path = require('path');
 const multer = require('multer');
 const express = require('express');
-const { requireAdmin } = require('../middleware/auth');
+const { requireScope } = require('../middleware/auth');
+const { auditRoute } = require('../utils/audit');
 const { gateImageUpload } = require('../utils/imageSafetyCheck');
 const { putUpload } = require('../utils/r2');
+const { detectFileType } = require('../utils/fileType');
+const { sanitizeImage } = require('../utils/compressMedia');
 const {
   listCategories,
   listCategoriesAdmin,
@@ -28,10 +30,11 @@ const upload = multer({
 const router = express.Router();
 
 router.get('/', listCategories);
-router.get('/admin', requireAdmin, listCategoriesAdmin);
+router.get('/admin', requireScope('categories'), listCategoriesAdmin);
 router.post(
   '/admin/upload',
-  requireAdmin,
+  requireScope('categories'),
+  auditRoute('categories.upload.create', { targetType: 'category' }),
   (req, res, next) => {
     upload.single('image')(req, res, async (err) => {
       if (err) {
@@ -40,24 +43,32 @@ router.post(
       if (!req.file) {
         return res.status(400).json({ message: 'Please choose an image to upload' });
       }
-      const ext = path.extname(req.file.originalname || '').toLowerCase();
-      const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg';
-      req.file.filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${safeExt}`;
+      const detected = detectFileType(req.file.buffer);
+      if (detected?.kind !== 'image') {
+        return res.status(415).json({ message: 'Unsupported format. Please upload a JPG, PNG or WebP image.', code: 'UNSUPPORTED_FORMAT' });
+      }
       try {
         const gate = await gateImageUpload({
           buffer: req.file.buffer,
-          mimeType: req.file.mimetype,
-          filename: req.file.filename,
+          mimeType: detected.mime,
+          filename: `upload${detected.ext}`,
           folder: 'categories',
         });
         if (!gate.ok) {
           return res.status(gate.status || 422).json(gate.body);
         }
+        let clean;
+        try {
+          clean = await sanitizeImage(req.file.buffer, 'categories', detected.mime);
+        } catch {
+          return res.status(415).json({ message: 'Unsupported format. Please upload a JPG, PNG or WebP image.', code: 'UNSUPPORTED_FORMAT' });
+        }
+        req.file.filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${clean.ext}`;
         await putUpload({
           folder: 'categories',
           filename: req.file.filename,
-          body: req.file.buffer,
-          contentType: req.file.mimetype,
+          body: clean.buffer,
+          contentType: clean.mimeType,
         });
       } catch (scanErr) {
         console.error('[categories] upload error:', scanErr.message || scanErr);
@@ -68,8 +79,8 @@ router.post(
   },
   uploadCategoryImage
 );
-router.post('/admin', requireAdmin, createCategory);
-router.patch('/admin/:id', requireAdmin, updateCategory);
-router.delete('/admin/:id', requireAdmin, deleteCategory);
+router.post('/admin', requireScope('categories'), auditRoute('categories.create', { targetType: 'category' }), createCategory);
+router.patch('/admin/:id', requireScope('categories'), auditRoute('categories.update', { targetType: 'category', param: 'id' }), updateCategory);
+router.delete('/admin/:id', requireScope('categories'), auditRoute('categories.delete', { targetType: 'category', param: 'id' }), deleteCategory);
 
 module.exports = router;

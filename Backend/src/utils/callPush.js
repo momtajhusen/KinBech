@@ -73,4 +73,4 @@ async function sendIncomingCallPush({ userId, chatId, callerName, callerImage })
   });
 }
 
-module.exports = { sendIncomingCallPush, sendUserPush };
+module.exports = { sendIncomingCallPush, sendUserPush, messagingClient };

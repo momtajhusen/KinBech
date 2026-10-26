@@ -1,17 +1,25 @@
 import { useState, useEffect, useCallback } from 'react';
-import { CalendarDays, ChevronDown, Filter, Image as ImageIcon, Search, Store, Tag, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Ban, CalendarDays, ChevronDown, Filter, Image as ImageIcon, Search, Store, Tag, Trash2, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
+import RecordModal from '../components/RecordModal';
+import PromptModal from '../components/PromptModal';
+import { LISTING_REJECT_REASONS, heldReason } from '../utils/moderationReasons';
 
 const Listings = () => {
   const { colors } = useTheme();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [params] = useSearchParams();
+  const queryQ = params.get('q') || '';
+  const [searchTerm, setSearchTerm] = useState(queryQ);
+  const [selected, setSelected] = useState(null);
+  const [prompt, setPrompt] = useState(null);
   const [filter, setFilter] = useState('all');
   const [view, setView] = useViewMode('listings', 'card');
   const debouncedSearch = useDebounce(searchTerm);
@@ -32,6 +40,8 @@ const Listings = () => {
         return <span className="status-badge pending">Pending Review</span>;
       case 'sold':
         return <span className="status-badge sold">Sold</span>;
+      case 'removed':
+        return <span className="status-badge rejected">Removed</span>;
       default:
         return <span className="status-badge">{status}</span>;
     }
@@ -81,6 +91,10 @@ const Listings = () => {
   }, [filter, debouncedSearch, page, limit]);
 
   useEffect(() => {
+    setSearchTerm(queryQ);
+  }, [queryQ]);
+
+  useEffect(() => {
     fetchListings();
   }, [fetchListings]);
 
@@ -94,46 +108,51 @@ const Listings = () => {
     { value: 'reported', label: 'Reported' },
     { value: 'pending', label: 'Pending Review' },
     { value: 'sold', label: 'Sold' },
+    { value: 'removed', label: 'Removed' },
   ];
 
   const formatPrice = (price) => {
-    return `₹${price.toLocaleString()}`;
+    return `Rs ${Number(price || 0).toLocaleString('en-IN')}`;
   };
 
   const getCategoryColor = (category) => {
     return colors.category[category.toLowerCase()] || colors.primary;
   };
 
-  const handleListingAction = async (listingId, action) => {
-    try {
-      let status;
-      
-      if (action === 'approve') {
-        status = 'active';
-      } else if (action === 'reject') {
-        status = 'rejected';
-      } else if (action === 'remove') {
-        status = 'removed';
-      }
-
-      await api.patch(`/listings/admin/${listingId}/status`, { status });
-      fetchListings(); // Refresh the list
-    } catch (error) {
-      console.error('Failed to update listing status:', error);
+  const handleListingAction = async (listingId, action, listing) => {
+    if (action === 'reject' || action === 'remove') {
+      setPrompt({ action, listing: listing || listings.find((row) => row.id === listingId) });
+      return;
     }
+    try {
+      await api.patch(`/listings/admin/${listingId}/status`, { status: 'active' });
+      fetchListings();
+    } catch (error) {
+      alert(error.response?.data?.message || 'Failed to update listing');
+    }
+  };
+
+  const confirmPrompt = async (reason) => {
+    const { action, listing } = prompt;
+    await api.patch(`/listings/admin/${listing.id}/status`, {
+      status: action === 'reject' ? 'rejected' : 'removed',
+      ...(reason ? { reason } : {}),
+    });
+    setPrompt(null);
+    fetchListings();
   };
 
   const renderActions = (listing) => (
     <div className="action-buttons">
-      <button className="action-btn view">View</button>
+      <button type="button" className="action-btn view" onClick={() => setSelected(listing)}>View</button>
       {listing.status === 'pending' && (
         <>
           <button className="action-btn approve" onClick={() => handleListingAction(listing.id, 'approve')}>Approve</button>
-          <button className="action-btn reject" onClick={() => handleListingAction(listing.id, 'reject')}>Reject</button>
+          <button className="action-btn reject" onClick={() => handleListingAction(listing.id, 'reject', listing)}>Reject</button>
         </>
       )}
       {(listing.status === 'reported' || listing.status === 'active') && (
-        <button className="action-btn remove" onClick={() => handleListingAction(listing.id, 'remove')}>Remove</button>
+        <button className="action-btn remove" onClick={() => handleListingAction(listing.id, 'remove', listing)}>Remove</button>
       )}
     </div>
   );
@@ -297,6 +316,41 @@ const Listings = () => {
           />
         </>
       )}
+      {prompt ? (
+        <PromptModal
+          icon={prompt.action === 'reject' ? Ban : Trash2}
+          danger
+          title={`${prompt.action === 'reject' ? 'Reject' : 'Remove'} "${prompt.listing?.title || 'listing'}"`}
+          subtitle={prompt.action === 'reject'
+            ? 'The listing is taken down and the seller gets a notification with your reason.'
+            : 'The listing is hidden from buyers. Leave the reason empty to use "Removed by admin".'}
+          field={{
+            label: 'Reason (the seller will see this)',
+            initial: heldReason(prompt.listing),
+            presets: LISTING_REJECT_REASONS,
+            multiline: true,
+            required: prompt.action === 'reject',
+          }}
+          confirmLabel={prompt.action === 'reject' ? 'Reject listing' : 'Remove listing'}
+          onConfirm={confirmPrompt}
+          onClose={() => setPrompt(null)}
+        />
+      ) : null}
+      <RecordModal
+        title={selected?.title}
+        onClose={() => setSelected(null)}
+        rows={selected ? [
+          ['Seller', selected.seller?.name],
+          ['Type', selected.seller?.type],
+          ['Shop', selected.shop?.name],
+          ['Category', selected.category],
+          ['Price', formatPrice(selected.price)],
+          ['Location', selected.location],
+          ['Status', selected.status],
+          ['Reports', String(selected.reportsCount || 0)],
+          ['Moderation', selected.moderationReason],
+        ] : null}
+      />
     </div>
   );
 };

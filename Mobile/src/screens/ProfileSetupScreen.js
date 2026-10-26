@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -724,7 +724,7 @@ export default function ProfileSetupScreen({ navigation }) {
         >
           <View style={styles.headerTop}>
             <View style={styles.headerBadge}>
-              <Ionicons name="sparkles" size={12} color={colors.onGradient} />
+              <Icon name="sparkles" size={12} color={colors.onGradient} />
               <Text style={styles.headerBadgeText}>WELCOME TO KINBECH</Text>
             </View>
             <Text style={styles.headerPct}>{pct}% done</Text>
@@ -739,7 +739,7 @@ export default function ProfileSetupScreen({ navigation }) {
           <View style={styles.stepRow}>
             {steps.map((step) => (
               <View key={step.label} style={styles.step}>
-                <Ionicons
+                <Icon
                   name={step.done ? 'checkmark-circle' : 'ellipse-outline'}
                   size={12}
                   color={step.done ? colors.onGradient : 'rgba(255,255,255,0.7)'}
@@ -763,10 +763,10 @@ export default function ProfileSetupScreen({ navigation }) {
                 >
                   <View style={styles.typeTileTop}>
                     <View style={[styles.typeIcon, active && styles.typeIconActive]}>
-                      <Ionicons name={type.icon} size={18} color={active ? colors.onPrimary : colors.primary} />
+                      <Icon name={type.icon} size={18} color={active ? colors.onPrimary : colors.primary} />
                     </View>
                     <View style={[styles.radio, active && styles.radioActive]}>
-                      {active ? <Ionicons name="checkmark" size={11} color={colors.onPrimary} /> : null}
+                      {active ? <Icon name="checkmark" size={11} color={colors.onPrimary} /> : null}
                     </View>
                   </View>
                   <Text style={[styles.typeTitle, active && styles.typeTitleActive]}>{type.title}</Text>
@@ -778,7 +778,7 @@ export default function ProfileSetupScreen({ navigation }) {
           <View style={styles.perkRow}>
             {(SELL_TYPES.find((type) => type.id === sellerTypePreference) || SELL_TYPES[0]).perks.map((perk) => (
               <View key={perk} style={styles.perk}>
-                <Ionicons name="checkmark-circle" size={12} color={colors.primary} />
+                <Icon name="checkmark-circle" size={12} color={colors.primary} />
                 <Text style={styles.perkText}>{perk}</Text>
               </View>
             ))}
@@ -798,12 +798,12 @@ export default function ProfileSetupScreen({ navigation }) {
                   {avatarSrc ? (
                     <Image source={{ uri: avatarSrc }} style={styles.avatarImage} />
                   ) : (
-                    <Ionicons name={isShop ? 'storefront' : 'person'} size={34} color={colors.textMuted} />
+                    <Icon name={isShop ? 'storefront' : 'person'} size={34} color={colors.textMuted} />
                   )}
                 </View>
               </LinearGradient>
               <View style={styles.cameraBadge}>
-                <Ionicons name={avatarSrc ? 'pencil' : 'camera'} size={13} color={colors.onGradient} />
+                <Icon name={avatarSrc ? 'pencil' : 'camera'} size={13} color={colors.onGradient} />
               </View>
             </Pressable>
             <View style={styles.previewCopy}>
@@ -814,7 +814,7 @@ export default function ProfileSetupScreen({ navigation }) {
                 {previewName || (isShop ? 'Your store name' : 'Your name')}
               </Text>
               <View style={styles.previewMeta}>
-                <Ionicons
+                <Icon
                   name={isShop && shopCategory ? 'pricetag-outline' : 'location-outline'}
                   size={12}
                   color={colors.textMuted}
@@ -827,11 +827,11 @@ export default function ProfileSetupScreen({ navigation }) {
               </View>
               <View style={styles.previewPills}>
                 <View style={[styles.pill, { backgroundColor: `${colors.success}1F` }]}>
-                  <Ionicons name="shield-checkmark" size={10} color={colors.success} />
+                  <Icon name="shield-checkmark" size={10} color={colors.success} />
                   <Text style={[styles.pillText, { color: colors.success }]}>Phone verified</Text>
                 </View>
                 <View style={[styles.pill, { backgroundColor: `${colors.primary}1A` }]}>
-                  <Ionicons name={isShop ? 'storefront' : 'person'} size={10} color={colors.primary} />
+                  <Icon name={isShop ? 'storefront' : 'person'} size={10} color={colors.primary} />
                   <Text style={[styles.pillText, { color: colors.primary }]}>{isShop ? 'Store' : 'Individual'}</Text>
                 </View>
               </View>
@@ -839,16 +839,16 @@ export default function ProfileSetupScreen({ navigation }) {
           </View>
           <View style={styles.photoActions}>
             <Pressable style={styles.photoBtn} onPress={() => pickImage('library')}>
-              <Ionicons name="images-outline" size={16} color={colors.primary} />
+              <Icon name="images-outline" size={16} color={colors.primary} />
               <Text style={styles.photoBtnText}>{avatarSrc ? 'Change' : isShop ? 'Upload logo' : 'Upload photo'}</Text>
             </Pressable>
             <Pressable style={styles.photoBtn} onPress={() => pickImage('camera')}>
-              <Ionicons name="camera-outline" size={16} color={colors.primary} />
+              <Icon name="camera-outline" size={16} color={colors.primary} />
               <Text style={styles.photoBtnText}>Camera</Text>
             </Pressable>
             {avatarSrc ? (
               <Pressable style={[styles.photoBtn, styles.photoBtnIconOnly]} onPress={() => setAvatarUri('')} hitSlop={4}>
-                <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                <Icon name="trash-outline" size={16} color={colors.danger} />
               </Pressable>
             ) : null}
           </View>
@@ -868,7 +868,7 @@ export default function ProfileSetupScreen({ navigation }) {
             autoCapitalize="words"
             maxLength={60}
             error={nameError}
-            right={name.trim().length > 1 ? <Ionicons name="checkmark-circle" size={18} color={colors.success} /> : null}
+            right={name.trim().length > 1 ? <Icon name="checkmark-circle" size={18} color={colors.success} /> : null}
           />
           <EditField
             label="Phone number"
@@ -878,7 +878,7 @@ export default function ProfileSetupScreen({ navigation }) {
             hint="Verified by OTP and used to sign in"
             right={
               <View style={styles.verifiedTag}>
-                <Ionicons name="shield-checkmark" size={11} color={colors.success} />
+                <Icon name="shield-checkmark" size={11} color={colors.success} />
                 <Text style={styles.verifiedTagText}>Verified</Text>
               </View>
             }
@@ -900,7 +900,7 @@ export default function ProfileSetupScreen({ navigation }) {
                 {locationLoading ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Ionicons name={coordinates ? 'locate' : 'navigate'} size={13} color={colors.primary} />
+                  <Icon name={coordinates ? 'locate' : 'navigate'} size={13} color={colors.primary} />
                 )}
                 <Text style={styles.gpsBtnText}>{coordinates ? 'GPS' : 'Detect'}</Text>
               </Pressable>
@@ -945,7 +945,7 @@ export default function ProfileSetupScreen({ navigation }) {
                       ]}
                     >
                       <View style={[styles.catIcon, { backgroundColor: active ? tint : `${tint}1F` }]}>
-                        <Ionicons
+                        <Icon
                           name={active ? 'checkmark' : cat.icon || 'pricetag-outline'}
                           size={13}
                           color={active ? '#fff' : tint}
@@ -992,7 +992,7 @@ export default function ProfileSetupScreen({ navigation }) {
             </View>
 
             <View style={styles.taxHead}>
-              <Ionicons name="ribbon-outline" size={18} color={colors.warning} />
+              <Icon name="ribbon-outline" size={18} color={colors.warning} />
               <View style={styles.previewCopy}>
                 <Text style={styles.taxTitle}>Tax details (optional)</Text>
                 <Text style={styles.taxHint}>Add PAN or VAT now or later to get a verified store badge</Text>
@@ -1021,7 +1021,7 @@ export default function ProfileSetupScreen({ navigation }) {
         ) : null}
 
         <View style={styles.noteCard}>
-          <Ionicons name="information-circle" size={20} color={colors.info} />
+          <Icon name="information-circle" size={20} color={colors.info} />
           <Text style={styles.noteText}>
             You can edit everything later from Profile → Edit profile{isShop ? ', including your banner and store hours.' : '.'}
           </Text>

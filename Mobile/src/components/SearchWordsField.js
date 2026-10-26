@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { formInputStyle, formLabelStyle, useTheme, useThemedStyles } from '../theme';
 
 const MAX_WORDS = 20;
@@ -51,7 +51,7 @@ export default function SearchWordsField({ words, onChange, onFocus }) {
           onFocus={onFocus}
         />
         <Pressable style={styles.addBtn} onPress={addDraft}>
-          <Ionicons name="add" size={18} color={colors.onPrimary} />
+          <Icon name="add" size={18} color={colors.onPrimary} />
         </Pressable>
       </View>
       {(words || []).length > 0 ? (
@@ -59,7 +59,7 @@ export default function SearchWordsField({ words, onChange, onFocus }) {
           {words.map((word) => (
             <Pressable key={word} style={styles.pill} onPress={() => removeWord(word)}>
               <Text style={styles.pillText}>{word}</Text>
-              <Ionicons name="close" size={14} color={colors.primary} />
+              <Icon name="close" size={14} color={colors.primary} />
             </Pressable>
           ))}
         </View>

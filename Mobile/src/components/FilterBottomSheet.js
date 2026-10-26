@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef, useState } from 'react';
+import Icon from './Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Image,
@@ -10,8 +10,10 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, useThemedStyles } from '../theme';
 import { useCategories } from '../utils/categories';
+import { formatMoney } from '../utils/currency';
 
 const PRICE_MIN = 5000;
 const PRICE_MAX = 100000;
@@ -19,18 +21,14 @@ const TRACK_PADDING = 12;
 
 const CONDITIONS = ['All', 'New', 'Good', 'Fair'];
 
-const DISTANCES = [
-  { label: 'All Distances', radiusKm: null },
-  { label: 'Within 1 km', radiusKm: 1 },
-  { label: 'Within 5 km', radiusKm: 5 },
-  { label: 'Within 10 km', radiusKm: 10 },
-  { label: 'Within 25 km', radiusKm: 25 },
-  { label: 'Within 50 km', radiusKm: 50 },
-];
+const DISTANCE_MIN = 1;
+const DISTANCE_MAX = 50;
+const DISTANCE_PRESETS = [1, 5, 10, 25];
 
 const SORT_OPTIONS = [
   { label: 'Nearest First', key: 'distance' },
   { label: 'Most Relevant', key: 'relevance' },
+  { label: 'For You', key: 'recommended' },
   { label: 'Newest First', key: 'newest' },
   { label: 'Trending', key: 'trending' },
   { label: 'Price: Low to High', key: 'price-low' },
@@ -38,7 +36,7 @@ const SORT_OPTIONS = [
 ];
 
 function formatPrice(value) {
-  return `₹${Math.round(value).toLocaleString('en-IN')}`;
+  return formatMoney(Math.round(value));
 }
 
 const createStyles = (colors) => ({
@@ -51,8 +49,12 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    maxHeight: '90%',
+    maxHeight: '88%',
+    width: '100%',
     paddingTop: 10,
+  },
+  scroll: {
+    flexShrink: 1,
   },
   handle: {
     alignSelf: 'center',
@@ -100,8 +102,8 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   sectionSpacing: {
-    marginTop: 24,
-    marginBottom: 12,
+    marginTop: 18,
+    marginBottom: 10,
   },
   priceRangeText: {
     fontSize: 14,
@@ -156,23 +158,34 @@ const createStyles = (colors) => ({
   categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
   },
   categoryChip: {
-    width: '30%',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: colors.background,
     gap: 6,
+    maxWidth: '100%',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   categoryChipActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  categoryIcon: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
   },
   categoryLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: colors.text,
+    flexShrink: 1,
   },
   categoryLabelActive: {
     color: colors.onPrimary,
@@ -248,12 +261,17 @@ const createStyles = (colors) => ({
   checkIcon: {
     marginLeft: 'auto',
   },
+  presetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
   footer: {
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
@@ -386,40 +404,121 @@ function RangeSlider({ min, max, valueMin, valueMax, onChange }) {
   );
 }
 
+function SingleSlider({ min, max, step = 1, value, onChange }) {
+  const styles = useThemedStyles(createStyles);
+  const [width, setWidth] = useState(0);
+  const widthRef = useRef(0);
+  const valueRef = useRef(value);
+  const dragStartPixel = useRef(0);
+
+  widthRef.current = width;
+  valueRef.current = value;
+
+  const posFromValue = (next) => ((next - min) / (max - min)) * widthRef.current;
+  const valueFromPos = (pos) => min + (pos / widthRef.current) * (max - min);
+
+  const responder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        dragStartPixel.current = posFromValue(valueRef.current);
+      },
+      onPanResponderMove: (_, gesture) => {
+        if (!widthRef.current) return;
+        const rawPos = Math.max(0, Math.min(widthRef.current, dragStartPixel.current + gesture.dx));
+        const snapped = Math.round(valueFromPos(rawPos) / step) * step;
+        onChange(Math.max(min, Math.min(max, snapped)));
+      },
+    })
+  ).current;
+
+  const pos = width ? posFromValue(value) : 0;
+
+  return (
+    <View
+      style={styles.sliderTrackWrap}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width - TRACK_PADDING * 2;
+        setWidth(w);
+      }}
+    >
+      <View style={styles.sliderBase} />
+      {width > 0 ? (
+        <>
+          <View
+            style={[
+              styles.sliderActive,
+              { left: TRACK_PADDING, width: Math.max(0, pos) },
+            ]}
+          />
+          <View
+            {...responder.panHandlers}
+            style={{
+              position: 'absolute',
+              left: pos + TRACK_PADDING - 30,
+              top: 0,
+              width: 60,
+              height: 40,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <View style={[styles.thumb, styles.thumbMin]} />
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
 export default function FilterBottomSheet({ visible, onClose, onApply, initial }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const insets = useSafeAreaInsets();
   const productCategories = useCategories('product');
   const categoryOptions = [
-    { label: 'All', icon: 'apps' },
+    { label: 'All', icon: 'apps-outline' },
     ...productCategories,
   ];
   const [priceMin, setPriceMin] = useState(initial?.priceMin ?? PRICE_MIN);
   const [priceMax, setPriceMax] = useState(initial?.priceMax ?? PRICE_MAX);
   const [category, setCategory] = useState(initial?.category ?? 'All');
   const [condition, setCondition] = useState(initial?.condition ?? 'All');
-  const [distance, setDistance] = useState(initial?.distance ?? DISTANCES[0].label);
+  const [radiusKm, setRadiusKm] = useState(initial?.radiusKm ?? null);
   const [sortBy, setSortBy] = useState(initial?.sortBy ?? 'Nearest First');
+  const distanceValue = radiusKm == null ? DISTANCE_MAX : radiusKm;
+  const distanceLabel = radiusKm == null ? 'Any distance' : `Within ${radiusKm} km`;
+
+  useEffect(() => {
+    if (!visible) return;
+    setPriceMin(initial?.priceMin ?? PRICE_MIN);
+    setPriceMax(initial?.priceMax ?? PRICE_MAX);
+    setCategory(initial?.category && initial.category !== 'More' ? initial.category : 'All');
+    setCondition(initial?.condition && initial.condition !== 'All' ? initial.condition : 'All');
+    setRadiusKm(initial?.radiusKm == null ? null : Number(initial.radiusKm));
+    setSortBy(initial?.sortBy ?? 'Nearest First');
+  }, [visible]);
 
   const reset = () => {
     setPriceMin(PRICE_MIN);
     setPriceMax(PRICE_MAX);
     setCategory('All');
     setCondition('All');
-    setDistance(DISTANCES[0].label);
+    setRadiusKm(null);
     setSortBy('Nearest First');
   };
 
   const apply = () => {
-    const distItem = DISTANCES.find((d) => d.label === distance) || DISTANCES[0];
     const sortItem = SORT_OPTIONS.find((s) => s.label === sortBy) || SORT_OPTIONS[0];
+    const km = radiusKm == null || radiusKm >= DISTANCE_MAX ? null : radiusKm;
     const filters = {
       priceMin,
       priceMax,
       category,
       condition,
-      distance,
-      radiusKm: distItem.radiusKm,
+      distance: km == null ? 'All Distances' : `Within ${km} km`,
+      radiusKm: km,
       sortBy,
       sortKey: sortItem.key,
     };
@@ -436,12 +535,17 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
           <View style={styles.headerRow}>
             <Text style={styles.title}>Filters</Text>
             <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
-              <Ionicons name="close" size={22} color={colors.text} />
+              <Icon name="close" size={22} color={colors.text} />
             </Pressable>
           </View>
           <View style={styles.headerDivider} />
 
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollBody}>
+          <ScrollView
+            style={styles.scroll}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollBody}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Price Range</Text>
               <Text style={styles.priceRangeText}>
@@ -475,15 +579,18 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
                     onPress={() => setCategory(item.label)}
                   >
                     {item.imageUrl ? (
-                      <Image source={{ uri: item.imageUrl }} style={{ width: 20, height: 20, borderRadius: 6 }} />
+                      <Image source={{ uri: item.imageUrl }} style={styles.categoryIcon} />
                     ) : (
-                      <Ionicons
-                        name={item.icon}
-                        size={20}
-                        color={active ? colors.onPrimary : colors.text}
+                      <Icon
+                        name={item.icon || 'pricetag-outline'}
+                        size={14}
+                        color={active ? colors.onPrimary : colors.textSecondary}
                       />
                     )}
-                    <Text style={[styles.categoryLabel, active && styles.categoryLabelActive]}>
+                    <Text
+                      style={[styles.categoryLabel, active && styles.categoryLabelActive]}
+                      numberOfLines={1}
+                    >
                       {item.label}
                     </Text>
                   </Pressable>
@@ -511,54 +618,66 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
               })}
             </View>
 
-            <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Distance</Text>
-            <View style={styles.radioGroup}>
-              {(DISTANCES || []).map((item) => {
-                const active = distance === item.label;
+            <View style={[styles.sectionHeaderRow, styles.sectionSpacing]}>
+              <Text style={styles.sectionTitle}>Distance</Text>
+              <Text style={styles.priceRangeText}>{distanceLabel}</Text>
+            </View>
+            <SingleSlider
+              min={DISTANCE_MIN}
+              max={DISTANCE_MAX}
+              step={1}
+              value={distanceValue}
+              onChange={(km) => setRadiusKm(km >= DISTANCE_MAX ? null : km)}
+            />
+            <View style={styles.priceLabelsRow}>
+              <Text style={styles.priceLabel}>{DISTANCE_MIN} km</Text>
+              <Text style={styles.priceLabel}>Any</Text>
+            </View>
+            <View style={styles.presetRow}>
+              <Pressable
+                style={[styles.conditionPill, radiusKm == null && styles.conditionPillActive]}
+                onPress={() => setRadiusKm(null)}
+              >
+                <Text style={[styles.conditionText, radiusKm == null && styles.conditionTextActive]}>
+                  Any
+                </Text>
+              </Pressable>
+              {DISTANCE_PRESETS.map((km) => {
+                const active = radiusKm === km;
                 return (
                   <Pressable
-                    key={item.label}
-                    style={styles.radioRow}
-                    onPress={() => setDistance(item.label)}
+                    key={km}
+                    style={[styles.conditionPill, active && styles.conditionPillActive]}
+                    onPress={() => setRadiusKm(km)}
                   >
-                    <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                      {active && <View style={styles.radioInner} />}
-                    </View>
-                    <Text style={styles.radioLabel}>{item.label}</Text>
+                    <Text style={[styles.conditionText, active && styles.conditionTextActive]}>
+                      {km} km
+                    </Text>
                   </Pressable>
                 );
               })}
             </View>
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Sort By</Text>
-            <View style={styles.sortGroup}>
-              {(SORT_OPTIONS || []).map((item) => {
+            <View style={styles.categoryGrid}>
+              {SORT_OPTIONS.map((item) => {
                 const active = sortBy === item.label;
                 return (
                   <Pressable
                     key={item.key}
-                    style={styles.sortRow}
+                    style={[styles.conditionPill, active && styles.conditionPillActive]}
                     onPress={() => setSortBy(item.label)}
                   >
-                    <View style={[styles.radioOuter, active && styles.radioOuterActive]}>
-                      {active && <View style={styles.radioInner} />}
-                    </View>
-                    <Text style={styles.sortLabel}>{item.label}</Text>
-                    {active ? (
-                      <Ionicons
-                        name="checkmark"
-                        size={18}
-                        color={colors.primary}
-                        style={styles.checkIcon}
-                      />
-                    ) : null}
+                    <Text style={[styles.conditionText, active && styles.conditionTextActive]}>
+                      {item.label}
+                    </Text>
                   </Pressable>
                 );
               })}
             </View>
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 8 }]}>
             <Pressable style={styles.resetBtn} onPress={reset}>
               <Text style={styles.resetText}>Reset</Text>
             </Pressable>

@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { api } from '../services/api';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { FormScroll } from '../components/FormScroll';
@@ -29,14 +29,42 @@ function resolveColor(colorRef, colors) {
   return colorRef;
 }
 
+// Shown only when the report is about a specific listing (opened from a chat).
+const LISTING_REASONS = [
+  {
+    key: 'not-available',
+    icon: 'close-circle-outline',
+    iconBg: 'iconBackground',
+    iconColor: 'gradientStart',
+    title: 'Not available / already sold',
+    subtitle: 'The item is gone but the listing is still up',
+  },
+  {
+    key: 'no-show',
+    icon: 'time-outline',
+    iconBg: 'supportSafetyBg',
+    iconColor: 'supportSafetyIcon',
+    title: 'Did not show up',
+    subtitle: 'Confirmed a meetup and never came',
+  },
+];
+
 const REASONS = [
   {
-    key: 'spam',
+    key: 'scam',
     icon: 'warning-outline',
     iconBg: 'dangerBackground',
     iconColor: 'danger',
-    title: 'Spam or Scam',
-    subtitle: 'Fraudulent activity, spam or scam attempt',
+    title: 'Scam or fraud',
+    subtitle: 'Asked for advance payment, fake payment proof, or tried to cheat',
+  },
+  {
+    key: 'spam',
+    icon: 'megaphone-outline',
+    iconBg: 'dangerBackground',
+    iconColor: 'danger',
+    title: 'Spam',
+    subtitle: 'Repeated or unwanted messages and listings',
   },
   {
     key: 'fake-listing',
@@ -74,15 +102,16 @@ export default function ReportBlockUserScreen({ navigation, route }) {
   if (!colors) {
     return null;
   }
-  const { userId } = route.params ?? {};
-  const [selectedReason, setSelectedReason] = useState(null);
+  const { userId, listingId, listingTitle, reason: initialReason } = route.params ?? {};
+  const [selectedReason, setSelectedReason] = useState(initialReason || null);
   const [details, setDetails] = useState('');
-  const [blockUser, setBlockUser] = useState(true);
+  const [blockUser, setBlockUser] = useState(!listingId);
   const [loading, setLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
 
   // Resolve reason colors dynamically
-  const resolvedReasons = (REASONS || []).map(reason => ({
+  const reasons = listingId ? [...LISTING_REASONS, ...REASONS] : REASONS;
+  const resolvedReasons = reasons.map(reason => ({
     ...reason,
     iconBg: resolveColor(`colors.${reason.iconBg}`, colors),
     iconColor: resolveColor(`colors.${reason.iconColor}`, colors)
@@ -108,11 +137,12 @@ export default function ReportBlockUserScreen({ navigation, route }) {
     
     setLoading(true);
     try {
-      const { error } = await api.createReport({
+      const { data, error } = await api.createReport({
         reportedUserId: userId,
         reason: selectedReason,
         details: details,
         blockUser: blockUser,
+        ...(listingId ? { listingId } : {}),
       });
       
       setLoading(false);
@@ -126,8 +156,10 @@ export default function ReportBlockUserScreen({ navigation, route }) {
       }
       
       setAlertConfig(showSuccessAlert({
-        title: 'Report Submitted',
-        message: 'Thank you for helping keep our community safe.',
+        title: data?.duplicate ? 'Already reported' : 'Report Submitted',
+        message: selectedReason === 'not-available'
+          ? 'Thanks. If more buyers say the same, the listing is hidden automatically.'
+          : 'Thank you for helping keep our community safe.',
         onConfirm: () => {
           setAlertConfig(null);
           navigation.goBack();
@@ -147,7 +179,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
+          <Icon name="arrow-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>Report User</Text>
         <View style={{ width: 24 }} />
@@ -157,8 +189,8 @@ export default function ReportBlockUserScreen({ navigation, route }) {
         <View style={styles.illustrationWrap}>
           <View style={styles.illustrationGlow} />
           <View style={styles.shieldCircle}>
-            <Ionicons name="shield" size={56} color={colors.danger} />
-            <Ionicons
+            <Icon name="shield" size={56} color={colors.danger} />
+            <Icon
               name="alert"
               size={22}
               color={colors.white}
@@ -172,7 +204,9 @@ export default function ReportBlockUserScreen({ navigation, route }) {
           Your report is private and helps us take action against inappropriate users.
         </Text>
 
-        <Text style={styles.sectionLabel}>Why are you reporting this user?</Text>
+        <Text style={styles.sectionLabel}>
+          {listingTitle ? `What happened with "${listingTitle}"?` : 'Why are you reporting this user?'}
+        </Text>
         <View style={styles.reasonsCard}>
           {(resolvedReasons || []).map((reason, index) => {
             const selected = selectedReason === reason.key;
@@ -186,7 +220,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
                 onPress={() => setSelectedReason(reason.key)}
               >
                 <View style={[styles.reasonIconCircle, { backgroundColor: reason.iconBg }]}>
-                  <Ionicons name={reason.icon} size={20} color={reason.iconColor} />
+                  <Icon name={reason.icon} size={20} color={reason.iconColor} />
                 </View>
                 <View style={styles.reasonTextWrap}>
                   <Text style={styles.reasonTitle}>{reason.title}</Text>
@@ -218,7 +252,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
 
         <View style={styles.blockCard}>
           <View style={styles.blockIconCircle}>
-            <Ionicons name="shield-outline" size={20} color={colors.gradientStart} />
+            <Icon name="shield-outline" size={20} color={colors.gradientStart} />
           </View>
           <View style={styles.blockTextWrap}>
             <Text style={styles.blockTitle}>Also block this user</Text>
@@ -245,7 +279,7 @@ export default function ReportBlockUserScreen({ navigation, route }) {
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
-                <Ionicons name="shield-checkmark-outline" size={18} color={colors.white} />
+                <Icon name="shield-checkmark-outline" size={18} color={colors.white} />
                 <Text style={styles.submitLabel}>Submit Report</Text>
               </>
             )}

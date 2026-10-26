@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { declineIncomingCall } from '../services/callNotifications';
@@ -60,10 +60,10 @@ export default function IncomingCallBanner() {
         </View>
         <View style={styles.actions}>
           <Pressable onPress={decline} style={[styles.action, styles.decline]} accessibilityLabel="Decline">
-            <Ionicons name="call" size={22} color="#FFFFFF" style={styles.declineIcon} />
+            <Icon name="call" size={22} color="#FFFFFF" style={styles.declineIcon} />
           </Pressable>
           <Pressable onPress={accept} style={[styles.action, styles.accept]} accessibilityLabel="Accept">
-            <Ionicons name="call" size={22} color="#FFFFFF" />
+            <Icon name="call" size={22} color="#FFFFFF" />
           </Pressable>
         </View>
       </View>

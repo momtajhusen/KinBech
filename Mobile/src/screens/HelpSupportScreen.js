@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Text,
   TextInput,
@@ -9,8 +9,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
-import { HELP_CATEGORY_COPY, INFO_COPY, ROUTES } from '../navigation/helpers';
+import Icon from '../components/Icon';
+import { INFO_COPY, ROUTES } from '../navigation/helpers';
+import VoiceSearchButton from '../components/VoiceSearchButton';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 /**
@@ -31,46 +32,57 @@ const CATEGORIES = [
   {
     key: 'account',
     icon: 'person-outline',
-    title: 'Account Issues',
-    subtitle: 'Profile, login, account settings & more',
+    title: 'Account',
+    subtitle: 'Login, profile, seller type, deletion',
     bg: 'photoPlusBackground',
     iconBg: 'gradientStart',
   },
   {
-    key: 'payments',
-    icon: 'wallet-outline',
-    title: 'Payments',
-    subtitle: 'Payments, refunds, transactions',
+    key: 'selling',
+    icon: 'pricetag-outline',
+    title: 'Selling',
+    subtitle: 'Posting, review, edits, featured',
     bg: 'supportPaymentsBg',
     iconBg: 'supportPaymentsIcon',
   },
   {
-    key: 'safety',
-    icon: 'shield-checkmark-outline',
-    title: 'Safety Tips',
-    subtitle: 'Stay safe while buying & selling',
+    key: 'buying',
+    icon: 'wallet-outline',
+    title: 'Buying & payments',
+    subtitle: 'Chat, meetup, paying the seller',
     bg: 'supportSafetyBg',
     iconBg: 'supportSafetyIcon',
   },
   {
-    key: 'report',
-    icon: 'warning-outline',
-    title: 'Report a Problem',
-    subtitle: 'Report scams, listings or other issues',
+    key: 'safety',
+    icon: 'shield-checkmark-outline',
+    title: 'Safety & reports',
+    subtitle: 'Stay safe, report or block',
     bg: 'supportReportBg',
     iconBg: 'supportReportIcon',
   },
 ];
 
 const FAQS = [
-  { key: 'faq1', question: 'How do I create an account?', answer: 'Tap Sign Up on the welcome screen, enter your phone number, and verify the OTP sent to you. You can also sign up using your Google or Apple account.' },
-  { key: 'faq2', question: 'How do I list an item for sale?', answer: 'Tap the + button on the home screen, add photos of your item, fill in details like title, description, price, and location, then submit your listing. Your item will be visible to buyers in your area.' },
-  { key: 'faq3', question: 'How do I edit or delete my listing?', answer: 'Go to Profile > My Listings, select the item you want to modify, and choose Edit to update details or Delete to remove it permanently.' },
-  { key: 'faq4', question: 'What payment methods do you support?', answer: 'We support cash on delivery for local meetups, mobile wallets like eSewa/Khalti, and bank transfers. Always complete transactions within the app for safety.' },
-  { key: 'faq5', question: 'How do I report a suspicious user or item?', answer: 'Open the listing or user profile, tap the menu icon (•••), and select Report. Choose a reason and our team will review it within 24 hours.' },
-  { key: 'faq6', question: 'Is KinBech free to use?', answer: 'Yes! KinBech is completely free for buyers. Sellers can list items for free, and we only charge a small fee when items are sold.' },
-  { key: 'faq7', question: 'How do I stay safe while buying/selling?', answer: 'Always meet in public places, inspect items before payment, keep communication within the app, and never share personal information like bank details.' },
+  { key: 'login', topic: 'account', question: 'How do I sign up or log in?', answer: 'Enter your Nepal mobile number (+977) and type the OTP we send you. New users then add their name and choose how they want to sell. There is no password to remember.' },
+  { key: 'free', topic: 'buying', question: 'Is KinBech free to use?', answer: 'Yes. Posting, browsing, chatting and calling are free, and KinBech takes no commission on your sales.' },
+  { key: 'post', topic: 'selling', question: 'How do I post an item?', answer: 'Tap Sell in the bottom bar, add clear photos and fill in the details, then post. AI fill can read your photo and suggest the title, category and price for you to check.' },
+  { key: 'pay', topic: 'buying', question: 'How do I pay for an item?', answer: 'KinBech does not take payments. You pay the seller directly when you meet: cash, eSewa, Khalti, IME Pay or bank transfer. Never pay before you have seen the item.' },
+  { key: 'contact', topic: 'buying', question: 'How do I contact a seller?', answer: 'Open the item and tap Chat. You can also call from inside the chat. Your phone number stays hidden unless you turn on "Show phone number" in Settings → Privacy & Security.' },
+  { key: 'safe', topic: 'safety', question: 'How do I stay safe while buying or selling?', answer: 'Meet in a busy public place, bring a friend for costly items, inspect the item before paying, and keep the conversation in KinBech chat. Never share an OTP or bank PIN with anyone.' },
+  { key: 'delivery', topic: 'buying', question: 'Does KinBech deliver items?', answer: 'No. KinBech is for local deals: chat with the seller, agree on a place and time, and meet in person.' },
+  { key: 'review', topic: 'selling', question: 'Why is my listing "In review"?', answer: 'Some items are checked by our team before they go live, for example certain categories or words. Profile → My Listings shows the reason, and you get a notification when it is approved.' },
+  { key: 'edit', topic: 'selling', question: 'How do I edit, mark sold or delete a listing?', answer: 'Go to Profile → My Listings and open the options on the item. You can edit it, mark it as sold, or delete it.' },
+  { key: 'featured', topic: 'selling', question: 'How do I get my listing Featured?', answer: 'Invite friends from Profile → Invite. Each friend who joins gives you one free boost. Open My Listings and tap Boost on a live listing (or tap it right after posting). It is marked Featured and shown higher to nearby buyers for 24 hours.' },
+  { key: 'afterDeal', topic: 'buying', question: 'What should I do after a deal?', answer: 'Mark the deal as done in the chat and leave a review. Honest reviews help other buyers and build the seller\'s trust level.' },
+  { key: 'report', topic: 'safety', question: 'How do I report or block someone?', answer: 'In a chat, tap the ⋮ menu. On a seller or shop page, tap the ••• button. Choose Report or Block. You can track your reports and unblock people in Settings → Privacy & Security.' },
+  { key: 'profile', topic: 'account', question: 'How do I change my name, photo or area?', answer: 'Go to Profile → Edit Profile (store owners see Edit Store Profile). Saved meetup places are under Settings → Saved Addresses.' },
+  { key: 'sellerType', topic: 'account', question: 'Can I sell as a shop and as an individual?', answer: 'Yes. In Settings → Seller Preference choose Individual, Shop or Both. A shop gets its own store page, QR code and sales stats.' },
+  { key: 'verified', topic: 'selling', question: 'How does my shop get a verified badge?', answer: 'Open Settings → Business Verification, add your PAN/VAT number and upload business documents. The badge appears after our team reviews them.' },
+  { key: 'delete', topic: 'account', question: 'How do I delete my account?', answer: 'Go to Settings → Privacy & Security. You can download a copy of your data there first, then delete your account.' },
 ];
+
+const FAQ_PREVIEW = 6;
 
 const POPULAR_ARTICLES = [
   {
@@ -87,6 +99,10 @@ export default function HelpSupportScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [expandedFaq, setExpandedFaq] = useState(null);
+  const [topic, setTopic] = useState(null);
+  const [showAll, setShowAll] = useState(false);
+  const scrollRef = useRef(null);
+  const faqTopRef = useRef(0);
 
   // Guard against undefined colors
   if (!colors) {
@@ -105,12 +121,22 @@ export default function HelpSupportScreen({ navigation }) {
     setExpandedFaq((prev) => (prev === key ? null : key));
   };
 
-  const filteredFaqs = search.trim() 
-    ? FAQS.filter(faq => 
-        faq.question.toLowerCase().includes(search.toLowerCase()) ||
-        faq.answer.toLowerCase().includes(search.toLowerCase())
-      )
-    : FAQS;
+  const query = search.trim().toLowerCase();
+  const matchingFaqs = FAQS.filter((faq) => {
+    if (topic && faq.topic !== topic) return false;
+    if (!query) return true;
+    return faq.question.toLowerCase().includes(query) || faq.answer.toLowerCase().includes(query);
+  });
+  const collapsible = !topic && !query && matchingFaqs.length > FAQ_PREVIEW;
+  const filteredFaqs = collapsible && !showAll ? matchingFaqs.slice(0, FAQ_PREVIEW) : matchingFaqs;
+  const activeTopic = CATEGORIES.find((cat) => cat.key === topic);
+
+  const pickTopic = (key) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setTopic((prev) => (prev === key ? null : key));
+    setExpandedFaq(null);
+    scrollRef.current?.scrollTo({ y: Math.max(0, faqTopRef.current - 12), animated: true });
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right']}>
@@ -122,20 +148,21 @@ export default function HelpSupportScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
+          <Icon name="arrow-back" size={24} color={colors.white} />
         </Pressable>
         <Text style={styles.headerTitle}>Help Center</Text>
         <View style={{ width: 24 }} />
       </LinearGradient>
 
       <ScrollView
+        ref={scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 56 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={colors.textMuted} />
+          <Icon name="search" size={20} color={colors.textMuted} />
           <TextInput
             placeholder="Search for help topics..."
             placeholderTextColor={colors.textTertiary}
@@ -143,35 +170,53 @@ export default function HelpSupportScreen({ navigation }) {
             onChangeText={setSearch}
             style={styles.searchInput}
           />
-          <Ionicons name="options-outline" size={20} color={colors.text} />
+          {search ? (
+            <Pressable onPress={() => setSearch('')} hitSlop={8}>
+              <Icon name="close-circle" size={18} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+          <VoiceSearchButton color={colors.textMuted} onResult={(text) => setSearch(text)} />
         </View>
 
         <View style={styles.categoryGrid}>
           {(resolvedCategories || []).map((cat) => (
             <Pressable
               key={cat.key}
-              style={[styles.categoryCard, { backgroundColor: cat.bg }]}
-              onPress={() => navigation.navigate(ROUTES.INFO, HELP_CATEGORY_COPY[cat.key])}
+              style={[
+                styles.categoryCard,
+                { backgroundColor: cat.bg },
+                topic === cat.key && { borderColor: cat.iconBg },
+              ]}
+              onPress={() => pickTopic(cat.key)}
             >
               <View style={[styles.categoryIconCircle, { backgroundColor: cat.iconBg }]}>
-                <Ionicons name={cat.icon} size={24} color={colors.white} />
+                <Icon name={cat.icon} size={24} color={colors.white} />
               </View>
               <Text style={styles.categoryTitle}>{cat.title}</Text>
               <View style={styles.categoryBottomRow}>
                 <Text style={styles.categorySubtitle}>{cat.subtitle}</Text>
                 <View style={styles.categoryArrow}>
-                  <Ionicons name="chevron-forward" size={18} color={colors.gradientStart} />
+                  <Icon name="chevron-forward" size={18} color={colors.gradientStart} />
                 </View>
               </View>
             </Pressable>
           ))}
         </View>
 
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeading}>Frequently Asked Questions</Text>
-          <Pressable onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.AllFaqs)}>
-            <Text style={styles.viewAll}>View all</Text>
-          </Pressable>
+        <View
+          style={styles.sectionHeaderRow}
+          onLayout={(event) => {
+            faqTopRef.current = event.nativeEvent.layout.y;
+          }}
+        >
+          <Text style={styles.sectionHeading}>
+            {activeTopic ? activeTopic.title : 'Frequently Asked Questions'}
+          </Text>
+          {activeTopic ? (
+            <Pressable onPress={() => pickTopic(topic)} hitSlop={8}>
+              <Text style={styles.viewAll}>All topics</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.faqCard}>
@@ -191,7 +236,7 @@ export default function HelpSupportScreen({ navigation }) {
                       <Text style={styles.faqQBadgeText}>Q</Text>
                     </View>
                     <Text style={styles.faqQuestion}>{faq.question}</Text>
-                    <Ionicons
+                    <Icon
                       name={expanded ? 'chevron-up' : 'chevron-down'}
                       size={18}
                       color={colors.text}
@@ -205,26 +250,40 @@ export default function HelpSupportScreen({ navigation }) {
             })
           ) : (
             <View style={styles.noResults}>
-              <Ionicons name="search-outline" size={48} color={colors.textMuted} />
+              <Icon name="search-outline" size={48} color={colors.textMuted} />
               <Text style={styles.noResultsTitle}>No results found</Text>
               <Text style={styles.noResultsText}>Try different keywords</Text>
             </View>
           )}
+          {collapsible ? (
+            <Pressable
+              style={styles.showMore}
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowAll((prev) => !prev);
+              }}
+            >
+              <Text style={styles.viewAll}>
+                {showAll ? 'Show less' : `View all ${matchingFaqs.length} questions`}
+              </Text>
+              <Icon name={showAll ? 'chevron-up' : 'chevron-down'} size={16} color={colors.link} />
+            </Pressable>
+          ) : null}
         </View>
 
         <View style={styles.supportCard}>
           <View style={styles.supportIconWrap}>
-            <Ionicons name="sparkles" size={16} color={colors.warningYellow} style={styles.sparkleTop} />
-            <Ionicons name="sparkles" size={12} color={colors.gradientStart} style={styles.sparkleLeft} />
-            <Ionicons name="sparkles" size={10} color={colors.gradientStart} style={styles.sparkleBottom} />
+            <Icon name="sparkles" size={16} color={colors.warningYellow} style={styles.sparkleTop} />
+            <Icon name="sparkles" size={12} color={colors.gradientStart} style={styles.sparkleLeft} />
+            <Icon name="sparkles" size={10} color={colors.gradientStart} style={styles.sparkleBottom} />
             <View style={styles.supportIconCircle}>
-              <Ionicons name="headset-outline" size={40} color={colors.gradientStart} />
+              <Icon name="headset-outline" size={40} color={colors.gradientStart} />
             </View>
           </View>
           <View style={styles.supportTextWrap}>
             <Text style={styles.supportTitle}>Still need help?</Text>
             <Text style={styles.supportBody}>
-              Our support team is here to assist you 24/7.
+              Send our team a ticket and track whether it is open or resolved.
             </Text>
             <Pressable onPress={() => navigation.navigate(ROUTES.CONTACT_US)}>
               <LinearGradient
@@ -233,7 +292,7 @@ export default function HelpSupportScreen({ navigation }) {
                 end={{ x: 1, y: 0 }}
                 style={styles.contactButton}
               >
-                <Ionicons name="chatbubble-outline" size={16} color={colors.white} />
+                <Icon name="chatbubble-outline" size={16} color={colors.white} />
                 <Text style={styles.contactButtonLabel}>Contact Support</Text>
               </LinearGradient>
             </Pressable>
@@ -249,13 +308,13 @@ export default function HelpSupportScreen({ navigation }) {
               onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.Article)}
             >
               <View style={styles.articleIconWrap}>
-                <Ionicons name={article.icon} size={20} color={colors.gradientStart} />
+                <Icon name={article.icon} size={20} color={colors.gradientStart} />
               </View>
               <View style={styles.articleTextWrap}>
                 <Text style={styles.articleTitle}>{article.title}</Text>
                 <Text style={styles.articleSubtitle}>{article.subtitle}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              <Icon name="chevron-forward" size={18} color={colors.textMuted} />
             </Pressable>
           ))}
         </View>
@@ -264,26 +323,26 @@ export default function HelpSupportScreen({ navigation }) {
         <View style={styles.articlesList}>
           <Pressable style={styles.articleRow} onPress={() => navigation.navigate(ROUTES.LEGAL_HUB)}>
             <View style={styles.articleIconWrap}>
-              <Ionicons name="library-outline" size={20} color={colors.gradientStart} />
+              <Icon name="library-outline" size={20} color={colors.gradientStart} />
             </View>
             <View style={styles.articleTextWrap}>
               <Text style={styles.articleTitle}>All legal documents</Text>
               <Text style={styles.articleSubtitle}>Privacy, terms, permissions, account deletion</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            <Icon name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
           <Pressable
             style={styles.articleRow}
             onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}
           >
             <View style={styles.articleIconWrap}>
-              <Ionicons name="phone-portrait-outline" size={20} color={colors.gradientStart} />
+              <Icon name="phone-portrait-outline" size={20} color={colors.gradientStart} />
             </View>
             <View style={styles.articleTextWrap}>
               <Text style={styles.articleTitle}>App permissions & data use</Text>
               <Text style={styles.articleSubtitle}>What KinBech accesses on your device</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            <Icon name="chevron-forward" size={18} color={colors.textMuted} />
           </Pressable>
         </View>
       </ScrollView>
@@ -346,6 +405,8 @@ const createStyles = (colors) => ({
     width: '48%',
     borderRadius: 18,
     padding: 16,
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
   categoryIconCircle: {
     width: 44,
@@ -412,6 +473,15 @@ const createStyles = (colors) => ({
   },
   faqItemLast: {
     borderBottomWidth: 0,
+  },
+  showMore: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   faqHeader: {
     flexDirection: 'row',

@@ -16,6 +16,21 @@ export function imagePickerOptions({ aspect, quality = 1 } = {}) {
   };
 }
 
+export async function cropImageRect(uri, rect, maxWidth = 1600) {
+  if (!uri || !rect) return uri;
+  const originX = Math.max(0, Math.round(rect.originX));
+  const originY = Math.max(0, Math.round(rect.originY));
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+  const ops = [{ crop: { originX, originY, width, height } }];
+  if (maxWidth && width > maxWidth) ops.push({ resize: { width: maxWidth } });
+  const out = await ImageManipulator.manipulateAsync(uri, ops, {
+    compress: 0.85,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  return out?.uri || uri;
+}
+
 export async function cropCenterToAspect(uri, aspect, maxWidth = 1600) {
   if (!uri) return uri;
   try {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -351,7 +351,7 @@ export default function NotificationsScreen({ navigation }) {
         ]}
       >
         <View style={[styles.tileIcon, { backgroundColor: `${tint}1F` }]}>
-          <Ionicons name={cat.icon} size={18} color={tint} />
+          <Icon name={cat.icon} size={18} color={tint} />
           {stat.unread > 0 ? (
             <View style={[styles.tileBadge, { backgroundColor: tint }]}>
               <Text style={styles.tileBadgeText}>{stat.unread > 99 ? '99+' : stat.unread}</Text>
@@ -376,7 +376,7 @@ export default function NotificationsScreen({ navigation }) {
         <View style={styles.avatarWrap}>
           <Image source={{ uri }} style={styles.avatar} />
           <View style={[styles.avatarBadge, { backgroundColor: tint }]}>
-            <Ionicons name={cat.icon} size={10} color="#fff" />
+            <Icon name={cat.icon} size={10} color="#fff" />
           </View>
         </View>
       );
@@ -385,7 +385,7 @@ export default function NotificationsScreen({ navigation }) {
     const iconTint = missedCall ? colors.danger : tint;
     return (
       <View style={[styles.iconCircle, { backgroundColor: `${iconTint}1F` }]}>
-        <Ionicons
+        <Icon
           name={missedCall ? 'call' : entry.lead.icon === 'warning-outline' ? 'warning' : cat.icon}
           size={20}
           color={iconTint}
@@ -432,7 +432,7 @@ export default function NotificationsScreen({ navigation }) {
           ) : null}
           <View style={styles.metaRow}>
             <View style={[styles.kindPill, { backgroundColor: `${pillTint}1A` }]}>
-              <Ionicons name={cat.icon} size={10} color={pillTint} />
+              <Icon name={cat.icon} size={10} color={pillTint} />
               <Text style={[styles.kindText, { color: pillTint }]}>{entryMeta(entry)}</Text>
             </View>
             {lead.params?.listingTitle ? (
@@ -449,7 +449,7 @@ export default function NotificationsScreen({ navigation }) {
               hitSlop={6}
               style={[styles.callBtn, { backgroundColor: `${colors.success}1F` }]}
             >
-              <Ionicons name="call" size={16} color={colors.success} />
+              <Icon name="call" size={16} color={colors.success} />
             </Pressable>
           ) : listingPhoto ? (
             <Image source={{ uri: listingPhoto }} style={styles.listingThumb} />
@@ -530,7 +530,7 @@ export default function NotificationsScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerBtn}>
-          <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
+          <Icon name="chevron-back" size={24} color={colors.onGradient} />
         </Pressable>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Notifications</Text>
@@ -544,14 +544,14 @@ export default function NotificationsScreen({ navigation }) {
           disabled={!scopeUnread}
           style={[styles.headerBtn, styles.headerBtnFilled, !scopeUnread && styles.headerBtnDisabled]}
         >
-          <Ionicons name="checkmark-done" size={19} color={colors.onGradient} />
+          <Icon name="checkmark-done" size={19} color={colors.onGradient} />
         </Pressable>
         <Pressable
           onPress={() => setSheet({ type: 'menu' })}
           hitSlop={8}
           style={[styles.headerBtn, styles.headerBtnFilled]}
         >
-          <Ionicons name="ellipsis-horizontal" size={19} color={colors.onGradient} />
+          <Icon name="ellipsis-horizontal" size={19} color={colors.onGradient} />
         </Pressable>
       </LinearGradient>
 
@@ -575,7 +575,7 @@ export default function NotificationsScreen({ navigation }) {
             {activeCat ? (
               <Pressable onPress={() => selectCategory(category)} style={styles.scopeChip} hitSlop={6}>
                 <Text style={styles.scopeChipText}>{activeCat.label}</Text>
-                <Ionicons name="close" size={14} color={colors.primary} />
+                <Icon name="close" size={14} color={colors.primary} />
               </Pressable>
             ) : (
               <Text style={styles.toolbarTitle}>All notifications</Text>
@@ -690,7 +690,7 @@ function SheetOption({ styles, icon, label, color, onPress, disabled }) {
       style={({ pressed }) => [styles.sheetOption, pressed && styles.cardPressed]}
     >
       <View style={[styles.sheetOptionIcon, { backgroundColor: `${color}14` }]}>
-        <Ionicons name={icon} size={18} color={color} />
+        <Icon name={icon} size={18} color={color} />
       </View>
       <Text style={[styles.sheetOptionText, { color }]}>{label}</Text>
     </Pressable>

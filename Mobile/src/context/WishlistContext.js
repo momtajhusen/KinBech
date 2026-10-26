@@ -23,7 +23,7 @@ export function WishlistProvider({ children }) {
       setSavedIds(new Set());
       return;
     }
-    const { data, error } = await api.getWishlist();
+    const { data, error } = await api.getWishlist({ fields: 'ids' });
     if (error) return;
     setSavedIds(idsFromListings(data?.listings));
   }, [isLoggedIn]);

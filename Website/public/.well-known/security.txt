@@ -1,0 +1,5 @@
+Contact: mailto:support@kinbech.com
+Expires: 2027-10-25T00:00:00.000Z
+Policy: https://kinbech.codersalpha.com/security
+Preferred-Languages: en, ne, hi
+Canonical: https://kinbech.codersalpha.com/.well-known/security.txt

@@ -2,46 +2,55 @@ const Review = require('../models/Review');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
+const Chat = require('../models/Chat');
 const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
 const { emitActivity } = require('../utils/realtime');
 const { reviewActivityEvent } = require('../utils/activityEvents');
+const { sameAudienceUser } = require('../utils/audience');
 
+/** Recomputes shop and seller averages from approved reviews only. */
+async function refreshRatings({ shopId, seller }) {
+  const summarize = async (filter) => {
+    const [row] = await Review.aggregate([
+      { $match: { ...filter, status: 'approved' } },
+      { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
+    ]);
+    return { ratingAverage: row ? Number(row.avg.toFixed(1)) : 0, reviewCount: row?.count || 0 };
+  };
+  if (shopId) await Shop.findByIdAndUpdate(shopId, await summarize({ shopId }));
+  if (seller) await User.findByIdAndUpdate(seller, await summarize({ seller }));
+}
+
+/** Only the buyer of a completed deal can review it, once (individual and shop listings). */
 async function createReview(req, res, next) {
   try {
-    const { shopId, listingId, rating, review, tags } = req.body;
-
-    if (!shopId || !listingId || !rating) {
-      return res.status(400).json({ message: 'Shop ID, listing ID, and rating are required' });
+    const { listingId, rating, review, tags } = req.body;
+    const stars = Number(rating);
+    if (!listingId || !Number.isInteger(stars) || stars < 1 || stars > 5) {
+      return res.status(400).json({ message: 'Listing and a rating from 1 to 5 are required' });
     }
 
-    // Verify shop exists
-    const shop = await Shop.findById(shopId);
-    if (!shop) {
-      return res.status(404).json({ message: 'Shop not found' });
-    }
-
-    // Verify listing exists and belongs to the shop
-    const listing = await Listing.findById(listingId);
+    const listing = await Listing.findById(listingId).select('seller sellerType shopId title');
     if (!listing) {
       return res.status(404).json({ message: 'Listing not found' });
     }
-
-    // Critical business rule: Only shop listings can be reviewed
-    if (listing.sellerType !== 'shop' || String(listing.shopId) !== String(shopId)) {
-      return res.status(400).json({ message: 'Reviews are only allowed for shop listings' });
+    if (String(listing.seller) === String(req.user._id)) {
+      return res.status(400).json({ message: 'You cannot review your own listing' });
     }
 
-    // Prevent shop owner from reviewing their own shop
-    if (String(shop.owner) === String(req.user._id)) {
-      return res.status(400).json({ message: 'You cannot review your own shop' });
+    const chat = await Chat.findOne({
+      listing: listing._id,
+      buyer: req.user._id,
+      'deal.state': 'completed',
+    }).select('_id');
+    if (!chat) {
+      return res.status(403).json({
+        message: 'You can review after your deal for this item is completed.',
+        code: 'DEAL_REQUIRED',
+      });
     }
 
-    // Check if already reviewed this listing
-    const existingReview = await Review.findOne({
-      reviewer: req.user._id,
-      listing: listingId,
-    });
-
+    const existingReview = await Review.findOne({ reviewer: req.user._id, listing: listing._id });
     if (existingReview) {
       return res.status(400).json({ message: 'You have already reviewed this listing' });
     }
@@ -53,28 +62,24 @@ async function createReview(req, res, next) {
       }
     }
 
-    // Create review
+    const shopId = listing.sellerType === 'shop' && listing.shopId ? listing.shopId : null;
     const newReview = await Review.create({
       reviewer: req.user._id,
-      shopId: shopId,
-      listing: listingId,
-      rating: Number(rating),
-      review: review || '',
-      tags: tags || [],
+      shopId,
+      seller: listing.seller,
+      reviewedUser: listing.seller,
+      chat: chat._id,
+      listing: listing._id,
+      rating: stars,
+      review: String(review || '').slice(0, 500),
+      tags: Array.isArray(tags) ? tags.slice(0, 10).map(String) : [],
+      // Deal-verified reviews go live; admins can still reject them.
+      status: 'approved',
     });
     emitActivity(reviewActivityEvent(newReview));
+    await refreshRatings({ shopId, seller: listing.seller });
 
-    // Update shop's average rating
-    const allReviews = await Review.find({ shopId, status: 'approved' });
-    const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0) + rating;
-    const avgRating = (totalRating / (allReviews.length + 1)).toFixed(1);
-
-    await Shop.findByIdAndUpdate(shopId, {
-      ratingAverage: Number(avgRating),
-      reviewCount: allReviews.length + 1,
-    });
-
-    res.status(201).json({ 
+    res.status(201).json({
       message: 'Review submitted successfully',
       review: {
         id: newReview._id,
@@ -91,6 +96,7 @@ async function createReview(req, res, next) {
 async function getShopReviews(req, res, next) {
   try {
     const { shopId } = req.params;
+    if (!(await Shop.exists({ _id: shopId }))) return res.json({ reviews: [] });
     const reviews = await Review.find({ shopId, status: 'approved' })
       .populate('reviewer', 'name avatarUrl')
       .populate('listing', 'title photos')
@@ -105,11 +111,14 @@ async function getShopReviews(req, res, next) {
 
 async function getUserReviews(req, res, next) {
   try {
-    const { userId } = req.params;
-    // This endpoint is deprecated for individual users - now only works for shops
-    // For backward compatibility, return empty array
-    console.log('getUserReviews called - this endpoint is deprecated for individual users');
-    res.json({ reviews: [] });
+    const seller = await User.findById(req.params.userId).select('isTester').lean();
+    if (!seller || !sameAudienceUser(seller)) return res.json({ reviews: [] });
+    const reviews = await Review.find({ seller: req.params.userId, status: 'approved' })
+      .populate('reviewer', 'name avatarUrl')
+      .populate('listing', 'title photos')
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json({ reviews });
   } catch (error) {
     next(error);
   }
@@ -187,22 +196,8 @@ async function updateReviewStatus(req, res, next) {
 
     await review.save();
 
-    // Update shop rating if status changed to/from approved
-    if (oldStatus !== review.status && review.shopId) {
-      const allReviews = await Review.find({ 
-        shopId: review.shopId, 
-        status: 'approved' 
-      });
-      
-      const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
-      const avgRating = allReviews.length > 0 
-        ? (totalRating / allReviews.length).toFixed(1)
-        : 0;
-
-      await Shop.findByIdAndUpdate(review.shopId, {
-        ratingAverage: Number(avgRating),
-        reviewCount: allReviews.length,
-      });
+    if (oldStatus !== review.status) {
+      await refreshRatings({ shopId: review.shopId, seller: review.seller });
     }
 
     res.json({ 
@@ -214,7 +209,25 @@ async function updateReviewStatus(req, res, next) {
   }
 }
 
+/** Older shop reviews predate `seller`; fill it from the listing so seller ratings include them. */
+async function backfillReviewSellers() {
+  const rows = await Review.find({ seller: null }).select('listing shopId').limit(5000).lean();
+  if (!rows.length) return;
+  const listings = await Listing.find({ _id: { $in: rows.map((r) => r.listing) } }).select('seller').lean();
+  const sellerOf = new Map(listings.map((l) => [String(l._id), l.seller]));
+  const touched = new Set();
+  for (const row of rows) {
+    const seller = sellerOf.get(String(row.listing));
+    if (!seller) continue;
+    await Review.updateOne({ _id: row._id }, { $set: { seller } });
+    touched.add(String(seller));
+  }
+  for (const seller of touched) await refreshRatings({ seller });
+}
+
 module.exports = {
+  refreshRatings,
+  backfillReviewSellers,
   createReview,
   getShopReviews,
   getUserReviews,

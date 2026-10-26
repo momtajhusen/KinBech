@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const AiSettings = require('../models/AiSettings');
 const AiUsageDaily = require('../models/AiUsageDaily');
 
@@ -60,6 +61,183 @@ function candidateModels(settings) {
   return enabled.filter((model) => !isBlocked(model)).map((model) => model.name);
 }
 
+function maskKey(apiKey) {
+  const value = String(apiKey || '');
+  if (value.length < 8) return '••••';
+  return `••••${value.slice(-4)}`;
+}
+
+function accountModelBlocked(account, modelName, now = Date.now()) {
+  const block = (account.modelBlocks || []).find((item) => item.name === modelName);
+  return Boolean(block?.blockedUntil && new Date(block.blockedUntil).getTime() > now);
+}
+
+/** Enabled accounts that can still take a request. Env key is used only when none are saved. */
+function candidateAccounts(settings) {
+  const saved = settings.accounts || [];
+  const usable = saved.filter((account) => account.enabled && account.apiKey && !isBlocked(account));
+  if (usable.length) return usable;
+  if (saved.length) return [];
+  const envKey = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!envKey) return [];
+  return [{ id: 'env', label: 'Server key', apiKey: envKey, enabled: true, modelBlocks: [] }];
+}
+
+function modelsForAccount(settings, account) {
+  return candidateModels(settings).filter((name) => !accountModelBlocked(account, name));
+}
+
+function presentAccount(account) {
+  return {
+    id: account.id,
+    label: account.label,
+    enabled: account.enabled !== false,
+    keyHint: maskKey(account.apiKey),
+    blockedUntil: isBlocked(account) ? account.blockedUntil : null,
+    lastError: account.lastError || '',
+    blockedModels: (account.modelBlocks || [])
+      .filter((item) => item.blockedUntil && new Date(item.blockedUntil).getTime() > Date.now())
+      .map((item) => item.name),
+  };
+}
+
+async function loadSettingsDoc() {
+  let doc = await AiSettings.findOne({ key: 'default' });
+  if (!doc) {
+    doc = await AiSettings.create({
+      key: 'default',
+      autoSwitch: true,
+      models: DEFAULT_MODELS.map((name) => ({ name })),
+      accounts: [],
+    });
+  }
+  return doc;
+}
+
+async function addAiAccount({ label, apiKey }) {
+  const key = String(apiKey || '').trim();
+  const name = String(label || '').trim();
+  if (key.length < 20) {
+    const error = new Error('Paste a full Gemini API key');
+    error.status = 400;
+    throw error;
+  }
+  if (!name) {
+    const error = new Error('Account name is required');
+    error.status = 400;
+    throw error;
+  }
+  const doc = await loadSettingsDoc();
+  if ((doc.accounts || []).some((account) => account.apiKey === key)) {
+    const error = new Error('This API key is already added');
+    error.status = 409;
+    throw error;
+  }
+  doc.accounts.push({
+    id: crypto.randomUUID(),
+    label: name.slice(0, 60),
+    apiKey: key,
+    enabled: true,
+    modelBlocks: [],
+  });
+  await doc.save();
+  invalidateAiSettings();
+}
+
+async function updateAiAccounts(list) {
+  const doc = await loadSettingsDoc();
+  const byId = new Map((doc.accounts || []).map((account) => [account.id, account]));
+  const next = [];
+  (list || []).forEach((item) => {
+    const current = byId.get(String(item?.id || ''));
+    if (!current) return;
+    current.label = String(item.label || current.label).trim().slice(0, 60) || current.label;
+    current.enabled = item.enabled !== false;
+    next.push(current);
+  });
+  doc.accounts = next;
+  await doc.save();
+  invalidateAiSettings();
+}
+
+async function replaceAccountKey(id, apiKey) {
+  const key = String(apiKey || '').trim();
+  if (key.length < 20) {
+    const error = new Error('Paste a full Gemini API key');
+    error.status = 400;
+    throw error;
+  }
+  const doc = await loadSettingsDoc();
+  const account = (doc.accounts || []).find((item) => item.id === id);
+  if (!account) {
+    const error = new Error('Account not found');
+    error.status = 404;
+    throw error;
+  }
+  account.apiKey = key;
+  account.blockedUntil = null;
+  account.lastError = '';
+  account.modelBlocks = [];
+  await doc.save();
+  invalidateAiSettings();
+}
+
+async function markAccountBlocked(id, until, errorMessage) {
+  if (id === 'env') return;
+  await AiSettings.updateOne(
+    { key: 'default', 'accounts.id': id },
+    {
+      $set: {
+        'accounts.$.blockedUntil': new Date(until),
+        'accounts.$.lastError': String(errorMessage || '').slice(0, 300),
+      },
+    }
+  );
+  invalidateAiSettings();
+}
+
+async function markAccountModelBlocked(id, modelName, until, errorMessage) {
+  if (id === 'env') {
+    await markModelBlocked(modelName, until);
+    return;
+  }
+  const doc = await loadSettingsDoc();
+  const account = (doc.accounts || []).find((item) => item.id === id);
+  if (!account) return;
+  const blocks = account.modelBlocks || [];
+  const existing = blocks.find((item) => item.name === modelName);
+  if (existing) existing.blockedUntil = new Date(until);
+  else blocks.push({ name: modelName, blockedUntil: new Date(until) });
+  account.modelBlocks = blocks;
+  account.lastError = String(errorMessage || '').slice(0, 300);
+  const enabled = (doc.models || []).filter((model) => model.enabled).map((model) => model.name);
+  const names = doc.autoSwitch ? enabled : enabled.slice(0, 1);
+  const now = Date.now();
+  const allBlocked = names.length > 0 && names.every((name) => {
+    const block = blocks.find((item) => item.name === name);
+    return block && new Date(block.blockedUntil).getTime() > now;
+  });
+  if (allBlocked) account.blockedUntil = new Date(until);
+  await doc.save();
+  invalidateAiSettings();
+}
+
+async function clearAccountBlock(id) {
+  const doc = await loadSettingsDoc();
+  const account = (doc.accounts || []).find((item) => item.id === id);
+  if (!account) return;
+  account.blockedUntil = null;
+  account.lastError = '';
+  account.modelBlocks = [];
+  await doc.save();
+  invalidateAiSettings();
+}
+
+async function getAccountKey(id) {
+  const settings = await getAiSettings({ fresh: true });
+  return (settings.accounts || []).find((account) => account.id === id) || null;
+}
+
 async function markModelBlocked(name, until) {
   await AiSettings.updateOne(
     { key: 'default', 'models.name': name },
@@ -92,12 +270,22 @@ function recordUsage(model, { ok = false, quota = false, error = '' } = {}) {
 
 module.exports = {
   DEFAULT_MODELS,
+  addAiAccount,
+  candidateAccounts,
   candidateModels,
+  clearAccountBlock,
   clearModelBlock,
+  getAccountKey,
   getAiSettings,
   invalidateAiSettings,
   isBlocked,
+  markAccountBlocked,
+  markAccountModelBlocked,
   markModelBlocked,
+  modelsForAccount,
+  presentAccount,
   quotaDay,
   recordUsage,
+  replaceAccountKey,
+  updateAiAccounts,
 };

@@ -1,7 +1,7 @@
 import { forwardRef } from 'react';
 import { Image, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { BRAND_TAGLINE } from '../content/brand';
 import { buildListingShareUrl, formatSharePrice } from '../utils/listingShare';
 
@@ -86,7 +86,7 @@ const ListingShareCard = forwardRef(function ListingShareCard(
             />
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="cube-outline" size={42} color="rgba(255,255,255,0.35)" />
+              <Icon name="cube-outline" size={42} color="rgba(255,255,255,0.35)" />
             </View>
           )}
         </View>
@@ -133,7 +133,7 @@ const ListingShareCard = forwardRef(function ListingShareCard(
 
           {listing?.location ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-              <Ionicons name="location-sharp" size={12} color="#9CA3AF" />
+              <Icon name="location-sharp" size={12} color="#9CA3AF" />
               <Text numberOfLines={1} style={{ color: '#9CA3AF', fontSize: 11, flex: 1 }}>
                 {listing.location}
               </Text>

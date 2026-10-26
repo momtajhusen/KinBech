@@ -1,5 +1,23 @@
+import { PRODUCTION_API_URL } from './productionApi';
+
+function siteFromApiBase(apiBase) {
+  const raw = String(apiBase || '').trim().replace(/\/+$/, '');
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.replace(/^kinbechapi\./i, 'kinbech.');
+    return `${url.protocol}//${host}`;
+  } catch {
+    return 'https://kinbech.codersalpha.com';
+  }
+}
+
+const fromEnv = String(process.env.EXPO_PUBLIC_STOREFRONT_URL || '').trim();
+const useApiSite = !fromEnv || /kinbech\.app/i.test(fromEnv);
+
 export const STOREFRONT_BASE_URL = (
-  process.env.EXPO_PUBLIC_STOREFRONT_URL || 'https://kinbech.app'
+  useApiSite
+    ? siteFromApiBase(process.env.EXPO_PUBLIC_API_URL || PRODUCTION_API_URL)
+    : fromEnv
 ).replace(/\/+$/, '');
 
 export function buildStorefrontUrl(shopId) {

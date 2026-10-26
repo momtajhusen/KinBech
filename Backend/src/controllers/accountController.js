@@ -4,6 +4,8 @@ const SupportTicket = require('../models/SupportTicket');
 const { listingPayload } = require('../utils/listing');
 const { emitActivity } = require('../utils/realtime');
 const { ticketActivityEvent } = require('../utils/activityEvents');
+const { GRACE_DAYS, scheduleDeletion, buildExport } = require('../utils/accountDeletion');
+const { getPlatformSettings } = require('../utils/platformSettings');
 
 function mapAddress(doc) {
   return {
@@ -132,6 +134,33 @@ async function createPaymentMethod(req, res, next) {
   }
 }
 
+async function updatePaymentMethod(req, res, next) {
+  try {
+    const method = typeof req.user.paymentMethods?.id === 'function'
+      ? req.user.paymentMethods.id(req.params.id)
+      : null;
+    if (!method) {
+      return res.status(404).json({ message: 'Payment method not found' });
+    }
+    if (req.body.identifier !== undefined) {
+      const identifier = String(req.body.identifier || '').trim();
+      if (method.provider !== 'cash' && !identifier) {
+        return res.status(400).json({ message: 'Account ID / number is required' });
+      }
+      method.identifier = identifier;
+    }
+    if (req.body.isDefault) {
+      req.user.paymentMethods.forEach((m) => {
+        m.isDefault = String(m._id) === String(method._id);
+      });
+    }
+    await req.user.save();
+    res.json({ paymentMethods: req.user.paymentMethods.map(mapPayment) });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function deletePaymentMethod(req, res, next) {
   try {
     if (!req.user.paymentMethods || typeof req.user.paymentMethods.id !== 'function') {
@@ -180,19 +209,25 @@ async function getWallet(req, res, next) {
     const transactions = [
       ...sold.map((l) => ({
         id: String(l._id),
+        listingId: String(l._id),
         type: 'sale',
         title: l.title,
+        category: l.category || '',
+        photo: l.photos?.[0] || '',
         amount: Number(l.price) || 0,
         currency: l.currency || 'NPR',
-        date: l.updatedAt || l.createdAt,
+        date: l.soldAt || l.updatedAt || l.createdAt,
       })),
       ...purchases.map((l) => ({
         id: `p-${l._id}`,
+        listingId: String(l._id),
         type: 'purchase',
         title: l.title,
+        category: l.category || '',
+        photo: l.photos?.[0] || '',
         amount: Number(l.price) || 0,
         currency: l.currency || 'NPR',
-        date: l.updatedAt || l.createdAt,
+        date: l.soldAt || l.updatedAt || l.createdAt,
       })),
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -205,7 +240,9 @@ async function getWallet(req, res, next) {
         soldCount: sold.length,
         purchaseCount: purchases.length,
         inAppBalance: 0,
+        featuredCredits: Math.max(0, Number(req.user.featuredCredits) || 0),
       },
+      paymentMethods: (req.user.paymentMethods || []).map(mapPayment),
       transactions,
       listings: sold.map((l) => listingPayload(l)),
     });
@@ -245,16 +282,19 @@ async function createSupportTicket(req, res, next) {
 
 async function getMySupportTickets(req, res, next) {
   try {
-    const tickets = await SupportTicket.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(20)
-      .lean();
+    const [tickets, settings] = await Promise.all([
+      SupportTicket.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(20).lean(),
+      getPlatformSettings(),
+    ]);
     res.json({
+      supportEmail: settings.supportEmail,
       tickets: tickets.map((t) => ({
         id: String(t._id),
         subject: t.subject,
         message: t.message,
         status: t.status,
+        reply: t.reply || '',
+        repliedAt: t.repliedAt || null,
         createdAt: t.createdAt,
       })),
     });
@@ -263,13 +303,46 @@ async function getMySupportTickets(req, res, next) {
   }
 }
 
+/** Self-delete with a grace period; signing in again before it ends cancels it. */
+async function requestAccountDeletion(req, res, next) {
+  try {
+    if (req.user.role !== 'user') {
+      return res.status(403).json({ message: 'Admin accounts are removed by a super admin.', code: 'ADMIN_SELF_DELETE' });
+    }
+    if (req.body?.confirm !== 'DELETE') {
+      return res.status(400).json({ message: 'Confirm deletion to continue.', code: 'CONFIRM_REQUIRED' });
+    }
+    const scheduledFor = await scheduleDeletion(req.user);
+    res.json({
+      message: `Your account will be deleted on ${scheduledFor.toDateString()}. Sign in again before then to cancel.`,
+      scheduledFor,
+      graceDays: GRACE_DAYS,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function exportMyData(req, res, next) {
+  try {
+    const data = await buildExport(req.user);
+    res.set('Cache-Control', 'no-store');
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  requestAccountDeletion,
+  exportMyData,
   getAddresses,
   createAddress,
   updateAddress,
   deleteAddress,
   getPaymentMethods,
   createPaymentMethod,
+  updatePaymentMethod,
   deletePaymentMethod,
   getWallet,
   createSupportTicket,

@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { createReport, blockUser, unblockUser, getMyReports, getAllReports, updateReportStatus } = require('../controllers/reportController');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireScope } = require('../middleware/auth');
+const { auditRoute } = require('../utils/audit');
 
 const router = Router();
 
@@ -11,7 +12,7 @@ router.post('/users/:userId/block', requireAuth, blockUser);
 router.delete('/users/:userId/block', requireAuth, unblockUser);
 
 // Admin routes
-router.get('/admin/all', requireAdmin, getAllReports);
-router.patch('/admin/:reportId/status', requireAdmin, updateReportStatus);
+router.get('/admin/all', requireScope('reports'), getAllReports);
+router.patch('/admin/:reportId/status', requireScope('reports'), auditRoute('reports.status.update', { targetType: 'report', param: 'reportId' }), updateReportStatus);
 
 module.exports = router;

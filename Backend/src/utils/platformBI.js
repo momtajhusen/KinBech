@@ -7,6 +7,7 @@ const { alertActivityEvent } = require('./activityEvents');
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'moderator', 'support'];
 const ACTIVE_TOUCH_THROTTLE_MS = 5 * 60 * 1000;
+const NST_OFFSET_MS = (5 * 60 + 45) * 60 * 1000;
 
 function startOfUtcDay(date = new Date()) {
   const d = new Date(date);
@@ -23,7 +24,12 @@ function touchLastActive(user) {
   if (!user?._id) return;
   const last = user.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
   if (Date.now() - last < ACTIVE_TOUCH_THROTTLE_MS) return;
-  User.updateOne({ _id: user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
+  const nstDay = (ms) => new Date(ms + NST_OFFSET_MS).toISOString().slice(0, 10);
+  const today = nstDay(Date.now());
+  const update = { $set: { lastActiveAt: new Date() } };
+  // First activity of a Nepal day feeds the seller score's "active days in the last 30".
+  if (!last || nstDay(last) !== today) update.$push = { activeDays: { $each: [today], $slice: -30 } };
+  User.updateOne({ _id: user._id }, update).catch(() => {});
   user.lastActiveAt = new Date();
 }
 

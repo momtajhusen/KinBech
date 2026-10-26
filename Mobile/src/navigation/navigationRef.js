@@ -21,6 +21,12 @@ export function openInAppCall(call, { autoAnswer = false } = {}) {
   pendingCall = params;
 }
 
+/** Session ended outside a screen (refresh rejected): back to the login screen. */
+export function resetToLogin() {
+  if (!navigationRef.isReady()) return;
+  navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
+}
+
 export function flushPendingCallNavigation() {
   if (!pendingCall || !navigationRef.isReady()) return;
   const params = pendingCall;

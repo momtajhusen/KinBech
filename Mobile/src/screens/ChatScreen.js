@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import Icon from '../components/Icon';
 import {
   ActivityIndicator,
   Animated,
@@ -13,6 +12,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  FlatList,
   ScrollView,
   Text,
   TextInput,
@@ -21,7 +21,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showWarningAlert } from '../components/AlertModal';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { playNewMessageSound, setActiveChatId } from '../services/sounds';
@@ -39,6 +39,91 @@ import {
 } from '../utils/chatSafety';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+
+const MESSAGE_PAGE = 40;
+
+const QUICK_REPLIES = {
+  buyer: [
+    'Is this still available?',
+    'What is your final price?',
+    'Can you share more photos?',
+    'Where can we meet?',
+    'When are you free to meet?',
+  ],
+  seller: [
+    "Yes, it's still available.",
+    'The price is slightly negotiable.',
+    'When can you come to see it?',
+    "Let's meet at a public place.",
+    "Sorry, it's already sold.",
+  ],
+  scheduled: [
+    "I'm on my way.",
+    "I've reached the meeting place.",
+    'Running 10 minutes late.',
+    'Can we change the time?',
+  ],
+  completed: ['Thank you!', 'Great dealing with you.'],
+};
+
+function quickRepliesFor(role, deal) {
+  if (deal?.state === 'scheduled') return QUICK_REPLIES.scheduled;
+  if (deal?.state === 'completed') return QUICK_REPLIES.completed;
+  return QUICK_REPLIES[role] || QUICK_REPLIES.buyer;
+}
+
+const DEAL_SOURCES = {
+  chat_signal: 'Detected automatically: the buyer said they got it.',
+  auto_signals: 'Detected automatically after the seller said it was sold.',
+  buyer_confirmed: 'The buyer confirmed it.',
+  seller_confirmed: 'The seller confirmed it.',
+  seller_sold: 'The seller marked the item sold.',
+};
+
+/** Banner copy and buttons for the chat deal state; buttons are only a fallback to auto-detection. */
+function dealBannerContent(deal) {
+  if (!deal) return null;
+  const isBuyer = deal.role === 'buyer';
+  if (deal.state === 'scheduled') {
+    return isBuyer
+      ? {
+          icon: 'calendar-outline',
+          title: 'Meetup confirmed',
+          text: 'Did you get the item? We also pick this up from the chat.',
+          actions: [
+            { key: 'completed', label: 'Yes, got it', primary: true },
+            { key: 'no_show', label: "Didn't happen" },
+          ],
+        }
+      : {
+          icon: 'calendar-outline',
+          title: 'Meetup confirmed',
+          text: 'The deal completes automatically when the buyer confirms or you mark the item sold.',
+          actions: [
+            { key: 'completed', label: 'Deal done', primary: true },
+            { key: 'no_show', label: 'Buyer no-show' },
+          ],
+        };
+  }
+  if (deal.state === 'completed') {
+    return {
+      icon: 'checkmark-done-outline',
+      title: 'Deal completed',
+      text: DEAL_SOURCES[deal.source] || 'This deal is complete.',
+      actions: isBuyer && !deal.reviewed ? [{ key: 'review', label: 'Rate seller', primary: true }] : [],
+    };
+  }
+  if (deal.state === 'no_show') {
+    const againstMe = deal.noShowBy === deal.role;
+    return {
+      icon: 'alert-circle-outline',
+      title: 'Meetup marked as no-show',
+      text: againstMe ? 'The other person said you did not come to the meetup.' : 'You marked this meetup as a no-show.',
+      actions: [],
+    };
+  }
+  return null;
+}
 
 function formatTime(dateValue) {
   if (!dateValue) return '';
@@ -86,7 +171,7 @@ function buildChatRows(messages) {
     }
     rows.push({ type: 'message', id: String(message.id), message });
   });
-  return rows;
+  return rows.reverse();
 }
 
 function formatDuration(seconds) {
@@ -134,6 +219,7 @@ function mapMessage(message) {
     viewedAt: message.viewedAt || null,
     edited: Boolean(message.editedAt),
     deleted: Boolean(message.deleted),
+    safetyFlag: message.safetyFlag || '',
     kind: message.kind || 'text',
     callStatus: message.call?.status || '',
     durationLabel: formatDuration(message.call?.durationSec || message.audio?.durationSec),
@@ -202,7 +288,7 @@ function SwipeReply({ enabled, onReply, mine, children }) {
           },
         ]}
       >
-        <Ionicons name="arrow-undo" size={18} color="#8696A0" />
+        <Icon name="arrow-undo" size={18} color="#8696A0" />
       </Animated.View>
       <Animated.View style={{ transform: [{ translateX: drag }] }} {...pan.panHandlers}>
         {children}
@@ -254,7 +340,7 @@ function CallLogBubble({ message, styles, onPress }) {
   return (
     <Pressable onPress={onPress} style={styles.callLog}>
       <View style={[styles.callLogIcon, { backgroundColor: iconColor }]}>
-        <Ionicons
+        <Icon
           name="call"
           size={16}
           color="#FFFFFF"
@@ -310,7 +396,7 @@ function MessageBody({ text, isMe, styles, onLinkPress, time, read, edited }) {
         {edited ? <Text style={styles.editedLabel}>edited</Text> : null}
         <Text style={styles.timeLabel}>{time}</Text>
         {isMe ? (
-          <Ionicons
+          <Icon
             name="checkmark-done"
             size={15}
             color={read ? '#53BDEB' : 'rgba(233,237,239,0.7)'}
@@ -328,6 +414,12 @@ export default function ChatScreen({ navigation, route }) {
   const keyboardOverlap = useKeyboardOverlap();
   const contactName = route?.params?.name || 'Seller';
   const chatId = route?.params?.chatId;
+  const historyKey = (Array.isArray(route?.params?.chatIds) && route.params.chatIds.length
+    ? route.params.chatIds
+    : [chatId]
+  )
+    .filter(Boolean)
+    .join(',');
   const listing = route?.params?.listing;
   const otherUserId = route?.params?.otherUserId;
   const contactImage = route?.params?.image;
@@ -349,27 +441,44 @@ export default function ChatScreen({ navigation, route }) {
   const captureRef = useRef(null);
   const [peer, setPeer] = useState(null);
   const [chatListing, setChatListing] = useState(null);
+  const [deal, setDeal] = useState(null);
+  const [dealBusy, setDealBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [myRole, setMyRole] = useState('');
   const typingSentAtRef = useRef(0);
   const typingStopRef = useRef(null);
   const seenMessageIdsRef = useRef(new Set());
   const messagesReadyRef = useRef(false);
+  const messagesSigRef = useRef('');
+  const storesRef = useRef(new Map());
+  const pagingRef = useRef(new Map());
+  const pollsInFlightRef = useRef(0);
+  const loadingOlderRef = useRef(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const chatRows = useMemo(() => buildChatRows(messages), [messages]);
   const listRef = useRef(null);
   const lastMessageIdRef = useRef('');
   const stickToBottomRef = useRef(true);
 
   const scrollToLatest = useCallback((animated = true) => {
     requestAnimationFrame(() => {
-      listRef.current?.scrollToEnd({ animated });
+      listRef.current?.scrollToOffset({ offset: 0, animated });
     });
-    setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated });
-    }, 60);
   }, []);
 
-  const loadMessages = useCallback(async () => {
-    if (!chatId) return;
-    const { data } = await api.getMessages(chatId);
-    const next = (data?.messages || []).map(mapMessage);
+  const publishMessages = useCallback(() => {
+    const raw = [];
+    const seen = new Set();
+    storesRef.current.forEach((store) => {
+      store.forEach((message) => {
+        const id = String(message.id);
+        if (seen.has(id)) return;
+        seen.add(id);
+        raw.push(message);
+      });
+    });
+    raw.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    const next = raw.map(mapMessage);
     const freshText = next.filter(
       (message) =>
         message.sender === 'them' &&
@@ -382,23 +491,114 @@ export default function ChatScreen({ navigation, route }) {
       playNewMessageSound(chatId, newest.createdAt);
     }
     messagesReadyRef.current = true;
-    setMessages(next);
-    if (data?.presence) setPresence(data.presence);
-    if (data?.peer) setPeer(data.peer);
-    if (data?.listing) setChatListing(data.listing);
+    const signature = next
+      .map((message) => `${message.id}:${message.text}:${message.read}:${message.edited}:${message.deleted}:${message.kind}`)
+      .join('|');
+    if (signature !== messagesSigRef.current) {
+      messagesSigRef.current = signature;
+      setMessages(next);
+    }
   }, [chatId]);
+
+  const loadMessages = useCallback(async () => {
+    const ids = historyKey.split(',').filter(Boolean);
+    if (!ids.length) return;
+    pollsInFlightRef.current += 1;
+    const results = await Promise.all(ids.map((id) => api.getMessages(id, { limit: MESSAGE_PAGE })));
+    pollsInFlightRef.current -= 1;
+    setLoaded(true);
+    let data = null;
+    results.forEach((result, index) => {
+      if (result.error || !result.data) return;
+      if (!data) data = result.data;
+      const id = ids[index];
+      const page = result.data.messages || [];
+      const store = storesRef.current.get(id) || new Map();
+      // Anything inside the latest window that the server no longer returns was deleted for me.
+      const windowStart = result.data.hasMore && page.length
+        ? new Date(page[0].createdAt || 0).getTime()
+        : -Infinity;
+      const pageIds = new Set(page.map((message) => String(message.id)));
+      store.forEach((message, key) => {
+        if (!pageIds.has(key) && new Date(message.createdAt || 0).getTime() >= windowStart) store.delete(key);
+      });
+      page.forEach((message) => store.set(String(message.id), message));
+      storesRef.current.set(id, store);
+      if (!pagingRef.current.get(id)?.olderLoaded) {
+        pagingRef.current.set(id, { hasMore: Boolean(result.data.hasMore), olderLoaded: false });
+      }
+    });
+    if (!data) return;
+    publishMessages();
+    if (data.presence) setPresence(data.presence);
+    if (data.peer) setPeer(data.peer);
+    if (data.listing) setChatListing(data.listing);
+    if (data.myRole) setMyRole(data.myRole);
+    const nextDeal = data.deal || null;
+    setDeal((prev) => (JSON.stringify(prev) === JSON.stringify(nextDeal) ? prev : nextDeal));
+  }, [historyKey, publishMessages]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingOlderRef.current) return;
+    const targets = [...pagingRef.current.entries()].filter(([, paging]) => paging.hasMore);
+    if (!targets.length) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    const results = await Promise.all(
+      targets.map(([id]) => {
+        let oldest = null;
+        storesRef.current.get(id)?.forEach((message) => {
+          if (!oldest || new Date(message.createdAt || 0) < new Date(oldest.createdAt || 0)) oldest = message;
+        });
+        return oldest
+          ? api.getMessages(id, { limit: MESSAGE_PAGE, before: oldest.id })
+          : Promise.resolve({ data: { messages: [], hasMore: false } });
+      })
+    );
+    results.forEach((result, index) => {
+      if (result.error || !result.data) return;
+      const [id] = targets[index];
+      const store = storesRef.current.get(id) || new Map();
+      (result.data.messages || []).forEach((message) => {
+        seenMessageIdsRef.current.add(String(message.id));
+        store.set(String(message.id), message);
+      });
+      storesRef.current.set(id, store);
+      pagingRef.current.set(id, { hasMore: Boolean(result.data.hasMore), olderLoaded: true });
+    });
+    publishMessages();
+    loadingOlderRef.current = false;
+    setLoadingOlder(false);
+  }, [publishMessages]);
+
+  const rememberMessage = useCallback((message) => {
+    if (!chatId || !message?.id) return;
+    const store = storesRef.current.get(chatId) || new Map();
+    store.set(String(message.id), message);
+    storesRef.current.set(chatId, store);
+  }, [chatId]);
+
+  const forgetMessage = useCallback((messageId) => {
+    storesRef.current.forEach((store) => store.delete(String(messageId)));
+  }, []);
 
   const { refreshing, onRefresh } = usePullRefresh(loadMessages);
 
   useEffect(() => {
     seenMessageIdsRef.current = new Set();
     messagesReadyRef.current = false;
+    messagesSigRef.current = '';
+    storesRef.current = new Map();
+    pagingRef.current = new Map();
+    setLoaded(false);
     lastMessageIdRef.current = '';
-    if (!chatId) return undefined;
+    if (!historyKey) return undefined;
     loadMessages();
-    const interval = setInterval(loadMessages, 2000);
+    const interval = setInterval(() => {
+      if (pollsInFlightRef.current === 0) loadMessages();
+    }, 2000);
     return () => clearInterval(interval);
-  }, [chatId, loadMessages]);
+  }, [historyKey, loadMessages]);
 
   useEffect(() => {
     const last = messages[messages.length - 1];
@@ -406,9 +606,12 @@ export default function ChatScreen({ navigation, route }) {
     const id = String(last.id);
     if (id === lastMessageIdRef.current) return;
     const isFirst = lastMessageIdRef.current === '';
+    const mine = last.sender === 'me';
     lastMessageIdRef.current = id;
-    stickToBottomRef.current = true;
-    scrollToLatest(!isFirst);
+    if (isFirst || mine || stickToBottomRef.current) {
+      stickToBottomRef.current = true;
+      scrollToLatest(!isFirst);
+    }
   }, [messages, scrollToLatest]);
 
   useEffect(() => {
@@ -449,6 +652,8 @@ export default function ChatScreen({ navigation, route }) {
             title: pinnedTitle || shownListing.title || '',
             price: shownListing.price,
             photos: shownListing.photos || [],
+            location: shownListing.location || '',
+            coordinates: shownListing.coordinates || null,
           }
         : undefined,
     });
@@ -505,6 +710,7 @@ export default function ChatScreen({ navigation, route }) {
     api.setTyping(chatId, false).catch(() => {});
     const { data, error } = await api.sendMessage(chatId, value, { replyTo: replyId || undefined });
     if (data?.message && typeof data.message === 'object') {
+      rememberMessage(data.message);
       setMessages((prev) => [...prev, mapMessage(data.message)]);
       return;
     }
@@ -520,13 +726,14 @@ export default function ChatScreen({ navigation, route }) {
         onConfirm: () => setAlertConfig(null),
       })
     );
-  }, [chatId]);
+  }, [chatId, rememberMessage]);
 
   const saveEdit = async (value) => {
     if (!editing || !chatId) return;
     setDraft('');
     const { data, error } = await api.editMessage(chatId, editing.id, value);
     if (data?.message && typeof data.message === 'object') {
+      rememberMessage(data.message);
       const next = mapMessage(data.message);
       setMessages((prev) => prev.map((item) => (item.id === next.id ? next : item)));
       setEditing(null);
@@ -602,10 +809,12 @@ export default function ChatScreen({ navigation, route }) {
       return;
     }
     if (scope === 'me') {
+      forgetMessage(message.id);
       setMessages((prev) => prev.filter((item) => item.id !== message.id));
       return;
     }
     if (data?.message && typeof data.message === 'object') {
+      rememberMessage(data.message);
       const next = mapMessage(data.message);
       setMessages((prev) => prev.map((item) => (item.id === next.id ? next : item)));
     }
@@ -662,6 +871,7 @@ export default function ChatScreen({ navigation, route }) {
       });
       if (data?.message && typeof data.message === 'object') {
         setReplyingTo(null);
+        rememberMessage(data.message);
         setMessages((prev) => [...prev, mapMessage(data.message)]);
         return;
       }
@@ -678,6 +888,53 @@ export default function ChatScreen({ navigation, route }) {
     }
   };
 
+  const handleDealOutcome = async (outcome, confirmed = false) => {
+    if (!deal?.chatId || dealBusy) return;
+    if (outcome === 'no_show' && !confirmed) {
+      setAlertConfig({
+        ...showWarningAlert({
+          title: 'Mark as no-show?',
+          message: 'Only do this if the meetup did not happen. It affects how the other person is rated.',
+          onConfirm: () => {
+            setAlertConfig(null);
+            handleDealOutcome('no_show', true);
+          },
+          onCancel: () => setAlertConfig(null),
+        }),
+      });
+      return;
+    }
+    setDealBusy(true);
+    const { error, data } = await api.setDealOutcome(deal.chatId, outcome);
+    setDealBusy(false);
+    if (error) {
+      setAlertConfig(
+        showErrorAlert({
+          title: 'Could not update the deal',
+          message: (typeof data?.message === 'string' && data.message) || 'Please try again in a moment.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+    loadMessages();
+  };
+
+  const openDealReview = () => {
+    const item = chatListing || listing || {};
+    navigation.navigate(ROUTES.RATE_REVIEW, {
+      listing: {
+        id: item.id || item._id || listingId,
+        title: item.title || '',
+        photos: (item.photos || []).slice(0, 1),
+        sellerType: deal?.sellerType,
+        shopId: deal?.shopId,
+      },
+      seller: { id: deal?.sellerId },
+    });
+  };
+
+  const dealBanner = dealBannerContent(deal);
   const shownListing = chatListing || listing;
   const peerShop = peer?.shop;
   const shownName = peerShop?.name || peer?.name || contactName;
@@ -691,14 +948,13 @@ export default function ChatScreen({ navigation, route }) {
     <KeyboardAvoidingView
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
     >
       <ThemeStatusBar variant="header" />
       <View style={[styles.header, { paddingTop: insets.top + 4 }]}>
         <View style={styles.headerTop}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.iconBtn}>
-            <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+            <Icon name="chevron-back" size={26} color={colors.onGradient} />
           </Pressable>
 
           <Pressable
@@ -710,7 +966,7 @@ export default function ChatScreen({ navigation, route }) {
             <View style={styles.contactText}>
               <View style={styles.contactNameRow}>
                 <Text style={styles.contactName} numberOfLines={1}>{shownName}</Text>
-                {peerShop ? <Ionicons name="storefront" size={12} color={colors.onGradient} /> : null}
+                {peerShop ? <Icon name="storefront" size={12} color={colors.onGradient} /> : null}
               </View>
               <Text
                 style={[
@@ -730,14 +986,18 @@ export default function ChatScreen({ navigation, route }) {
               style={styles.iconBtn}
               onPress={startCall}
             >
-              <Ionicons name="call-outline" size={22} color={colors.onGradient} />
+              <Icon name="call-outline" size={22} color={colors.onGradient} />
             </Pressable>
             <Pressable
               hitSlop={10}
               style={styles.iconBtn}
-              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: otherUserId })}
+              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, {
+                userId: otherUserId,
+                listingId: listingId ? String(listingId) : undefined,
+                listingTitle: listing?.title,
+              })}
             >
-              <Ionicons name="ellipsis-vertical" size={22} color={colors.onGradient} />
+              <Icon name="ellipsis-vertical" size={22} color={colors.onGradient} />
             </Pressable>
           </View>
         </View>
@@ -760,10 +1020,9 @@ export default function ChatScreen({ navigation, route }) {
                   <Image
                     source={{ uri: pinnedImage }}
                     style={styles.pinnedThumbImage}
-                    sharedTransitionTag={pinnedId ? `item.${pinnedId}.photo` : undefined}
                   />
                 ) : (
-                  <Ionicons name="image-outline" size={22} color="#8696A0" />
+                  <Icon name="image-outline" size={22} color="#8696A0" />
                 )}
               </View>
               <View style={styles.pinnedInfo}>
@@ -771,32 +1030,65 @@ export default function ChatScreen({ navigation, route }) {
                 <Text
                   style={styles.pinnedTitle}
                   numberOfLines={1}
-                  sharedTransitionTag={pinnedId ? `item.${pinnedId}.title` : undefined}
                 >
                   {pinnedTitle || 'Item'}
                 </Text>
                 {pinnedPrice ? (
                   <Text
                     style={styles.pinnedPrice}
-                    sharedTransitionTag={pinnedId ? `item.${pinnedId}.price` : undefined}
                   >
                     {pinnedPrice}
                   </Text>
                 ) : null}
               </View>
-              <Ionicons name="chevron-forward" size={18} color="#8696A0" />
+              <Icon name="chevron-forward" size={18} color="#8696A0" />
             </Pressable>
           </View>
         ) : null}
       </View>
 
-      <View style={styles.safetyBanner}>
-        <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
-        <Text style={styles.safetyBannerText}>{CHAT_SAFETY_BANNER}</Text>
-      </View>
+      {dealBanner ? (
+        <View style={styles.dealBanner}>
+          <View style={styles.dealBannerRow}>
+            <Icon name={dealBanner.icon} size={16} color={colors.primary} />
+            <View style={styles.dealBannerCopy}>
+              <Text style={styles.dealBannerTitle}>{dealBanner.title}</Text>
+              <Text style={styles.safetyBannerText}>{dealBanner.text}</Text>
+            </View>
+          </View>
+          {dealBanner.actions.length ? (
+            <View style={styles.dealActions}>
+              {dealBanner.actions.map((action) => (
+                <Pressable
+                  key={action.key}
+                  disabled={dealBusy}
+                  style={({ pressed }) => [
+                    styles.dealBtn,
+                    action.primary && styles.dealBtnPrimary,
+                    (pressed || dealBusy) && { opacity: 0.6 },
+                  ]}
+                  onPress={() => (action.key === 'review' ? openDealReview() : handleDealOutcome(action.key))}
+                >
+                  <Text style={[styles.dealBtnText, action.primary && styles.dealBtnTextPrimary]}>
+                    {action.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <View style={styles.safetyBanner}>
+          <Icon name="shield-checkmark-outline" size={16} color={colors.primary} />
+          <Text style={styles.safetyBannerText}>{CHAT_SAFETY_BANNER}</Text>
+        </View>
+      )}
 
-      <ScrollView
+      <FlatList
         ref={listRef}
+        inverted
+        data={chatRows}
+        keyExtractor={(row) => row.id}
         style={styles.messagesContainer}
         contentContainerStyle={styles.messages}
         showsVerticalScrollIndicator={false}
@@ -805,24 +1097,46 @@ export default function ChatScreen({ navigation, route }) {
         keyboardDismissMode="interactive"
         scrollEventThrottle={16}
         onScroll={(event) => {
-          const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-          const distanceFromBottom =
-            contentSize.height - (contentOffset.y + layoutMeasurement.height);
-          stickToBottomRef.current = distanceFromBottom < 80;
+          stickToBottomRef.current = event.nativeEvent.contentOffset.y < 120;
         }}
-        onContentSizeChange={() => {
-          if (stickToBottomRef.current) listRef.current?.scrollToEnd({ animated: false });
-        }}
-      >
-        {messages.length === 0 ? (
-          <EmptyState
-            compact
-            icon="chatbubble-ellipses-outline"
-            title="Start the conversation"
-            body="Send a message to connect with the seller. Keep chat in the app for safety."
-          />
-        ) : (
-          buildChatRows(messages).map((row) => {
+        onEndReached={loaded ? loadOlderMessages : undefined}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          loadingOlder ? (
+            <View style={styles.olderLoading}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          loaded ? (
+            // The inverted list flips this cell through its `style`, which EmptyState ignores.
+            <View>
+              <EmptyState
+                compact
+                icon="chatbubble-ellipses-outline"
+                title="Start the conversation"
+                body={myRole === 'seller'
+                  ? 'Reply to the buyer. Keep chat in the app for safety.'
+                  : 'Send a message to connect with the seller. Keep chat in the app for safety.'}
+              />
+            </View>
+          ) : (
+            <View style={styles.chatLoading}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          )
+        }
+        ListHeaderComponent={
+          presence?.typing ? (
+            <View style={[styles.messageRow, styles.messageRowThem]}>
+              <View style={[styles.bubble, styles.bubbleThem, styles.typingBubble]}>
+                <Text style={styles.typingText}>typing...</Text>
+              </View>
+            </View>
+          ) : null
+        }
+        renderItem={({ item: row }) => {
             if (row.type === 'date') {
               return (
                 <View key={row.id} style={styles.dateChip}>
@@ -847,10 +1161,7 @@ export default function ChatScreen({ navigation, route }) {
               </View>
             ) : null;
             return (
-              <View
-                key={row.id}
-                style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}
-              >
+              <View style={[styles.messageRow, isMe ? styles.messageRowMe : styles.messageRowThem]}>
                 <SwipeReply enabled={powers.reply} mine={isMe} onReply={() => beginReply(message)}>
                 <Pressable
                   onLongPress={() => {
@@ -864,7 +1175,7 @@ export default function ChatScreen({ navigation, route }) {
                   {message.deleted ? (
                     <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem, styles.deletedBubble]}>
                       <View style={styles.deletedRow}>
-                        <Ionicons name="ban" size={14} color="rgba(233,237,239,0.65)" />
+                        <Icon name="ban" size={14} color="rgba(233,237,239,0.65)" />
                         <Text style={styles.deletedText}>
                           {isMe ? 'You deleted this message' : 'This message was deleted'}
                         </Text>
@@ -898,7 +1209,7 @@ export default function ChatScreen({ navigation, route }) {
                       <View style={styles.timeRow}>
                         <Text style={styles.timeLabel}>{message.time}</Text>
                         {isMe ? (
-                          <Ionicons
+                          <Icon
                             name="checkmark-done"
                             size={15}
                             color={message.read ? '#53BDEB' : 'rgba(233,237,239,0.7)'}
@@ -928,7 +1239,7 @@ export default function ChatScreen({ navigation, route }) {
                         isMe ? styles.linkWarningMe : styles.linkWarningThem,
                       ]}
                     >
-                      <Ionicons
+                      <Icon
                         name="warning-outline"
                         size={12}
                         color={colors.warning || '#D97706'}
@@ -939,21 +1250,31 @@ export default function ChatScreen({ navigation, route }) {
                       </Text>
                     </View>
                   ) : null}
+                  {message.safetyFlag === 'scam_words' && !message.deleted && !isMe ? (
+                    <View
+                      style={[
+                        styles.linkWarning,
+                        isMe ? styles.linkWarningMe : styles.linkWarningThem,
+                      ]}
+                    >
+                      <Icon
+                        name="shield-outline"
+                        size={12}
+                        color={colors.warning || '#D97706'}
+                      />
+                      <Text style={styles.linkWarningText}>
+                        Stay safe: never pay in advance or share an OTP. Meet in person, check the
+                        item, then pay. Keep the chat on KinBech.
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
                 </Pressable>
                 </SwipeReply>
               </View>
             );
-          })
-        )}
-        {presence?.typing ? (
-          <View style={[styles.messageRow, styles.messageRowThem]}>
-            <View style={[styles.bubble, styles.bubbleThem, styles.typingBubble]}>
-              <Text style={styles.typingText}>typing...</Text>
-            </View>
-          </View>
-        ) : null}
-      </ScrollView>
+        }}
+      />
 
       {editing || replyingTo ? (
         <View style={styles.composeBanner}>
@@ -977,9 +1298,28 @@ export default function ChatScreen({ navigation, route }) {
               }
             }}
           >
-            <Ionicons name="close" size={20} color="#8696A0" />
+            <Icon name="close" size={20} color="#8696A0" />
           </Pressable>
         </View>
+      ) : null}
+      {loaded && chatId && !recording && !editing && !draft.trim() ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={styles.quickBar}
+          contentContainerStyle={styles.quickBarContent}
+        >
+          {quickRepliesFor(myRole, deal).map((text) => (
+            <Pressable
+              key={text}
+              style={({ pressed }) => [styles.quickChip, pressed && { opacity: 0.6 }]}
+              onPress={() => send(text)}
+            >
+              <Text style={styles.quickChipText}>{text}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       ) : null}
       <View
         style={[
@@ -991,7 +1331,7 @@ export default function ChatScreen({ navigation, route }) {
           {recording ? (
             <>
               <Pressable onPress={cancelRecording} hitSlop={10} disabled={sendingVoice}>
-                <Ionicons name="trash-outline" size={22} color="#EF4444" />
+                <Icon name="trash-outline" size={22} color="#EF4444" />
               </Pressable>
               <View style={styles.recordMeta}>
                 <View style={styles.recordDot} />
@@ -1020,7 +1360,7 @@ export default function ChatScreen({ navigation, route }) {
           {sendingVoice ? (
             <ActivityIndicator color="#FFFFFF" />
           ) : (
-            <Ionicons name={recording || draft.trim() || editing ? 'send' : 'mic'} size={22} color="#FFFFFF" />
+            <Icon name={recording || draft.trim() || editing ? 'send' : 'mic'} size={22} color="#FFFFFF" />
           )}
         </Pressable>
       </View>
@@ -1045,13 +1385,13 @@ export default function ChatScreen({ navigation, route }) {
                 <Text style={styles.menuTitle}>Delete message</Text>
                 {messagePowers(menuMessage, now).deleteAll ? (
                   <Pressable style={styles.menuRow} onPress={() => removeMessage(menuMessage, 'everyone')}>
-                    <Ionicons name="trash" size={20} color="#EF4444" />
+                    <Icon name="trash" size={20} color="#EF4444" />
                     <Text style={styles.menuDanger}>Delete for everyone</Text>
                   </Pressable>
                 ) : null}
                 {messagePowers(menuMessage, now).deleteMe ? (
                   <Pressable style={styles.menuRow} onPress={() => removeMessage(menuMessage, 'me')}>
-                    <Ionicons name="trash-outline" size={20} color="#E9EDEF" />
+                    <Icon name="trash-outline" size={20} color="#E9EDEF" />
                     <Text style={styles.menuLabel}>Delete for me</Text>
                   </Pressable>
                 ) : null}
@@ -1060,25 +1400,25 @@ export default function ChatScreen({ navigation, route }) {
               <>
                 {messagePowers(menuMessage, now).reply ? (
                   <Pressable style={styles.menuRow} onPress={() => beginReply(menuMessage)}>
-                    <Ionicons name="arrow-undo" size={20} color="#E9EDEF" />
+                    <Icon name="arrow-undo" size={20} color="#E9EDEF" />
                     <Text style={styles.menuLabel}>Reply</Text>
                   </Pressable>
                 ) : null}
                 {messagePowers(menuMessage, now).copy ? (
                   <Pressable style={styles.menuRow} onPress={() => copyMessage(menuMessage)}>
-                    <Ionicons name="copy-outline" size={20} color="#E9EDEF" />
+                    <Icon name="copy-outline" size={20} color="#E9EDEF" />
                     <Text style={styles.menuLabel}>Copy</Text>
                   </Pressable>
                 ) : null}
                 {messagePowers(menuMessage, now).edit ? (
                   <Pressable style={styles.menuRow} onPress={() => beginEdit(menuMessage)}>
-                    <Ionicons name="pencil" size={20} color="#E9EDEF" />
+                    <Icon name="pencil" size={20} color="#E9EDEF" />
                     <Text style={styles.menuLabel}>Edit</Text>
                   </Pressable>
                 ) : null}
                 {messagePowers(menuMessage, now).deleteMe || messagePowers(menuMessage, now).deleteAll ? (
                   <Pressable style={styles.menuRow} onPress={() => setMenuMode('delete')}>
-                    <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                    <Icon name="trash-outline" size={20} color="#EF4444" />
                     <Text style={styles.menuDanger}>Delete</Text>
                   </Pressable>
                 ) : null}
@@ -1287,6 +1627,54 @@ const createStyles = (colors) => ({
     color: '#8696A0',
     fontWeight: '600',
   },
+  dealBanner: {
+    marginTop: 6,
+    marginHorizontal: 10,
+    marginBottom: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#182229',
+    gap: 8,
+  },
+  dealBannerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  dealBannerCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  dealBannerTitle: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#E9EDEF',
+  },
+  dealActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  dealBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2A3942',
+  },
+  dealBtnPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  dealBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#AEBAC1',
+  },
+  dealBtnTextPrimary: {
+    color: colors.onPrimary || '#FFFFFF',
+  },
   messages: {
     paddingHorizontal: 8,
     paddingTop: 8,
@@ -1318,7 +1706,10 @@ const createStyles = (colors) => ({
   messageRowMe: {
     justifyContent: 'flex-end',
   },
-  bubbleCol: {},
+  bubbleCol: {
+    maxWidth: '100%',
+    flexShrink: 1,
+  },
   bubbleColThem: {
     marginLeft: 6,
   },
@@ -1338,14 +1729,16 @@ const createStyles = (colors) => ({
     borderBottomRightRadius: 4,
   },
   textWrap: {
-    flexDirection: 'row',
+    flexShrink: 1,
   },
   bubbleTextThem: {
+    flexShrink: 1,
     fontSize: 16.5,
     color: '#E9EDEF',
     lineHeight: 22,
   },
   bubbleTextMe: {
+    flexShrink: 1,
     fontSize: 16.5,
     color: '#E9EDEF',
     lineHeight: 22,
@@ -1600,6 +1993,37 @@ const createStyles = (colors) => ({
     fontSize: 13,
     fontWeight: '600',
     color: colors.primary,
+  },
+  chatLoading: {
+    paddingVertical: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  olderLoading: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  quickBar: {
+    flexGrow: 0,
+    backgroundColor: '#0B141A',
+  },
+  quickBarContent: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    gap: 6,
+  },
+  quickChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2A3942',
+    backgroundColor: '#1F2C34',
+  },
+  quickChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#E9EDEF',
   },
   inputBar: {
     flexDirection: 'row',

@@ -14,11 +14,12 @@ export function usePullRefresh(loadFn) {
   return { refreshing, onRefresh };
 }
 
-export function refreshControl(colors, refreshing, onRefresh) {
+export function refreshControl(colors, refreshing, onRefresh, enabled = true) {
   return (
     <RefreshControl
       refreshing={refreshing}
       onRefresh={onRefresh}
+      enabled={enabled}
       tintColor={colors.primary}
       colors={[colors.primary]}
     />

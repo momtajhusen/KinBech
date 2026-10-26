@@ -1,6 +1,6 @@
 import { Component, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import {
   AudioModule,
   RecordingPresets,
@@ -185,7 +185,7 @@ export function VoiceBubble({ uri, durationLabel, styles }) {
   return (
     <Pressable onPress={toggle} style={styles.voiceRow}>
       <View style={styles.voicePlay}>
-        <Ionicons name={playing ? 'pause' : 'play'} size={18} color="#FFFFFF" />
+        <Icon name={playing ? 'pause' : 'play'} size={18} color="#FFFFFF" />
       </View>
       <View style={styles.voiceTrack}>
         {Array.from({ length: 16 }, (_, index) => (

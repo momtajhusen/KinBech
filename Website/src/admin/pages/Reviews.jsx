@@ -5,12 +5,14 @@ import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
+import RecordModal from '../components/RecordModal';
 
 const Reviews = () => {
   const { colors } = useTheme();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('pending');
   const [view, setView] = useViewMode('reviews', 'list');
   const debouncedSearch = useDebounce(searchTerm);
@@ -128,7 +130,7 @@ const Reviews = () => {
 
   const renderActions = (review) => (
     <div className="action-buttons">
-      <button className="action-btn view">View</button>
+      <button type="button" className="action-btn view" onClick={() => setSelected(review)}>View</button>
       {review.status === 'flagged' && (
         <>
           <button className="action-btn keep" onClick={() => handleReviewAction(review.id, 'keep')}>Keep</button>
@@ -264,6 +266,18 @@ const Reviews = () => {
           />
         </>
       )}
+      <RecordModal
+        title={selected?.reviewee?.name || 'Review'}
+        onClose={() => setSelected(null)}
+        rows={selected ? [
+          ['Reviewer', selected.reviewer?.name],
+          ['Shop', selected.reviewee?.name],
+          ['Rating', `${selected.rating || 0} / 5`],
+          ['Review', selected.reviewText],
+          ['Status', selected.status],
+          ['When', selected.createdAt ? formatTime(selected.createdAt) : ''],
+        ] : null}
+      />
     </div>
   );
 };

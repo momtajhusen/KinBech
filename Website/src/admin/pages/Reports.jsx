@@ -5,12 +5,24 @@ import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
+import RecordModal from '../components/RecordModal';
+
+const REASON_LABELS = {
+  spam: 'Spam',
+  'fake-listing': 'Fake listing',
+  inappropriate: 'Inappropriate',
+  'not-available': 'Not available',
+  scam: 'Scam or fraud',
+  'no-show': 'No-show',
+  other: 'Other',
+};
 
 const Reports = () => {
   const { colors } = useTheme();
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('pending');
   const [view, setView] = useViewMode('reports', 'list');
   const debouncedSearch = useDebounce(searchTerm);
@@ -40,11 +52,16 @@ const Reports = () => {
         type: report.reportedListing ? 'listing' : 'user',
         reportedItem: report.reportedListing?.title || `User ${report.reportedUser?.name || 'Unknown'}`,
         itemId: report.reportedListing?._id || report.reportedUser?._id,
-        reason: report.reason,
+        reason: REASON_LABELS[report.reason] || report.reason,
         reporter: report.reporter,
         createdAt: report.createdAt,
-        priority: 'Medium',
-        status: report.status === 'pending' ? 'open' : (report.status === 'reviewed' ? 'under_review' : 'resolved'),
+        details: report.details || '',
+        priority: report.reason === 'scam' ? 'High' : (report.reason === 'not-available' ? 'Low' : 'Medium'),
+        status: report.status === 'pending'
+          ? 'open'
+          : (report.status === 'reviewed'
+            ? 'under_review'
+            : (report.status === 'dismissed' ? 'dismissed' : 'resolved')),
       }));
       
       setReports(reportsData);
@@ -71,6 +88,7 @@ const Reports = () => {
     { value: 'pending', label: 'Open' },
     { value: 'reviewed', label: 'Under Review' },
     { value: 'resolved', label: 'Resolved' },
+    { value: 'dismissed', label: 'Dismissed' },
   ];
 
   const handleReportAction = async (reportId, action) => {
@@ -100,6 +118,8 @@ const Reports = () => {
         return <span className="status-badge under-review">Under Review</span>;
       case 'resolved':
         return <span className="status-badge resolved">Resolved</span>;
+      case 'dismissed':
+        return <span className="status-badge dismissed">Dismissed</span>;
       default:
         return <span className="status-badge">{status}</span>;
     }
@@ -138,11 +158,16 @@ const Reports = () => {
 
   const renderActions = (report) => (
     <div className="action-buttons">
-      <button className="action-btn view">View</button>
-      {report.status !== 'resolved' && (
+      <button type="button" className="action-btn view" onClick={() => setSelected(report)}>View</button>
+      {report.status !== 'resolved' && report.status !== 'dismissed' && (
         <>
           <button className="action-btn dismiss" onClick={() => handleReportAction(report.id, 'dismiss')}>Dismiss</button>
-          <button className="action-btn take-action" onClick={() => handleReportAction(report.id, 'take-action')}>Take Action</button>
+          {report.status === 'open' ? (
+            <button className="action-btn take-action" onClick={() => handleReportAction(report.id, 'take-action')}>Take Action</button>
+          ) : null}
+          {report.status === 'under_review' ? (
+            <button className="action-btn approve" onClick={() => handleReportAction(report.id, 'resolve')}>Resolve</button>
+          ) : null}
         </>
       )}
     </div>
@@ -271,6 +296,18 @@ const Reports = () => {
           />
         </>
       )}
+      <RecordModal
+        title={selected?.reportedItem}
+        onClose={() => setSelected(null)}
+        rows={selected ? [
+          ['Type', selected.type],
+          ['Reason', selected.reason],
+          ['Details', selected.details],
+          ['Reporter', selected.reporter?.name],
+          ['Status', selected.status],
+          ['When', selected.createdAt ? formatTime(selected.createdAt) : ''],
+        ] : null}
+      />
     </div>
   );
 };

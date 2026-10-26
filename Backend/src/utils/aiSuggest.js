@@ -1,13 +1,14 @@
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const {
-  candidateModels,
+  candidateAccounts,
   getAiSettings,
+  markAccountBlocked,
+  markAccountModelBlocked,
   markModelBlocked,
+  modelsForAccount,
   recordUsage,
 } = require('./aiSettings');
-
-// Set GEMINI_API_KEY in the server environment; models are managed from the admin panel.
 
 function isQuotaError(status, payload) {
   if (status !== 429) return false;
@@ -28,6 +29,7 @@ function retryDelayMs(payload) {
 }
 
 const CONDITIONS = ['New', 'Good', 'Fair'];
+const SAFETY_ISSUES = ['nudity', 'violence', 'weapon', 'drugs', 'other'];
 
 const SYSTEM_INSTRUCTION =
   'You analyse product photos for a classifieds marketplace and reply with valid JSON only.';
@@ -35,22 +37,19 @@ const SYSTEM_INSTRUCTION =
 // Short output + no thinking keeps the round trip fast for an on-screen auto-fill.
 const GENERATION_CONFIG = {
   temperature: 0.2,
-  maxOutputTokens: 900,
+  maxOutputTokens: 1400,
   responseMimeType: 'application/json',
 };
 
-function apiKey() {
-  const key = String(process.env.GEMINI_API_KEY || '').trim();
-  if (!key) {
-    const error = new Error('GEMINI_API_KEY is not configured');
-    error.status = 503;
-    throw error;
-  }
-  return key;
+function isKeyError(status, payload) {
+  const message = String(payload?.error?.message || '');
+  if (status === 401 || status === 403) return true;
+  return /api key|permission denied|unregistered|consumer|billing/i.test(message);
 }
 
-function buildPrompt(categories) {
+function buildPrompt(categories, shop) {
   const list = (categories || []).filter(Boolean);
+  const shopList = (shop?.categories || []).filter(Boolean);
   const lines = [
     'You are a listing assistant for KinBech, a Nepali buy-and-sell marketplace.',
     'Study the attached product photo carefully before answering.',
@@ -60,11 +59,26 @@ function buildPrompt(categories) {
     'that helps you identify the exact model.',
     '',
     'Reply with JSON only, in exactly this shape:',
-    '{"title": string, "description": string, "category": string, "condition": string, "searchWords": string[]}',
+    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
+    '',
+    'Safety rules (check first):',
+    '- KinBech is a family marketplace. Set safety.allowed to false when the photo shows nudity,',
+    '  sexual or suggestive content, violence, blood or gore, injured people or animals,',
+    '  weapons, ammunition, or drugs.',
+    '- safety.issue: exactly one of "none", "nudity", "violence", "weapon", "drugs", "other".',
+    '- safety.reason: one short plain English sentence saying what is wrong. Empty when allowed.',
+    '- When safety.allowed is false, leave title, description and searchWords empty.',
+    '',
+    'Price rules:',
+    '- priceNpr: a realistic selling price in Nepal, in Nepali rupees (NPR), for this exact item',
+    '  in the condition you see. Think of current second-hand prices in Nepal for used items and',
+    '  Nepal retail prices for new ones. Whole number only, no currency text. Use 0 only if unknown.',
     '',
     'Title rules (most important):',
-    '- Write the title exactly as a buyer would type it into a search box.',
-    '- Just brand + model + the one or two specs that really matter, 3 to 7 words.',
+    '- Choose the single best search title a buyer would type into a search box.',
+    '- The title must be exactly 5 words. Never fewer than 5, never more than 5.',
+    '- Use only the 5 words that identify this item: brand, model, and the spec buyers search.',
+    '- If a detail would make a 6th word, drop the least useful word and keep exactly 5.',
     '- Searchable plain words only. No emojis, no ALL CAPS, no punctuation except a model number.',
     '- Never add filler like "for sale", "urgent", "best price", "good condition", "used", "brand new".',
     '',
@@ -77,10 +91,17 @@ function buildPrompt(categories) {
     '- No price, currency, or "negotiable".',
     '',
     'Search word rules:',
-    '- searchWords: 8 to 14 short phrases a different buyer might type for this same item.',
-    '- Mix English and simple Roman Nepali when natural, plus colour, use, and category words.',
-    '- Examples of variety, not a fixed list: "plastic chair", "nil chair", "stackable chair".',
-    '- No duplicates, no price, no full sentences.',
+    '- First name the exact item in the photo. searchWords must be names of that item only.',
+    '- Do not copy words from any sample list. There is no fixed vocabulary.',
+    '- For this item, give the names a buyer in Nepal would type, in four languages:',
+    '  English, Hinglish (Roman Hindi), Nepali, and Maithili.',
+    '- Nepali and Maithili each need the Roman spelling and the Devanagari spelling as separate strings.',
+    '- A Roman word does not replace its Devanagari spelling. Keep both when people search either way.',
+    '- Put the most popular local name first, then the other real names and spellings.',
+    '- 12 to 20 short strings. One name per string. No language labels, brackets, notes, price, or sentences.',
+    '- Skip a word only when it is the same spelling already listed.',
+    '- If the photo shows a brand or model, include that exact text plus the local generic names for that kind of product.',
+    '- After the names, add a colour or type only when it is visible on this item and buyers would search it.',
     '- condition: exactly one of "New", "Good", "Fair", judged from the visible wear.',
     '- If something is unclear, give your best reasonable guess instead of leaving it empty.',
   ];
@@ -91,6 +112,13 @@ function buildPrompt(categories) {
   lines.push('- Examples of wrong names: "Apple", "iPhone 13", "Gaming Laptop", "Red Sofa".');
   lines.push('- Phone, charger, and cover → Mobiles. MacBook and notebooks → Laptops.');
   lines.push('- TV, fan, SSD, power supply, headphones → Electronics.');
+  if (shop?.type) {
+    lines.push(`- This seller runs a "${shop.type}" store.`);
+    if (shopList.length) {
+      lines.push(`- Their store categories: ${shopList.map((c) => `"${c}"`).join(', ')}.`);
+      lines.push('- Pick one of the store categories whenever the item fits one of them.');
+    }
+  }
   if (list.length) {
     lines.push(`- Prefer exactly one of: ${list.map((c) => `"${c}"`).join(', ')}.`);
     lines.push('- Invent a new name only if this item is a different product class not covered above.');
@@ -124,9 +152,22 @@ function parseSuggestion(rawText) {
 
   if (!parsed || typeof parsed !== 'object') return null;
 
-  const title = String(parsed.title || '').trim();
+  const safetyRaw = parsed.safety && typeof parsed.safety === 'object' ? parsed.safety : {};
+  const issue = String(safetyRaw.issue || '').trim().toLowerCase();
+  const safety = {
+    allowed: safetyRaw.allowed !== false && !SAFETY_ISSUES.includes(issue),
+    issue: SAFETY_ISSUES.includes(issue) ? issue : safetyRaw.allowed === false ? 'other' : 'none',
+    reason: String(safetyRaw.reason || '').trim().slice(0, 240),
+  };
+  if (!safety.allowed) {
+    return { title: '', description: '', category: null, condition: null, priceNpr: null, searchWords: [], safety };
+  }
+
+  const titleWords = String(parsed.title || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+  const title = (titleWords.length > 5 ? titleWords.slice(0, 5) : titleWords).join(' ');
   const description = String(parsed.description || '').trim();
   if (!title && !description) return null;
+  const priceNpr = Math.round(Number(parsed.priceNpr));
 
   const conditionRaw = String(parsed.condition || '').trim().toLowerCase();
   const searchWords = Array.isArray(parsed.searchWords)
@@ -134,18 +175,20 @@ function parseSuggestion(rawText) {
         .map((word) => String(word || '').trim().replace(/\s+/g, ' ').slice(0, 40))
         .filter(Boolean)
         .filter((word, index, all) => all.findIndex((item) => item.toLowerCase() === word.toLowerCase()) === index)
-        .slice(0, 14)
+        .slice(0, 20)
     : [];
   return {
     title: title.slice(0, 120),
     description: description.slice(0, 1600),
     category: String(parsed.category || '').trim() || null,
     condition: CONDITIONS.find((c) => c.toLowerCase() === conditionRaw) || null,
+    priceNpr: Number.isFinite(priceNpr) && priceNpr > 0 ? priceNpr : null,
     searchWords,
+    safety,
   };
 }
 
-function buildBody(generationConfig, data, mimeType, categories) {
+function buildBody(generationConfig, data, mimeType, categories, shop) {
   return {
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
     contents: [
@@ -153,7 +196,7 @@ function buildBody(generationConfig, data, mimeType, categories) {
         role: 'user',
         parts: [
           { inlineData: { mimeType, data } },
-          { text: buildPrompt(categories) },
+          { text: buildPrompt(categories, shop) },
         ],
       },
     ],
@@ -161,8 +204,62 @@ function buildBody(generationConfig, data, mimeType, categories) {
   };
 }
 
-async function callModel(model, body) {
-  const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey())}`;
+const SHOP_CATEGORY_INSTRUCTION =
+  'You organise product categories for a classifieds marketplace and reply with valid JSON only.';
+
+function buildShopCategoriesBody(generationConfig, { type, name, description, existing }) {
+  const lines = [
+    'KinBech is a Nepali local buy-and-sell marketplace.',
+    `A seller runs a "${type}" store${name ? ` called "${name}"` : ''}.`,
+  ];
+  if (description) lines.push(`Store description: ${description}`);
+  lines.push(
+    '',
+    'List the product categories buyers would browse in this store.',
+    'Reply with JSON only, in exactly this shape: {"categories": string[]}',
+    '- 6 to 10 categories, the most common first.',
+    '- Only products this kind of store really sells.',
+    '- Each one is a product class of 1 to 3 Title Case words, usually plural, e.g. "Phone Accessories".',
+    '- Never a brand, model, colour, size, price or condition.',
+  );
+  if (existing?.length) {
+    lines.push(`- When one of these fits, reuse its exact name: ${existing.map((c) => `"${c}"`).join(', ')}.`);
+  }
+  return {
+    systemInstruction: { parts: [{ text: SHOP_CATEGORY_INSTRUCTION }] },
+    contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }],
+    generationConfig: { ...generationConfig, maxOutputTokens: 400 },
+  };
+}
+
+function parseShopCategories(rawText) {
+  const cleaned = String(rawText || '')
+    .trim()
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```$/, '')
+    .trim();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    try {
+      parsed = match ? JSON.parse(match[0]) : null;
+    } catch {
+      parsed = null;
+    }
+  }
+  const list = Array.isArray(parsed?.categories) ? parsed.categories : [];
+  const names = list
+    .map((item) => String(item || '').trim().replace(/\s+/g, ' ').slice(0, 36))
+    .filter(Boolean)
+    .filter((item, index, all) => all.findIndex((other) => other.toLowerCase() === item.toLowerCase()) === index)
+    .slice(0, 12);
+  return names.length ? names : null;
+}
+
+async function callModel(model, body, apiKey) {
+  const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
   let res;
   try {
     res = await fetch(url, {
@@ -189,10 +286,10 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function callModelWithRetry(model, body) {
+async function callModelWithRetry(model, body, apiKey) {
   let result = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    result = await callModel(model, body);
+    result = await callModel(model, body, apiKey);
     if (result.res.ok || !RETRYABLE_STATUSES.has(result.res.status)) return result;
     if (isQuotaError(result.res.status, result.payload)) return result;
     if (attempt === 0) await sleep(300);
@@ -201,10 +298,10 @@ async function callModelWithRetry(model, body) {
 }
 
 /**
- * Analyse a product photo with Gemini vision and return listing details.
- * Price is intentionally never requested or returned.
+ * Runs `makeBody` against every enabled account/model until `parse` returns a value,
+ * switching on quota and key errors.
  */
-async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categories = [] }) {
+async function runGemini(makeBody, parse) {
   const configs = [
     { ...GENERATION_CONFIG, thinkingConfig: { thinkingBudget: 0 } },
     GENERATION_CONFIG,
@@ -216,54 +313,86 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
     error.status = 503;
     throw error;
   }
-  const candidates = candidateModels(settings);
-  if (!candidates.length) throw quotaError();
+  const accounts = candidateAccounts(settings);
+  if (!accounts.length) {
+    const error = new Error('No AI account is available. Add a Gemini key in the admin panel.');
+    error.status = 503;
+    throw error;
+  }
 
   let lastError = null;
-  for (const model of candidates) {
-    for (const generationConfig of configs) {
-      let res;
-      let payload;
-      try {
-        ({ res, payload } = await callModelWithRetry(
-          model,
-          buildBody(generationConfig, data, mimeType, categories),
-        ));
-      } catch (error) {
-        lastError = error;
-        break;
-      }
+  for (const account of accounts) {
+    const candidates = modelsForAccount(settings, account);
+    if (!candidates.length) continue;
+    let accountFailed = false;
+    for (const model of candidates) {
+      if (accountFailed) break;
+      for (const generationConfig of configs) {
+        let res;
+        let payload;
+        try {
+          ({ res, payload } = await callModelWithRetry(model, makeBody(generationConfig), account.apiKey));
+        } catch (error) {
+          lastError = error;
+          break;
+        }
 
-      const text =
-        payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') ||
-        '';
-      if (res.ok) {
-        const suggestion = parseSuggestion(text);
-        if (suggestion) return { suggestion, model };
-        lastError = new Error('Gemini returned an unreadable response');
-        break;
-      }
+        const text =
+          payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') ||
+          '';
+        if (res.ok) {
+          const result = parse(text);
+          if (result) return { result, model, account: account.label };
+          lastError = new Error('Gemini returned an unreadable response');
+          break;
+        }
 
-      if (isQuotaError(res.status, payload)) {
-        await markModelBlocked(model, Date.now() + retryDelayMs(payload));
-        console.warn(
-          settings.autoSwitch
-            ? `[ai] ${model} daily quota used up, switching to the next model`
-            : `[ai] ${model} daily quota used up (auto switch is off)`
-        );
-        lastError = quotaError();
-        break;
-      }
+        const message = payload?.error?.message || `Gemini request failed (${res.status})`;
+        if (isKeyError(res.status, payload)) {
+          await markAccountBlocked(account.id, Date.now() + 24 * 60 * 60 * 1000, message);
+          console.warn(`[ai] ${account.label} key rejected, switching to the next account`);
+          lastError = new Error(message);
+          accountFailed = true;
+          break;
+        }
 
-      lastError = new Error(
-        payload?.error?.message || `Gemini request failed (${res.status})`,
-      );
-      // Only a 400 retries the same model without the thinking flag.
-      if (res.status !== 400) break;
+        if (isQuotaError(res.status, payload)) {
+          const until = Date.now() + retryDelayMs(payload);
+          await markAccountModelBlocked(account.id, model, until, message);
+          console.warn(`[ai] ${account.label} / ${model} quota used, trying the next model or account`);
+          lastError = quotaError();
+          break;
+        }
+
+        lastError = new Error(message);
+        if (res.status !== 400) break;
+      }
     }
   }
 
   throw lastError || new Error('AI suggestion failed');
+}
+
+/**
+ * Analyse a product photo with Gemini vision and return listing details,
+ * an NPR price guess, and a safety verdict for the photo.
+ * `shop` ({ type, categories }) steers the category towards the seller's store.
+ */
+async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categories = [], shop = null }) {
+  const { result, model, account } = await runGemini(
+    (generationConfig) => buildBody(generationConfig, data, mimeType, categories, shop),
+    parseSuggestion,
+  );
+  return { suggestion: result, model, account };
+}
+
+/** Product category names a store of this type would sell. */
+async function suggestShopCategories({ type, name = '', description = '', existing = [] }) {
+  const { result, model } = await runGemini(
+    (generationConfig) => buildShopCategoriesBody(generationConfig, { type, name, description, existing }),
+    parseShopCategories,
+  );
+  return { categories: result, model };
 }
 
 function quotaError() {
@@ -273,8 +402,11 @@ function quotaError() {
 }
 
 /** Lists models this API key can call for generateContent (used by the admin panel). */
-async function listAvailableModels() {
-  const url = `${GEMINI_BASE}?pageSize=200&key=${encodeURIComponent(apiKey())}`;
+async function listAvailableModels(apiKey) {
+  const settings = await getAiSettings();
+  const key = apiKey || candidateAccounts(settings)[0]?.apiKey;
+  if (!key) return [];
+  const url = `${GEMINI_BASE}?pageSize=200&key=${encodeURIComponent(key)}`;
   const res = await fetch(url);
   const payload = await res.json().catch(() => null);
   if (!res.ok) throw new Error(payload?.error?.message || `Could not list models (${res.status})`);
@@ -285,14 +417,25 @@ async function listAvailableModels() {
 }
 
 /** Sends a one-word text prompt to check that a model answers (uses one request of its quota). */
-async function testModel(model) {
+async function testModel(model, apiKey, accountId) {
+  const settings = await getAiSettings();
+  const key = apiKey || candidateAccounts(settings)[0]?.apiKey;
+  if (!key) {
+    return { ok: false, status: 503, ms: 0, message: 'No AI account is configured' };
+  }
   const started = Date.now();
   const { res, payload } = await callModel(model, {
     contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
     generationConfig: { maxOutputTokens: 5, temperature: 0 },
-  });
+  }, key);
+  const message = res.ok ? 'Model answered' : payload?.error?.message || `HTTP ${res.status}`;
   if (isQuotaError(res.status, payload)) {
-    await markModelBlocked(model, Date.now() + retryDelayMs(payload));
+    const until = Date.now() + retryDelayMs(payload);
+    if (accountId) await markAccountModelBlocked(accountId, model, until, message);
+    else await markModelBlocked(model, until);
+  }
+  if (accountId && isKeyError(res.status, payload)) {
+    await markAccountBlocked(accountId, Date.now() + 24 * 60 * 60 * 1000, message);
   }
   return {
     ok: res.ok,
@@ -302,4 +445,4 @@ async function testModel(model) {
   };
 }
 
-module.exports = { listAvailableModels, suggestListingFromImage, testModel };
+module.exports = { listAvailableModels, suggestListingFromImage, suggestShopCategories, testModel };

@@ -1,8 +1,11 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, setAuthToken } from '../services/api';
+import { api, onAuthTokenChange, setAuthToken } from '../services/api';
+import { clearToken, readToken, writeToken } from '../services/tokenStorage';
+import { resetToLogin } from '../navigation/navigationRef';
+import { setDisplayCurrency } from '../utils/currency';
+import { setCacheAudience } from '../utils/homeListingsCache';
 
-const TOKEN_KEY = 'kinbech_token';
 const USER_KEY = 'kinbech_user';
 const ONBOARD_KEY = 'kinbech_onboarded';
 
@@ -19,8 +22,9 @@ export function AuthProvider({ children }) {
 
     (async () => {
       try {
-        const [[, storedToken], [, storedUser], [, storedOnboard]] =
-          await AsyncStorage.multiGet([TOKEN_KEY, USER_KEY, ONBOARD_KEY]);
+        const storedToken = await readToken();
+        const [[, storedUser], [, storedOnboard]] =
+          await AsyncStorage.multiGet([USER_KEY, ONBOARD_KEY]);
 
         if (cancelled) return;
 
@@ -40,13 +44,19 @@ export function AuthProvider({ children }) {
           const { data, error } = await api.me();
           if (cancelled) return;
           if (data?.user) {
+            if (data.token) {
+              setAuthToken(data.token);
+              setToken(data.token);
+              await writeToken(data.token);
+            }
             setUser(data.user);
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
           } else if (error) {
             setAuthToken(null);
             setToken(null);
             setUser(null);
-            await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+            await clearToken();
+            await AsyncStorage.removeItem(USER_KEY);
           }
         }
       } finally {
@@ -59,6 +69,31 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    setDisplayCurrency(user?.preferences?.currency);
+  }, [user?.preferences?.currency]);
+
+  useEffect(() => {
+    setCacheAudience(user?.isTester ? 'test' : 'public');
+  }, [user?.isTester]);
+
+  // api.js refreshes tokens silently; mirror them here, or sign out when the session ended.
+  useEffect(
+    () =>
+      onAuthTokenChange((nextToken) => {
+        if (nextToken) {
+          setToken(nextToken);
+          return;
+        }
+        setToken(null);
+        setUser(null);
+        clearToken().catch(() => {});
+        AsyncStorage.removeItem(USER_KEY).catch(() => {});
+        resetToLogin();
+      }),
+    []
+  );
+
   const value = useMemo(
     () => ({
       token,
@@ -70,14 +105,17 @@ export function AuthProvider({ children }) {
         setAuthToken(nextToken);
         setToken(nextToken);
         setUser(nextUser);
-        await AsyncStorage.multiSet([
-          [TOKEN_KEY, nextToken],
-          [USER_KEY, JSON.stringify(nextUser)],
-        ]);
+        await writeToken(nextToken);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(nextUser));
       },
       async refreshUser() {
         const { data, error } = await api.me();
         if (data?.user && !error) {
+          if (data.token) {
+            setAuthToken(data.token);
+            setToken(data.token);
+            await writeToken(data.token);
+          }
           setUser(data.user);
           await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
           return { user: data.user, error: null };
@@ -85,10 +123,13 @@ export function AuthProvider({ children }) {
         return { user: null, error };
       },
       async logout() {
+        // Header is captured synchronously, before the token is cleared below.
+        api.logout().catch(() => {});
         setAuthToken(null);
         setToken(null);
         setUser(null);
-        await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+        await clearToken();
+        await AsyncStorage.removeItem(USER_KEY);
       },
       async completeOnboarding() {
         setOnboarded(true);

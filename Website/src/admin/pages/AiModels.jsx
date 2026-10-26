@@ -11,26 +11,13 @@ function formatReset(until) {
   return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-function formatTime(value) {
-  if (!value) return '—';
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function modelStatus(model, activeModel) {
-  if (!model.enabled) return { label: 'Off', className: 'rejected' };
-  if (model.blockedUntil) {
-    return { label: `Limit reached · resets in ${formatReset(model.blockedUntil)}`, className: 'suspended' };
-  }
-  if (model.name === activeModel) return { label: 'In use', className: 'active' };
-  return { label: 'Standby', className: 'pending' };
-}
-
 export default function AiModels() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState('');
-  const [newModel, setNewModel] = useState('');
+  const [accountForm, setAccountForm] = useState({ label: '', apiKey: '' });
+  const [replaceKeys, setReplaceKeys] = useState({});
   const [message, setMessage] = useState('');
 
   const load = async ({ quiet = false } = {}) => {
@@ -39,7 +26,7 @@ export default function AiModels() {
       const response = await api.get('/ai/admin/models');
       setData(response.data);
     } catch (error) {
-      setMessage(error.response?.data?.message || 'Could not load AI models');
+      setMessage(error.response?.data?.message || 'Could not load AI accounts');
     } finally {
       setLoading(false);
     }
@@ -64,76 +51,90 @@ export default function AiModels() {
     }
   };
 
-  const models = data?.models || [];
-  const saveModels = (next) =>
-    save({ models: next.map(({ name, enabled, dailyLimit }) => ({ name, enabled, dailyLimit })) });
+  const accounts = data?.accounts || [];
 
-  const move = (index, delta) => {
-    const next = [...models];
+  const addAccount = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await api.post('/ai/admin/accounts', accountForm);
+      setData(response.data);
+      setAccountForm({ label: '', apiKey: '' });
+      setMessage('Account added. The key is stored in the database and is not shown again.');
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Could not add account');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAccounts = async (next) => {
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await api.put('/ai/admin/accounts', {
+        accounts: next.map(({ id, label, enabled }) => ({ id, label, enabled })),
+      });
+      setData(response.data);
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Could not save accounts');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const moveAccount = (index, delta) => {
+    const next = [...accounts];
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
     [next[index], next[target]] = [next[target], next[index]];
-    saveModels(next);
+    saveAccounts(next);
   };
 
-  const makePrimary = (index) => {
-    const next = [...models];
-    const [picked] = next.splice(index, 1);
-    next.unshift({ ...picked, enabled: true });
-    saveModels(next);
+  const replaceAccountKey = async (id) => {
+    const apiKey = String(replaceKeys[id] || '').trim();
+    if (!apiKey) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const response = await api.put(`/ai/admin/accounts/${id}/key`, { apiKey });
+      setData(response.data);
+      setReplaceKeys((current) => ({ ...current, [id]: '' }));
+      setMessage('API key replaced');
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Could not replace key');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleModel = (index) => {
-    saveModels(models.map((model, i) => (i === index ? { ...model, enabled: !model.enabled } : model)));
+  const testAccount = async (account) => {
+    setTesting(account.id);
+    setMessage('');
+    try {
+      const response = await api.post(`/ai/admin/accounts/${account.id}/test`);
+      setData(response.data.overview);
+      const result = response.data.result;
+      setMessage(result.ok ? `${account.label}: working (${result.ms} ms)` : `${account.label}: ${result.message}`);
+    } catch (error) {
+      setMessage(error.response?.data?.message || 'Account test failed');
+    } finally {
+      setTesting('');
+    }
   };
 
-  const setLimit = (index, value) => {
-    const limit = Math.max(0, Number(value) || 0);
-    saveModels(models.map((model, i) => (i === index ? { ...model, dailyLimit: limit } : model)));
-  };
-
-  const removeModel = (index) => {
-    if (!window.confirm(`Remove ${models[index].name} from the list?`)) return;
-    saveModels(models.filter((_, i) => i !== index));
-  };
-
-  const addModel = () => {
-    const name = newModel.trim();
-    if (!name || models.some((model) => model.name === name)) return;
-    saveModels([...models, { name, enabled: true, dailyLimit: 20 }]);
-    setNewModel('');
-  };
-
-  const clearLimit = async (name) => {
+  const clearAccountLimit = async (id) => {
     setSaving(true);
     try {
-      const response = await api.post(`/ai/admin/models/${encodeURIComponent(name)}/clear-limit`);
+      const response = await api.post(`/ai/admin/accounts/${id}/clear-limit`);
       setData(response.data);
     } finally {
       setSaving(false);
     }
   };
 
-  const testModel = async (name) => {
-    setTesting(name);
-    setMessage('');
-    try {
-      const response = await api.post(`/ai/admin/models/${encodeURIComponent(name)}/test`);
-      const { result, overview } = response.data;
-      setData(overview);
-      setMessage(
-        result.ok
-          ? `${name}: working (${result.ms} ms)`
-          : `${name}: failed — ${result.message}`
-      );
-    } catch (error) {
-      setMessage(error.response?.data?.message || 'Test failed');
-    } finally {
-      setTesting('');
-    }
-  };
-
   const totals = useMemo(() => {
+    const models = data?.models || [];
     const today = models.reduce(
       (sum, model) => ({
         success: sum.success + model.today.success,
@@ -141,39 +142,158 @@ export default function AiModels() {
       }),
       { success: 0, failed: 0 }
     );
-    const capacity = models
-      .filter((model) => model.enabled)
-      .reduce((sum, model) => sum + (model.dailyLimit || 0), 0);
-    const blocked = models.filter((model) => model.enabled && model.blockedUntil).length;
-    return { ...today, capacity, blocked };
-  }, [models]);
+    const blocked = accounts.filter((account) => account.enabled && account.blockedUntil).length;
+    return { ...today, blocked };
+  }, [data, accounts]);
 
-  const addable = (data?.available || []).filter((name) => !models.some((model) => model.name === name));
-
-  if (loading && !data) return <div className="loading">Loading AI models...</div>;
+  if (loading && !data) return <div className="loading">Loading AI accounts...</div>;
 
   return (
     <div className="users-page ai-models-page">
       {!data?.keyConfigured ? (
-        <div className="ai-alert">GEMINI_API_KEY is not set on the server. AI auto-fill will not work.</div>
+        <div className="ai-alert">No Gemini account yet. Add an API key below, or set GEMINI_API_KEY on the server.</div>
       ) : null}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <h3>Gemini accounts</h3>
+        </div>
+        <p className="page-hint">
+          Keys are saved in the database. The app tries account 1 first. When Gemini returns a
+          limit or key error, the next enabled account is used automatically.
+          {data?.activeAccount ? ` In use now: ${data.activeAccount}.` : ''}
+        </p>
+        <div className="table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Account</th>
+                <th>Key</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accounts.map((account, index) => {
+                const status = !account.enabled
+                  ? { label: 'Off', className: 'rejected' }
+                  : account.blockedUntil
+                    ? { label: `Limit reached · ${formatReset(account.blockedUntil)}`, className: 'suspended' }
+                    : account.label === data?.activeAccount
+                      ? { label: 'In use', className: 'active' }
+                      : { label: 'Standby', className: 'pending' };
+                return (
+                  <tr key={account.id}>
+                    <td>{index + 1}</td>
+                    <td>
+                      <input
+                        className="ai-limit-input"
+                        style={{ width: 160 }}
+                        defaultValue={account.label}
+                        key={`${account.id}-${account.label}`}
+                        onBlur={(event) => {
+                          const label = event.target.value.trim();
+                          if (label && label !== account.label) {
+                            saveAccounts(accounts.map((item, i) => (i === index ? { ...item, label } : item)));
+                          }
+                        }}
+                      />
+                      {account.lastError ? (
+                        <div className="user-email ai-error-text" title={account.lastError}>{account.lastError}</div>
+                      ) : null}
+                    </td>
+                    <td>{account.keyHint}</td>
+                    <td><span className={`status-badge ${status.className}`}>{status.label}</span></td>
+                    <td>
+                      <div className="action-buttons">
+                        <button type="button" className="action-btn" disabled={saving || index === 0} onClick={() => moveAccount(index, -1)}>
+                          <ArrowUp className="item-icon" aria-hidden />
+                        </button>
+                        <button type="button" className="action-btn" disabled={saving || index === accounts.length - 1} onClick={() => moveAccount(index, 1)}>
+                          <ArrowDown className="item-icon" aria-hidden />
+                        </button>
+                        <button type="button" className="action-btn" disabled={saving} onClick={() => saveAccounts(accounts.map((item, i) => (i === index ? { ...item, enabled: !item.enabled } : item)))}>
+                          {account.enabled ? 'Turn off' : 'Turn on'}
+                        </button>
+                        <button type="button" className="action-btn" disabled={Boolean(testing)} onClick={() => testAccount(account)}>
+                          {testing === account.id ? 'Testing…' : 'Test'}
+                        </button>
+                        {account.blockedUntil ? (
+                          <button type="button" className="action-btn" disabled={saving} onClick={() => clearAccountLimit(account.id)}>
+                            Clear limit
+                          </button>
+                        ) : null}
+                        <input
+                          type="password"
+                          className="ai-limit-input"
+                          style={{ width: 140 }}
+                          placeholder="Replace key"
+                          value={replaceKeys[account.id] || ''}
+                          onChange={(event) => setReplaceKeys((current) => ({ ...current, [account.id]: event.target.value }))}
+                        />
+                        <button type="button" className="action-btn view" disabled={saving || !replaceKeys[account.id]} onClick={() => replaceAccountKey(account.id)}>
+                          Save key
+                        </button>
+                        <button
+                          type="button"
+                          className="action-btn suspend"
+                          disabled={saving}
+                          onClick={() => {
+                            if (window.confirm(`Remove ${account.label}?`)) {
+                              saveAccounts(accounts.filter((item) => item.id !== account.id));
+                            }
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {accounts.length === 0 ? <div className="empty-state">No accounts yet. The server env key is used until you add one.</div> : null}
+        </div>
+        <div className="ai-add-row" style={{ marginTop: 12 }}>
+          <input
+            className="ai-add-input"
+            placeholder="Account name"
+            value={accountForm.label}
+            onChange={(event) => setAccountForm((current) => ({ ...current, label: event.target.value }))}
+          />
+          <input
+            type="password"
+            className="ai-add-input"
+            placeholder="Paste Gemini API key"
+            value={accountForm.apiKey}
+            onChange={(event) => setAccountForm((current) => ({ ...current, apiKey: event.target.value }))}
+          />
+          <button
+            type="button"
+            className="action-btn view"
+            disabled={saving || !accountForm.label.trim() || !accountForm.apiKey.trim()}
+            onClick={addAccount}
+          >
+            + Add account
+          </button>
+        </div>
+      </div>
 
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><Bot className="item-icon" aria-hidden /></div>
           <div className="stat-content">
-            <h3>Model in use now</h3>
-            <p className="stat-value ai-stat-text">{data?.activeModel || 'None available'}</p>
+            <h3>Account in use</h3>
+            <p className="stat-value ai-stat-text">{data?.activeAccount || 'None available'}</p>
           </div>
         </div>
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><TrendingUp className="item-icon" aria-hidden /></div>
           <div className="stat-content">
             <h3>Requests today</h3>
-            <p className="stat-value">
-              {totals.success + totals.failed}
-              <span className="ai-stat-sub"> / {totals.capacity}</span>
-            </p>
+            <p className="stat-value">{totals.success + totals.failed}</p>
             <div className="stat-trend">
               {totals.success} ok · {totals.failed} failed
             </div>
@@ -182,7 +302,7 @@ export default function AiModels() {
         <div className="stat-card">
           <div className="stat-icon" style={{ background: 'var(--background-secondary)' }}><Ban className="item-icon" aria-hidden /></div>
           <div className="stat-content">
-            <h3>Models at limit</h3>
+            <h3>Accounts at limit</h3>
             <p className="stat-value">{totals.blocked}</p>
             <div className="stat-trend">Quota day: {data?.quotaDay} (Pacific time)</div>
           </div>
@@ -203,153 +323,48 @@ export default function AiModels() {
             </label>
             <div className="stat-trend">
               {data?.autoSwitch
-                ? 'Moves to the next model when one runs out'
-                : 'Only the first model is used'}
+                ? 'Switches to the next account when a limit error comes'
+                : 'Only the first account is used'}
             </div>
           </div>
         </div>
       </div>
 
       <p className="page-hint">
-        Models are tried from top to bottom. The free Gemini plan gives each model its own daily
-        limit, so with auto switch on, AI keeps working until every enabled model is used up.
-        Limits reset at midnight Pacific time.
+        Add Gemini accounts here. They are tried from top to bottom. A quota or invalid-key
+        error switches to the next account. Keys stay in the database and are never shown again.
       </p>
 
       {message ? <div className="ai-message">{message}</div> : null}
 
-      <div className="table-container">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Model</th>
-              <th>Used today</th>
-              <th>Daily limit</th>
-              <th>Status</th>
-              <th>Last used</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {models.map((model, index) => {
-              const used = model.today.success + model.today.failed;
-              const pct = model.dailyLimit ? Math.min(100, Math.round((used / model.dailyLimit) * 100)) : 0;
-              const status = modelStatus(model, data?.activeModel);
-              return (
-                <tr key={model.name} className={model.enabled ? '' : 'ai-row-off'}>
-                  <td>{index + 1}</td>
-                  <td>
-                    <div className="user-name">{model.name}</div>
-                    {model.today.lastError ? (
-                      <div className="user-email ai-error-text" title={model.today.lastError}>
-                        {model.today.lastError}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>
-                    <div className="ai-usage">
-                      <div className="ai-usage-bar">
-                        <span
-                          style={{ width: `${pct}%` }}
-                          className={pct >= 100 || model.blockedUntil ? 'full' : pct >= 75 ? 'warn' : ''}
-                        />
-                      </div>
-                      <span className="ai-usage-text">
-                        {used}/{model.dailyLimit}
-                        {model.today.failed ? ` · ${model.today.failed} failed` : ''}
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      className="ai-limit-input"
-                      defaultValue={model.dailyLimit}
-                      key={`${model.name}-${model.dailyLimit}`}
-                      onBlur={(e) => {
-                        if (Number(e.target.value) !== model.dailyLimit) setLimit(index, e.target.value);
-                      }}
-                    />
-                  </td>
-                  <td>
-                    <span className={`status-badge ${status.className}`}>{status.label}</span>
-                  </td>
-                  <td>{formatTime(model.today.lastUsedAt)}</td>
-                  <td>
-                    <div className="action-buttons">
-                      <button className="action-btn" disabled={saving || index === 0} onClick={() => move(index, -1)} title="Move up">
-                        <ArrowUp className="item-icon" aria-hidden />
-                      </button>
-                      <button
-                        className="action-btn"
-                        disabled={saving || index === models.length - 1}
-                        onClick={() => move(index, 1)}
-                        title="Move down"
-                      >
-                        <ArrowDown className="item-icon" aria-hidden />
-                      </button>
-                      {index !== 0 ? (
-                        <button className="action-btn view" disabled={saving} onClick={() => makePrimary(index)}>
-                          Use first
-                        </button>
-                      ) : null}
-                      <button className="action-btn" disabled={saving} onClick={() => toggleModel(index)}>
-                        {model.enabled ? 'Turn off' : 'Turn on'}
-                      </button>
-                      <button
-                        className="action-btn"
-                        disabled={Boolean(testing)}
-                        onClick={() => testModel(model.name)}
-                        title="Sends one tiny request (uses 1 of today's limit)"
-                      >
-                        {testing === model.name ? 'Testing…' : 'Test'}
-                      </button>
-                      {model.blockedUntil ? (
-                        <button className="action-btn" disabled={saving} onClick={() => clearLimit(model.name)}>
-                          Clear limit
-                        </button>
-                      ) : null}
-                      <button className="action-btn suspend" disabled={saving} onClick={() => removeModel(index)}>
-                        Remove
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {models.length === 0 ? <div className="empty-state">No models. Add one below.</div> : null}
-      </div>
-
-      <div className="page-header" style={{ marginTop: 16 }}>
-        <div className="ai-add-row">
-          <input
-            list="ai-available-models"
-            value={newModel}
-            onChange={(e) => setNewModel(e.target.value)}
-            placeholder="Add a model, e.g. gemini-3.5-flash"
-            className="ai-add-input"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') addModel();
-            }}
-          />
-          <datalist id="ai-available-models">
-            {addable.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
-          <button className="action-btn view" disabled={saving || !newModel.trim()} onClick={addModel}>
-            + Add model
-          </button>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-header">
+          <h3>Usage limits</h3>
+          <span className="form-hint">{data?.usedToday ?? 0} AI photo fills used today (Nepal time)</span>
         </div>
-        {data?.availableError ? (
-          <span className="user-email">Could not load model list: {data.availableError}</span>
-        ) : (
-          <span className="user-email">{addable.length} more models available on this key</span>
-        )}
+        <form
+          className="ai-limits"
+          key={`${data?.userDailyLimit}-${data?.globalDailyCap}`}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const form = new FormData(e.currentTarget);
+            save({
+              userDailyLimit: Number(form.get('userDailyLimit')),
+              globalDailyCap: Number(form.get('globalDailyCap')),
+            });
+          }}
+        >
+          <div className="form-group">
+            <label htmlFor="userDailyLimit">Per user per day</label>
+            <input id="userDailyLimit" name="userDailyLimit" type="number" min="0" className="form-input" defaultValue={data?.userDailyLimit ?? 15} />
+          </div>
+          <div className="form-group">
+            <label htmlFor="globalDailyCap">Whole app per day (cost cap)</label>
+            <input id="globalDailyCap" name="globalDailyCap" type="number" min="0" className="form-input" defaultValue={data?.globalDailyCap ?? 500} />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={saving}>Save limits</button>
+        </form>
+        <p className="form-hint">Users see &quot;AI limit reached today&quot; and can still fill details themselves. 0 turns AI fill off.</p>
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>

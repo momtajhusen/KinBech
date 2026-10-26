@@ -3,10 +3,17 @@ require('dotenv').config();
 const http = require('http');
 
 const app = require('./app');
-const { connectDb } = require('./config/db');
+const { connectDb, ensureUserPhoneIndex, sealPlaintextTaxIds } = require('./config/db');
 const { initRealtime } = require('./utils/realtime');
 const { warmupImageSafety } = require('./utils/imageSafetyCheck');
 const { ensureSeedKeywords } = require('./utils/listingModeration');
+const { startHealthMonitor } = require('./utils/securityAlerts');
+const { startAccountPurgeJob } = require('./utils/accountDeletion');
+const { startDealJobs } = require('./utils/deals');
+const { startListingTrustJobs } = require('./utils/listingTrust');
+const { backfillReviewSellers } = require('./controllers/reviewController');
+const { startSellerScoreJob } = require('./utils/sellerScore');
+const { startBoostJobs } = require('./utils/referral');
 
 const PORT = process.env.PORT || 5001;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -14,6 +21,21 @@ const HOST = process.env.HOST || '0.0.0.0';
 async function start() {
   try {
     await connectDb();
+    ensureUserPhoneIndex().catch((error) => {
+      console.warn('User phone index check skipped:', error.message);
+    });
+    sealPlaintextTaxIds().catch((error) => {
+      console.warn('PAN/VAT encryption migration skipped:', error.message);
+    });
+    startHealthMonitor();
+    startAccountPurgeJob();
+    startDealJobs();
+    startListingTrustJobs();
+    startSellerScoreJob();
+    startBoostJobs();
+    backfillReviewSellers().catch((error) => {
+      console.warn('Review seller backfill skipped:', error.message);
+    });
     ensureSeedKeywords().catch((error) => {
       console.warn('Restricted keyword seed skipped:', error.message);
     });

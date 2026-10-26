@@ -5,15 +5,17 @@ const {
   getErrorAdmin,
   updateErrorAdmin,
 } = require('../controllers/errorController');
-const { requireAuth, requireAdmin, optionalAuth } = require('../middleware/auth');
+const { requireAuth, requireScope, optionalAuth } = require('../middleware/auth');
+const { auditRoute } = require('../utils/audit');
+const { clientErrorLimiter } = require('../middleware/security');
 
 const router = Router();
 
 // Client crash/bug ingest (auth optional — anonymous crashes still useful)
-router.post('/', optionalAuth, reportClientError);
+router.post('/', clientErrorLimiter, optionalAuth, reportClientError);
 
-router.get('/admin', requireAdmin, listErrorsAdmin);
-router.get('/admin/:id', requireAdmin, getErrorAdmin);
-router.patch('/admin/:id', requireAdmin, updateErrorAdmin);
+router.get('/admin', requireScope('errors'), listErrorsAdmin);
+router.get('/admin/:id', requireScope('errors'), getErrorAdmin);
+router.patch('/admin/:id', requireScope('errors'), auditRoute('errors.update', { targetType: 'error', param: 'id' }), updateErrorAdmin);
 
 module.exports = router;

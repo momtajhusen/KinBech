@@ -6,17 +6,56 @@ const Listing = require('../models/Listing');
 const Report = require('../models/Report');
 const Shop = require('../models/Shop');
 const { normalizePhone } = require('../utils/phone');
-const { signUserToken, publicUser } = require('../utils/token');
+const { publicUser } = require('../utils/token');
 const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
 const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
+const { getPlatformSettings, savePlatformSettings } = require('../utils/platformSettings');
+const listingQueryCache = require('../utils/listingQueryCache');
 const PlatformAlert = require('../models/PlatformAlert');
 const Message = require('../models/Message');
 const Review = require('../models/Review');
 const SupportTicket = require('../models/SupportTicket');
 const ErrorEvent = require('../models/ErrorEvent');
+const AuditLog = require('../models/AuditLog');
 const { haversineDistanceKm } = require('../utils/listing');
 const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
 const { emitActivity } = require('../utils/realtime');
+const { recordAudit } = require('../utils/audit');
+const { ADMIN_ROLES, scopesForRole } = require('../utils/adminScopes');
+const { SUSPENDED_MESSAGE } = require('../middleware/auth');
+const { cancelDeletion } = require('../utils/accountDeletion');
+const { sendOtpSms } = require('../utils/sms');
+const {
+  startSession,
+  revokeAllSessions,
+  wantsRefresh,
+  enableRefresh,
+  reissueToken,
+  clientIp,
+  installIdOf,
+} = require('../utils/sessions');
+const OtpEvent = require('../models/OtpEvent');
+
+function logOtpEvent(req, phone, event, user = null) {
+  OtpEvent.create({
+    phone,
+    ip: clientIp(req),
+    installId: installIdOf(req),
+    event,
+    user: user?._id || null,
+  }).catch(() => {});
+}
+const {
+  passwordBreached,
+  BREACHED_MESSAGE,
+  lockMinutesLeft,
+  lockedResponse,
+  registerFailedLogin,
+  clearFailedLogins,
+  twoFactorChallenge,
+  finishAdminLogin,
+} = require('./securityController');
+const { noteAdminLoginFailure } = require('../utils/captcha');
 const {
   LIVE_ACTIVITY_TYPES,
   userActivityEvent,
@@ -34,8 +73,23 @@ function otpExpiry() {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 
-function makeOtp() {
-  // DEFAULT_OTP=1111 for easy APK/QA testing; set DEFAULT_OTP=random for real OTPs
+const isProduction = () => process.env.NODE_ENV === 'production';
+
+/** Phones (e.g. Play Store review account) that get OTP_TEST_CODE instead of an SMS in production. */
+function isOtpTestPhone(phone) {
+  const list = String(process.env.OTP_TEST_PHONES || '')
+    .split(',')
+    .map((p) => normalizePhone(p))
+    .filter(Boolean);
+  return Boolean(process.env.OTP_TEST_CODE) && list.includes(phone);
+}
+
+function makeOtp(phone) {
+  if (isProduction()) {
+    if (isOtpTestPhone(phone)) return String(process.env.OTP_TEST_CODE).replace(/\D/g, '').padStart(4, '0').slice(-4);
+    return String(crypto.randomInt(0, 10000)).padStart(4, '0');
+  }
+  // Development: DEFAULT_OTP=1111 (default) for easy QA; DEFAULT_OTP=random for real codes.
   const fixed = String(process.env.DEFAULT_OTP || '1111').trim().toLowerCase();
   if (fixed && fixed !== 'random') {
     return fixed.replace(/\D/g, '').padStart(4, '0').slice(-4);
@@ -43,12 +97,19 @@ function makeOtp() {
   return String(crypto.randomInt(0, 10000)).padStart(4, '0');
 }
 
-async function issueOtp(phone, purpose, name = '') {
-  const code = makeOtp();
+/** Creates the OTP and texts it. `sent` is false only when production SMS delivery failed. */
+async function issueOtp(req, phone, purpose, name = '') {
+  const result = await createAndSendOtp(phone, purpose, name);
+  logOtpEvent(req, phone, result.sent ? 'sent' : 'sms_failed');
+  return result;
+}
+
+async function createAndSendOtp(phone, purpose, name) {
+  const code = makeOtp(phone);
   const hashed = await bcrypt.hash(code, 10);
 
   await Otp.updateMany({ phone, consumed: false }, { consumed: true });
-  await Otp.create({
+  const record = await Otp.create({
     phone,
     code: hashed,
     purpose,
@@ -56,7 +117,21 @@ async function issueOtp(phone, purpose, name = '') {
     expiresAt: otpExpiry(),
   });
 
-  return code;
+  const mustSend = isProduction() ? !isOtpTestPhone(phone) : process.env.SMS_SEND_IN_DEV === 'true';
+  if (!mustSend) return { code, sent: true };
+  const sent = await sendOtpSms(phone, code);
+  if (!sent && isProduction()) {
+    record.consumed = true;
+    await record.save();
+  }
+  return { code, sent: sent || !isProduction() };
+}
+
+function otpReply(res, status, payload, { code, sent }) {
+  if (!sent) {
+    return res.status(503).json({ message: 'We could not send the code right now. Please try again in a minute.', code: 'SMS_FAILED' });
+  }
+  return res.status(status).json(isProduction() ? payload : { ...payload, otp: code });
 }
 
 async function signup(req, res, next) {
@@ -82,14 +157,8 @@ async function signup(req, res, next) {
       return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
     }
 
-    const otp = await issueOtp(phone, 'signup', name);
-    const payload = { message: 'Verification code sent successfully', phone };
-
-    if (process.env.NODE_ENV !== 'production') {
-      payload.otp = otp;
-    }
-
-    return res.status(201).json(payload);
+    const otp = await issueOtp(req, phone, 'signup', name);
+    return otpReply(res, 201, { message: 'Verification code sent successfully', phone }, otp);
   } catch (error) {
     next(error);
   }
@@ -107,24 +176,12 @@ async function login(req, res, next) {
     
     // Auto-signup: if user doesn't exist, treat as signup without name
     if (!user) {
-      const otp = await issueOtp(phone, 'signup', '');
-      const payload = { message: 'Verification code sent successfully', phone, isNewUser: true };
-
-      if (process.env.NODE_ENV !== 'production') {
-        payload.otp = otp;
-      }
-
-      return res.status(201).json(payload);
+      const otp = await issueOtp(req, phone, 'signup', '');
+      return otpReply(res, 201, { message: 'Verification code sent successfully', phone, isNewUser: true }, otp);
     }
 
-    const otp = await issueOtp(phone, 'login', user.name);
-    const payload = { message: 'Verification code sent successfully', phone, isNewUser: false };
-
-    if (process.env.NODE_ENV !== 'production') {
-      payload.otp = otp;
-    }
-
-    return res.json(payload);
+    const otp = await issueOtp(req, phone, 'login', user.name);
+    return otpReply(res, 200, { message: 'Verification code sent successfully', phone, isNewUser: false }, otp);
   } catch (error) {
     next(error);
   }
@@ -155,6 +212,7 @@ async function verifyOtp(req, res, next) {
 
     const matches = await bcrypt.compare(code, record.code);
     if (!matches) {
+      logOtpEvent(req, phone, 'failed');
       return res.status(400).json({ message: 'The verification code you entered is incorrect. Please try again.' });
     }
 
@@ -183,6 +241,12 @@ async function verifyOtp(req, res, next) {
       });
     }
 
+    if (user.status === 'suspended') {
+      logOtpEvent(req, phone, 'blocked_suspended', user);
+      return res.status(403).json({ message: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' });
+    }
+    logOtpEvent(req, phone, 'verified', user);
+
     await ensureReferralCode(user);
 
     // Optional referral on first OTP verify
@@ -190,23 +254,44 @@ async function verifyOtp(req, res, next) {
       await applyReferralCode(user, req.body.referralCode);
     }
 
+    const deletionCancelled = user.deletionScheduledFor ? await cancelDeletion(user._id) : false;
+    if (deletionCancelled) {
+      user.deletionRequestedAt = null;
+      user.deletionScheduledFor = null;
+    }
+
     user.lastActiveAt = new Date();
     await user.save();
 
-    const token = signUserToken(user);
+    const { token, refreshToken } = await startSession(req, user, 'app');
     return res.json({
       token,
+      ...(refreshToken ? { refreshToken } : {}),
       user: publicUser(user, { includePrivate: true }),
       isNewUser,
+      ...(deletionCancelled ? { deletionCancelled: true } : {}),
     });
   } catch (error) {
     next(error);
   }
 }
 
-async function me(req, res) {
-  await ensureReferralCode(req.user);
-  res.json({ user: publicUser(req.user, { includePrivate: true }) });
+async function me(req, res, next) {
+  try {
+    await ensureReferralCode(req.user);
+    const payload = { user: publicUser(req.user, { includePrivate: true }) };
+    // Older tokens have no device session; swap them for one so the device shows in Sessions.
+    if (!req.sessionId) {
+      const isAdmin = ADMIN_ROLES.includes(req.user.role) && Boolean(req.headers.origin);
+      const { token, refreshToken } = await startSession(req, req.user, isAdmin ? 'admin' : 'app');
+      Object.assign(payload, { token }, refreshToken ? { refreshToken } : {});
+    } else if (wantsRefresh(req) && !req.sessionRefreshable) {
+      Object.assign(payload, await enableRefresh(req.user, req.sessionId));
+    }
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
 }
 
 async function getReferral(req, res, next) {
@@ -217,8 +302,8 @@ async function getReferral(req, res, next) {
       referralCode: code,
       featuredCredits: Math.max(0, Number(req.user.featuredCredits) || 0),
       invitedCount,
-      reward: 'Invite a friend — you get 1 day of featured listing free when they join.',
-      shareMessage: `Join KinBech with my code ${code} and start buying & selling nearby. I get a free featured listing boost when you sign up!`,
+      reward: 'Invite a friend — you get 1 free boost (24 hours Featured) when they join.',
+      shareMessage: `Join KinBech with my code ${code} and start buying & selling nearby. I get a free listing boost when you sign up!`,
     });
   } catch (error) {
     next(error);
@@ -240,8 +325,13 @@ async function applyMyReferral(req, res, next) {
   }
 }
 
+/**
+ * Finish signup for an account that already passed OTP (requireAuth).
+ * Never creates users: accounts only come from verifyOtp.
+ */
 async function completeSignup(req, res, next) {
   try {
+    const user = req.user;
     const phone = normalizePhone(req.body.phone);
     const name = String(req.body.name || '').trim();
 
@@ -249,13 +339,8 @@ async function completeSignup(req, res, next) {
       return res.status(400).json({ message: 'Please enter your name to continue' });
     }
 
-    if (!phone) {
-      return res.status(400).json({ message: 'Phone number is required' });
-    }
-
-    const existing = await User.findOne({ phone });
-    if (existing) {
-      return res.status(409).json({ message: 'An account with this number already exists. Please log in instead.' });
+    if (phone && phone !== user.phone) {
+      return res.status(403).json({ message: 'This number does not match your verified account.' });
     }
 
     const contentCheck = await evaluatePublicText({ name }, 'profile');
@@ -263,17 +348,14 @@ async function completeSignup(req, res, next) {
       return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
     }
 
-    const user = await User.create({
-      phone,
-      name,
-    });
+    user.name = name;
     await ensureReferralCode(user);
-    if (req.body.referralCode) {
+    if (req.body.referralCode && !user.referredBy) {
       await applyReferralCode(user, req.body.referralCode);
     }
-    emitActivity(userActivityEvent(user));
+    await user.save();
 
-    const token = signUserToken(user);
+    const token = reissueToken(req, user);
     return res.json({
       token,
       user: publicUser(user, { includePrivate: true }),
@@ -326,7 +408,7 @@ async function updateMe(req, res, next) {
     }
 
     await req.user.save();
-    const token = signUserToken(req.user);
+    const token = reissueToken(req, req.user);
     return res.json({
       token,
       user: publicUser(req.user, { includePrivate: true }),
@@ -361,7 +443,7 @@ async function updatePreferences(req, res, next) {
     req.user.markModified('preferences');
 
     await req.user.save();
-    const token = signUserToken(req.user);
+    const token = reissueToken(req, req.user);
     return res.json({
       token,
       user: publicUser(req.user, { includePrivate: true }),
@@ -390,31 +472,196 @@ async function getBlockedUsers(req, res, next) {
   }
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+const WEAK_PASSWORD_WORDS = ['admin123', 'password', 'kinbech', '12345678', 'qwerty'];
+
+/** Returns a user-facing problem with the password, or null when it is acceptable. */
+function adminPasswordProblem(password, email = '') {
+  const value = String(password || '');
+  if (value.length < 10) return 'Use at least 10 characters.';
+  if (!/[a-z]/i.test(value) || !/\d/.test(value)) return 'Use both letters and numbers.';
+  const lower = value.toLowerCase();
+  if (WEAK_PASSWORD_WORDS.some((word) => lower.includes(word))) {
+    return 'This password is too easy to guess.';
+  }
+  const local = String(email).split('@')[0].toLowerCase();
+  if (local.length >= 4 && lower.includes(local)) return "Don't use your email in the password.";
+  return null;
+}
+
+function generateTempPassword() {
+  for (;;) {
+    const candidate = crypto.randomBytes(12).toString('base64url');
+    if (!adminPasswordProblem(candidate)) return candidate;
+  }
+}
+
 async function adminLogin(req, res, next) {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    const user = await User.findOne({ email, role: { $in: ['admin', 'super_admin', 'moderator', 'support'] } });
-    
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    const user = await User.findOne({
+      email: new RegExp(`^${escapeRegex(email)}$`, 'i'),
+      role: { $in: ADMIN_ROLES },
+    });
+
+    if (user && lockMinutesLeft(user)) return lockedResponse(res, user);
+
+    const isPasswordValid = user?.password ? await bcrypt.compare(password, user.password) : false;
+    if (!user || !isPasswordValid) {
+      if (user) {
+        await registerFailedLogin(req, user, 'Wrong password');
+        if (lockMinutesLeft(user)) return lockedResponse(res, user);
+      } else {
+        noteAdminLoginFailure(req);
+      }
+      return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    
-    if (!isPasswordValid) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+    if (user.status === 'suspended') {
+      return res.status(403).json({ message: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' });
     }
 
-    const token = signUserToken(user);
+    // Old seeded/default passwords (e.g. admin123) must be replaced before the panel opens.
+    if (!user.mustChangePassword && adminPasswordProblem(password, user.email)) {
+      user.mustChangePassword = true;
+      await user.save();
+    }
+
+    if (user.twoFactorEnabled) {
+      // Wrong codes still count toward the lockout, so keep the counter until the code step.
+      return res.json({
+        twoFactorRequired: true,
+        challenge: twoFactorChallenge(user),
+        message: 'Enter the 6-digit code from your authenticator app',
+      });
+    }
+
+    await clearFailedLogins(user);
+    return finishAdminLogin(req, res, user);
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function changeAdminPassword(req, res, next) {
+  try {
+    const currentPassword = String(req.body.currentPassword || '');
+    const newPassword = String(req.body.newPassword || '');
+    const user = req.user;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Enter your current and new password' });
+    }
+
+    const matches = user.password ? await bcrypt.compare(currentPassword, user.password) : false;
+    if (!matches) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: 'New password must be different from the current one' });
+    }
+
+    const problem = adminPasswordProblem(newPassword, user.email);
+    if (problem) {
+      return res.status(400).json({ message: problem });
+    }
+    if (await passwordBreached(newPassword)) {
+      return res.status(400).json({ message: BREACHED_MESSAGE });
+    }
+
+    user.password = await bcrypt.hash(newPassword, 12);
+    user.mustChangePassword = false;
+    user.passwordChangedAt = new Date();
+    // Signs out every other session that used the old password.
+    user.tokenVersion = (Number(user.tokenVersion) || 0) + 1;
+    await user.save();
+    await revokeAllSessions(user._id, req.sessionId);
+
+    recordAudit(req, { action: 'admin.password_change', targetType: 'admin', targetId: user._id, summary: 'Changed password' });
+
+    const fresh = req.sessionId ? { token: reissueToken(req, user) } : await startSession(req, user, 'admin');
     return res.json({
-      token,
+      message: 'Password updated',
+      token: fresh.token,
+      ...(fresh.refreshToken ? { refreshToken: fresh.refreshToken } : {}),
       user: publicUser(user, { includePrivate: true }),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getAuditLogs(req, res, next) {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const filter = {};
+    const action = String(req.query.action || '').trim();
+    // "listings" matches every listings.* action; a full name matches exactly.
+    if (action) filter.action = action.includes('.') ? action : new RegExp(`^${escapeRegex(action)}\\.`);
+    if (req.query.targetType) filter.targetType = String(req.query.targetType);
+    if (req.query.targetId) filter.targetId = String(req.query.targetId);
+    if (req.query.actor) filter.actor = String(req.query.actor);
+    const q = String(req.query.q || '').trim().slice(0, 80);
+    if (q) {
+      const re = new RegExp(escapeRegex(q), 'i');
+      filter.$or = [{ summary: re }, { actorName: re }, { action: re }, { targetId: re }, { ip: re }];
+    }
+    const from = req.query.from ? new Date(String(req.query.from)) : null;
+    const to = req.query.to ? new Date(String(req.query.to)) : null;
+    if ((from && !Number.isNaN(from.getTime())) || (to && !Number.isNaN(to.getTime()))) {
+      filter.createdAt = {};
+      if (from && !Number.isNaN(from.getTime())) filter.createdAt.$gte = from;
+      if (to && !Number.isNaN(to.getTime())) filter.createdAt.$lte = to;
+    }
+
+    const [total, logs, actions] = await Promise.all([
+      AuditLog.countDocuments(filter),
+      AuditLog.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+      AuditLog.distinct('action'),
+    ]);
+
+    res.json({
+      logs: logs.map((log) => ({
+        id: String(log._id),
+        actorId: log.actor ? String(log.actor) : null,
+        actorName: log.actorName,
+        actorRole: log.actorRole,
+        action: log.action,
+        targetType: log.targetType,
+        targetId: log.targetId,
+        summary: log.summary,
+        meta: log.meta || {},
+        ip: log.ip || '',
+        createdAt: log.createdAt,
+      })),
+      actionGroups: [...new Set(actions.map((name) => String(name).split('.')[0]))].sort(),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Revoke every token for this account, including the current one. */
+async function logoutAllDevices(req, res, next) {
+  try {
+    req.user.tokenVersion = (Number(req.user.tokenVersion) || 0) + 1;
+    await req.user.save();
+    await revokeAllSessions(req.user._id);
+    return res.json({ message: 'Logged out from all devices' });
   } catch (error) {
     next(error);
   }
@@ -431,7 +678,7 @@ async function getAllAdmins(req, res, next) {
     const [total, admins] = await Promise.all([
       User.countDocuments(filter),
       User.find(filter)
-        .select('name email role createdAt')
+        .select('name email role createdAt twoFactorEnabled')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -443,9 +690,8 @@ async function getAllAdmins(req, res, next) {
       name: admin.name,
       email: admin.email,
       role: admin.role,
-      access: admin.role === 'super_admin' ? ['all'] :
-              admin.role === 'moderator' ? ['listings', 'reports'] :
-              admin.role === 'support' ? ['users', 'tickets'] : [],
+      access: admin.role === 'super_admin' ? ['all'] : scopesForRole(admin.role),
+      twoFactorEnabled: Boolean(admin.twoFactorEnabled),
       createdAt: admin.createdAt,
     }));
 
@@ -463,29 +709,57 @@ async function getAllAdmins(req, res, next) {
 
 async function createAdmin(req, res, next) {
   try {
-    const { email, password, role, name } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim();
+    const { role } = req.body;
 
-    if (!email || !password || !role || !name) {
-      return res.status(400).json({ message: 'All fields are required' });
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ message: 'Only a super admin can create admins' });
     }
 
-    const existingAdmin = await User.findOne({ email });
+    if (!email || !role || !name) {
+      return res.status(400).json({ message: 'Name, email and role are required' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    }
+    if (!ADMIN_ROLES.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+
+    const existingAdmin = await User.findOne({ email: new RegExp(`^${escapeRegex(email)}$`, 'i') });
     if (existingAdmin) {
       return res.status(409).json({ message: 'User with this email already exists' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const typedPassword = req.body.password ? String(req.body.password) : '';
+    if (typedPassword) {
+      const problem = adminPasswordProblem(typedPassword, email);
+      if (problem) return res.status(400).json({ message: problem });
+      if (await passwordBreached(typedPassword)) return res.status(400).json({ message: BREACHED_MESSAGE });
+    }
+    const temporaryPassword = typedPassword || generateTempPassword();
 
     const admin = await User.create({
       email,
-      password: hashedPassword,
+      password: await bcrypt.hash(temporaryPassword, 12),
       name,
       role,
-      // Phone is optional for admin accounts
+      mustChangePassword: true,
+    });
+
+    recordAudit(req, {
+      action: 'admin.create',
+      targetType: 'admin',
+      targetId: admin._id,
+      summary: `Created ${role} ${email}`,
+      meta: { role, email },
     });
 
     res.status(201).json({
       message: 'Admin created successfully',
+      // Shown once so the super admin can hand it over; it must be changed on first login.
+      temporaryPassword: typedPassword ? undefined : temporaryPassword,
       admin: {
         id: admin._id,
         name: admin.name,
@@ -499,9 +773,131 @@ async function createAdmin(req, res, next) {
   }
 }
 
+function isSuperAdmin(user) {
+  return user?.role === 'super_admin';
+}
+
+function isFullAdmin(user) {
+  return user && ['super_admin', 'admin'].includes(user.role);
+}
+
+async function updateAdmin(req, res, next) {
+  try {
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ message: 'Only a super admin can edit admin roles' });
+    }
+
+    const { role, name } = req.body || {};
+    const allowed = ['super_admin', 'admin', 'moderator', 'support'];
+    const admin = await User.findById(req.params.adminId);
+    if (!admin || !allowed.includes(admin.role)) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+    if (role && !allowed.includes(role)) {
+      return res.status(400).json({ message: 'Invalid role' });
+    }
+    if (admin.role === 'super_admin' && role && role !== 'super_admin') {
+      const others = await User.countDocuments({
+        _id: { $ne: admin._id },
+        role: 'super_admin',
+      });
+      if (!others) {
+        return res.status(400).json({ message: 'Keep at least one super admin' });
+      }
+    }
+
+    const previousRole = admin.role;
+    if (name !== undefined) admin.name = String(name).trim() || admin.name;
+    if (role && role !== admin.role) {
+      admin.role = role;
+      // Old tokens must not keep the previous role's access.
+      admin.tokenVersion = (Number(admin.tokenVersion) || 0) + 1;
+    }
+    await admin.save();
+
+    recordAudit(req, {
+      action: 'admin.update',
+      targetType: 'admin',
+      targetId: admin._id,
+      summary: previousRole !== admin.role
+        ? `Changed ${admin.email} from ${previousRole} to ${admin.role}`
+        : `Updated ${admin.email}`,
+      meta: { previousRole, role: admin.role, name: admin.name },
+    });
+
+    res.json({
+      message: 'Admin updated',
+      admin: {
+        id: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getPlatformSettingsAdmin(req, res, next) {
+  try {
+    const settings = await getPlatformSettings();
+    res.json({ settings });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function updatePlatformSettingsAdmin(req, res, next) {
+  try {
+    if (!isFullAdmin(req.user)) {
+      return res.status(403).json({ message: 'Only a super admin can change platform settings' });
+    }
+    const settings = await savePlatformSettings(req.body || {});
+    listingQueryCache.invalidateAll();
+    recordAudit(req, {
+      action: 'settings.update',
+      targetType: 'settings',
+      summary: 'Updated platform settings',
+      meta: { fields: Object.keys(req.body || {}) },
+    });
+    res.json({ message: 'Platform settings saved', settings });
+  } catch (error) {
+    if (error.status === 400) {
+      return res.status(400).json({ message: error.message });
+    }
+    next(error);
+  }
+}
+
+async function getPlatformAlerts(req, res, next) {
+  try {
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 8));
+    const alerts = await PlatformAlert.find({ status: { $in: ['open', 'acknowledged'] } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json({
+      alerts: alerts.map((alert) => ({
+        id: String(alert._id),
+        title: alert.title,
+        message: alert.message,
+        status: alert.status,
+        createdAt: alert.createdAt,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function deleteAdmin(req, res, next) {
   try {
     const { adminId } = req.params;
+
+    if (!isSuperAdmin(req.user)) {
+      return res.status(403).json({ message: 'Only a super admin can remove admins' });
+    }
 
     if (String(adminId) === String(req.user._id)) {
       return res.status(400).json({ message: 'You cannot delete yourself' });
@@ -516,7 +912,18 @@ async function deleteAdmin(req, res, next) {
       return res.status(403).json({ message: 'Cannot delete super admin' });
     }
 
+    if (!ADMIN_ROLES.includes(admin.role)) {
+      return res.status(404).json({ message: 'Admin not found' });
+    }
+
     await User.findByIdAndDelete(adminId);
+    recordAudit(req, {
+      action: 'admin.delete',
+      targetType: 'admin',
+      targetId: adminId,
+      summary: `Removed ${admin.role} ${admin.email || admin.name}`,
+      meta: { role: admin.role, email: admin.email },
+    });
 
     res.json({ message: 'Admin deleted successfully' });
   } catch (error) {
@@ -711,7 +1118,7 @@ async function getAllUsers(req, res, next) {
     const [total, users] = await Promise.all([
       User.countDocuments(filter),
       User.find(filter)
-        .select('name email phone profileComplete soldCount boughtCount createdAt status')
+        .select('name email phone avatarUrl profileComplete soldCount boughtCount createdAt status suspendedUntil chatRestrictedUntil deletionScheduledFor strikes lastActiveAt isTester')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -729,17 +1136,34 @@ async function getAllUsers(req, res, next) {
     listingCounts.forEach(item => {
       listingCountMap[item._id.toString()] = item.count;
     });
+    const shopOwners = new Set(
+      (await Shop.distinct('owner', { owner: { $in: userIds } })).map(String)
+    );
+    const now = Date.now();
 
-    const usersWithCounts = users.map(user => ({
-      id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      sellerType: user.soldCount > 0 ? 'individual' : 'buyer',
-      joinDate: user.createdAt,
-      listingsCount: listingCountMap[user._id.toString()] || 0,
-      status: user.status === 'suspended' ? 'suspended' : (user.profileComplete ? 'verified' : 'unverified'),
-    }));
+    const usersWithCounts = users.map(user => {
+      const listingsCount = listingCountMap[user._id.toString()] || 0;
+      const hasShop = shopOwners.has(String(user._id));
+      const sells = listingsCount > 0 || user.soldCount > 0;
+      return {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatarUrl: user.avatarUrl || '',
+        sellerType: hasShop && sells ? 'both' : hasShop ? 'shop' : sells ? 'individual' : 'buyer',
+        joinDate: user.createdAt,
+        lastActiveAt: user.lastActiveAt || null,
+        listingsCount,
+        profileComplete: Boolean(user.profileComplete),
+        status: user.status === 'suspended' ? 'suspended' : (user.profileComplete ? 'verified' : 'unverified'),
+        suspendedUntil: user.suspendedUntil || null,
+        chatRestricted: Boolean(user.chatRestrictedUntil && new Date(user.chatRestrictedUntil).getTime() > now),
+        deletionScheduledFor: user.deletionScheduledFor || null,
+        strikes: (user.strikes || []).length,
+        isTester: Boolean(user.isTester),
+      };
+    });
 
     res.json({
       users: usersWithCounts,
@@ -763,13 +1187,34 @@ async function updateUserStatus(req, res, next) {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    if (!['suspend', 'reinstate'].includes(action)) {
+      return res.status(400).json({ message: 'Unknown action' });
+    }
+    if (String(user._id) === String(req.user._id)) {
+      return res.status(400).json({ message: 'You cannot change your own status' });
+    }
+    if (ADMIN_ROLES.includes(user.role) && !isSuperAdmin(req.user)) {
+      return res.status(403).json({ message: 'Only a super admin can change another admin\'s status' });
+    }
+
+    const previousStatus = user.status;
     if (action === 'suspend') {
       user.status = 'suspended';
-    } else if (action === 'reinstate') {
+      // Kick every signed-in device right away.
+      user.tokenVersion = (Number(user.tokenVersion) || 0) + 1;
+    } else {
       user.status = 'active';
     }
 
     await user.save();
+    if (action === 'suspend') await revokeAllSessions(user._id);
+    recordAudit(req, {
+      action: `user.${action}`,
+      targetType: 'user',
+      targetId: user._id,
+      summary: `${action === 'suspend' ? 'Suspended' : 'Reinstated'} ${user.name || user.phone || user.email || 'user'}`,
+      meta: { previousStatus, status: user.status },
+    });
 
     res.json({ 
       message: 'User status updated successfully',
@@ -842,6 +1287,28 @@ async function pinStore(req, res, next) {
     await req.user.save();
 
     res.json({ ok: true, message: 'Store pinned successfully' });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function recordPinnedView(req, res, next) {
+  try {
+    const { storeId } = req.params;
+    if (!storeId) {
+      return res.status(400).json({ message: 'storeId is required' });
+    }
+
+    const pin = (req.user.pinnedStores || []).find((p) => String(p.storeId) === String(storeId));
+    if (!pin) {
+      return res.json({ ok: true, counted: false });
+    }
+
+    pin.viewCount = (Number(pin.viewCount) || 0) + 1;
+    req.user.markModified('pinnedStores');
+    await req.user.save();
+
+    res.json({ ok: true, counted: true, viewCount: pin.viewCount });
   } catch (error) {
     next(error);
   }
@@ -987,16 +1454,19 @@ async function getPinnedStores(req, res, next) {
       }
     }
 
-    // Sort by pinnedAt (most recent first)
     const pinnedWithTime = pinned.map(store => {
       const pin = req.user.pinnedStores.find(p => String(p.storeId) === String(store._id));
-      return { ...store, pinnedAt: pin?.pinnedAt };
+      return {
+        ...store,
+        pinnedAt: pin?.pinnedAt,
+        viewCount: Number(pin?.viewCount) || 0,
+      };
     });
 
     pinnedWithTime.sort((a, b) => {
-      const aTime = new Date(a.pinnedAt || 0).getTime();
-      const bTime = new Date(b.pinnedAt || 0).getTime();
-      return bTime - aTime;
+      const views = (b.viewCount || 0) - (a.viewCount || 0);
+      if (views !== 0) return views;
+      return new Date(b.pinnedAt || 0).getTime() - new Date(a.pinnedAt || 0).getTime();
     });
 
     res.json({ stores: pinnedWithTime });
@@ -1153,6 +1623,9 @@ async function getLiveActivity(req, res, next) {
 }
 
 module.exports = {
+  getAuditLogs,
+  changeAdminPassword,
+  logoutAllDevices,
   signup,
   login,
   verifyOtp,
@@ -1168,6 +1641,10 @@ module.exports = {
   getAllAdmins,
   createAdmin,
   deleteAdmin,
+  updateAdmin,
+  getPlatformSettingsAdmin,
+  updatePlatformSettingsAdmin,
+  getPlatformAlerts,
   getDashboardStats,
   updatePlatformAlert,
   getAllUsers,
@@ -1175,5 +1652,6 @@ module.exports = {
   getLiveActivity,
   pinStore,
   unpinStore,
+  recordPinnedView,
   getPinnedStores,
 };

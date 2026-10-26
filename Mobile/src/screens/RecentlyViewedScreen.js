@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -71,7 +71,7 @@ export default function RecentlyViewedScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.headerBtn}>
-          <Ionicons name="arrow-back" size={20} color={colors.onGradient} />
+          <Icon name="arrow-back" size={20} color={colors.onGradient} />
         </Pressable>
         <View style={styles.headerCopy}>
           <Text style={styles.headerTitle}>Recently viewed</Text>
@@ -81,7 +81,7 @@ export default function RecentlyViewedScreen({ navigation }) {
         </View>
         {cards.length > 0 ? (
           <Pressable onPress={confirmClear} hitSlop={8} style={styles.clearBtn}>
-            <Ionicons name="trash-outline" size={14} color={colors.onGradient} />
+            <Icon name="trash-outline" size={14} color={colors.onGradient} />
             <Text style={styles.clearText}>Clear</Text>
           </Pressable>
         ) : null}

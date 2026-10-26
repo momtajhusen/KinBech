@@ -12,7 +12,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "KinBech uses your location while the app is open to show nearby listings and auto-fill your city or district when you choose.",
         "NSCameraUsageDescription": "KinBech uses the camera when you take listing photos or record a short product video.",
-        "NSMicrophoneUsageDescription": "KinBech uses the microphone for voice calls with buyers and sellers, and while you record a short listing video.",
+        "NSMicrophoneUsageDescription": "KinBech uses the microphone for voice search, voice calls, and short listing videos.",
+        "NSSpeechRecognitionUsageDescription": "KinBech turns your speech into a search so you can find items by speaking.",
         "NSPhotoLibraryUsageDescription": "KinBech needs access to your photo library so you can upload profile and listing images.",
         "NSPhotoLibraryAddUsageDescription": "KinBech may save edited listing photos back to your library when you choose to export them."
       }
@@ -92,7 +93,10 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": false,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.codersalpha.kinbech.** { *; }"
           }
         }
       ],
@@ -106,10 +110,22 @@
         }
       ],
       "./plugins/withIncomingCall",
+      "./plugins/withCertificatePinning",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "KinBech uses the microphone for voice search, voice calls, and short listing videos.",
+          "speechRecognitionPermission": "KinBech turns your speech into a search so you can find items by speaking.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
       "expo-status-bar",
       "expo-font",
       "react-native-maps",
-      "expo-video"
+      "expo-video",
+      "expo-secure-store"
     ]
   }
 }

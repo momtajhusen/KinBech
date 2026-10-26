@@ -1,5 +1,6 @@
 import { Alert, Linking, Platform, Share } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 import {
@@ -46,30 +47,46 @@ export async function shareListingImage(cardRef, listing, dialogTitle = 'Share l
   return uri;
 }
 
-export async function shareListingToWhatsApp(cardRef, listing) {
-  const uri = await captureListingShareCard(cardRef);
-  const message = buildShareMessage(listing);
+async function tryOpen(url) {
+  try {
+    await Linking.openURL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
+async function openFirst(urls) {
+  for (const url of urls) {
+    if (await tryOpen(url)) return true;
+  }
+  return false;
+}
+
+async function copyShareCard(fileUri, message) {
+  await Clipboard.setStringAsync(message);
+  try {
+    const base64 = await new File(fileUri).base64();
+    if (base64) await Clipboard.setImageAsync(base64);
+  } catch {
+    // The caption is already copied. The image copy is optional.
+  }
+}
+
+async function shareImageFile(uri, dialogTitle) {
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, {
       mimeType: 'image/png',
-      dialogTitle: 'Share to WhatsApp Status or chat',
+      dialogTitle,
       UTI: 'public.png',
     });
-    return;
+    return true;
   }
+  return false;
+}
 
-  const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
-  const canOpen = await Linking.canOpenURL(whatsappUrl);
-  if (canOpen) {
-    await Linking.openURL(whatsappUrl);
-    return;
-  }
-
-  Alert.alert(
-    'WhatsApp not available',
-    'Install WhatsApp or use Share image to pick another app.',
-  );
+export async function shareListingToWhatsApp(cardRef, listing) {
+  return shareListingToApp('whatsapp', cardRef, listing);
 }
 
 export async function shareListingLink(listing) {
@@ -80,39 +97,53 @@ export async function shareListingLink(listing) {
   });
 }
 
-async function tryOpen(url) {
-  try {
-    await Linking.openURL(url);
-    return true;
-  } catch {
-    return false;
-  }
+export async function redirectListingPost(platform, listing, cardRef) {
+  return shareListingToApp(platform, cardRef, listing);
 }
 
-export async function redirectListingPost(platform, listing) {
+export async function shareListingToApp(platform, cardRef, listing) {
+  const uri = await captureListingShareCard(cardRef);
   const message = buildShareMessage(listing);
   const pageUrl = buildListingShareUrl(listing?.id);
-  await Clipboard.setStringAsync(message);
+  await copyShareCard(uri, message);
+
+  if (platform === 'whatsapp') {
+    const text = encodeURIComponent(message);
+    const opened = await openFirst([
+      `whatsapp://send?text=${text}`,
+      `https://wa.me/?text=${text}`,
+    ]);
+    if (opened) return uri;
+    if (await shareImageFile(uri, 'Share to WhatsApp')) return uri;
+    Alert.alert('WhatsApp not available', 'Install WhatsApp, or use Share to pick another app.');
+    return uri;
+  }
 
   if (platform === 'facebook') {
     const sharer = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}&quote=${encodeURIComponent(message)}`;
-    if (await tryOpen(`fb://facewebmodal/f?href=${encodeURIComponent(sharer)}`)) return;
-    await Linking.openURL(sharer);
-    return;
+    const opened = await openFirst([sharer]);
+    if (opened) return uri;
+    if (await shareImageFile(uri, 'Share to Facebook')) return uri;
+    Alert.alert('Facebook not available', 'Install Facebook, or use Share to pick another app.');
+    return uri;
   }
 
-  if (platform === 'instagram') {
-    if (await tryOpen('instagram://camera')) return;
-    if (await tryOpen('instagram://app')) return;
-    await Linking.openURL('https://www.instagram.com/');
-    return;
+  if (platform === 'instagram' || platform === 'tiktok') {
+    const title = platform === 'instagram' ? 'Post on Instagram' : 'Post on TikTok';
+    if (await shareImageFile(uri, title)) return uri;
+    const opened = platform === 'instagram'
+      ? await openFirst(['instagram://app', 'https://www.instagram.com/'])
+      : await openFirst(['snssdk1233://', 'tiktok://', 'https://www.tiktok.com/']);
+    if (opened) return uri;
+    Alert.alert(
+      platform === 'instagram' ? 'Instagram not available' : 'TikTok not available',
+      'Install the app, or use Share to pick another app.',
+    );
+    return uri;
   }
 
-  if (platform === 'tiktok') {
-    if (await tryOpen('snssdk1233://')) return;
-    if (await tryOpen('tiktok://')) return;
-    await Linking.openURL('https://www.tiktok.com/tiktokstudio/upload');
-  }
+  await shareImageFile(uri, 'Share listing card');
+  return uri;
 }
 
 export async function saveListingShareCard(cardRef) {

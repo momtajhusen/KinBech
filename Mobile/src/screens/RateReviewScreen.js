@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme, useThemedStyles, ThemeStatusBar, formTextareaStyle } from '../theme';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import {
   Text,
   TextInput,
@@ -12,7 +12,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../services/api';
-import { resolveMediaUrl } from '../utils/listing';
+import { resolveMediaUrl, formatPrice } from '../utils/listing';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
 import { FormScroll } from '../components/FormScroll';
 
@@ -35,28 +35,26 @@ export default function RateReviewScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
 
-  const resolvedShopId =
-    listing?.shopId?._id ||
-    listing?.shopId?.id ||
-    listing?.shopId ||
-    shop?._id ||
-    shop?.id;
-  const isShopListing =
-    Boolean(resolvedShopId) && (listing?.sellerType === 'shop' || Boolean(shop));
+  const listingId = listing?.id || listing?._id;
+  const isShopListing = listing?.sellerType === 'shop' || Boolean(shop);
+  const sellerUser = seller || listing?.seller;
+  const displayName = isShopListing
+    ? shop?.name || listing?.shopId?.name || 'Shop'
+    : sellerUser?.name || 'Seller';
+  const avatarUri = isShopListing ? shop?.logo || listing?.shopId?.logo : sellerUser?.avatarUrl;
 
   if (!colors) {
     return null;
   }
 
-  // If not a shop listing, show error and go back
-  if (!isShopListing) {
+  if (!listingId) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.content}>
-          <Ionicons name="information-circle" size={64} color={colors.textMuted} />
-          <Text style={styles.errorTitle}>Reviews Not Available</Text>
+          <Icon name="information-circle" size={64} color={colors.textMuted} />
+          <Text style={styles.errorTitle}>Item not found</Text>
           <Text style={styles.errorMessage}>
-            Reviews are only available for shop purchases. Individual seller items cannot be reviewed.
+            Open this from the "How was your deal?" notification to rate the seller.
           </Text>
           <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
             <Text style={styles.backButtonText}>Go Back</Text>
@@ -73,20 +71,10 @@ export default function RateReviewScreen({ navigation, route }) {
   };
 
   const handleSubmit = async () => {
-    if (!resolvedShopId) {
-      setAlertConfig(showErrorAlert({
-        title: 'Shop not found',
-        message: 'Unable to submit review for this shop.',
-        onConfirm: () => setAlertConfig(null),
-      }));
-      return;
-    }
-    
     setLoading(true);
     try {
-      const { error } = await api.createReview({
-        shopId: resolvedShopId,
-        listingId: listing?.id || listing?._id,
+      const { data, error } = await api.createReview({
+        listingId,
         rating,
         review,
         tags: selectedTags,
@@ -95,8 +83,10 @@ export default function RateReviewScreen({ navigation, route }) {
       setLoading(false);
       if (error) {
         setAlertConfig(showErrorAlert({
-          title: 'Review failed',
-          message: error,
+          title: data?.code === 'DEAL_REQUIRED' ? 'Not yet' : 'Review failed',
+          message: data?.code === 'DEAL_REQUIRED'
+            ? 'You can rate the seller once your meetup for this item is done.'
+            : error,
           onConfirm: () => setAlertConfig(null),
         }));
         return;
@@ -130,24 +120,24 @@ export default function RateReviewScreen({ navigation, route }) {
       >
         <Text style={styles.headerTitle}>Rate Your Experience</Text>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="close" size={26} color={colors.white} />
+          <Icon name="close" size={26} color={colors.white} />
         </Pressable>
       </LinearGradient>
 
       <FormScroll contentContainerStyle={styles.scrollContent}>
         <View style={styles.avatarWrap}>
           <View style={styles.avatar}>
-            {shop?.logo ? (
-              <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={{ width: '100%', height: '100%' }} />
+            {avatarUri ? (
+              <Image source={{ uri: resolveMediaUrl(avatarUri) }} style={{ width: '100%', height: '100%' }} />
             ) : (
               <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="storefront" size={44} color={colors.text} />
+                <Icon name={isShopListing ? 'storefront' : 'person'} size={44} color={colors.text} />
               </View>
             )}
           </View>
         </View>
-        <Text style={styles.sellerName}>{shop?.name ?? 'Shop'}</Text>
-        <Text style={styles.sellerRole}>Shop</Text>
+        <Text style={styles.sellerName}>{displayName}</Text>
+        <Text style={styles.sellerRole}>{isShopListing ? 'Shop' : 'Seller'}</Text>
 
         <View style={styles.listingCard}>
           <View style={styles.listingImage}>
@@ -159,7 +149,7 @@ export default function RateReviewScreen({ navigation, route }) {
               />
             ) : (
               <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="cube-outline" size={32} color={colors.textMuted} />
+                <Icon name="cube-outline" size={32} color={colors.textMuted} />
               </View>
             )}
           </View>
@@ -167,10 +157,10 @@ export default function RateReviewScreen({ navigation, route }) {
             <Text style={styles.listingTitle} numberOfLines={1}>
               {listing?.title}
             </Text>
-            <Text style={styles.listingSubtitle}>{listing?.subtitle}</Text>
-            <Text style={styles.listingPrice}>
-              ₹{Number(listing?.price ?? 0).toLocaleString('en-IN')}
-            </Text>
+            {listing?.subtitle ? <Text style={styles.listingSubtitle}>{listing.subtitle}</Text> : null}
+            {listing?.price != null ? (
+              <Text style={styles.listingPrice}>{formatPrice(listing.price)}</Text>
+            ) : null}
           </View>
         </View>
 
@@ -178,7 +168,7 @@ export default function RateReviewScreen({ navigation, route }) {
         <View style={styles.starsRow}>
           {[1, 2, 3, 4, 5].map((value) => (
             <Pressable key={value} onPress={() => setRating(value)} hitSlop={6}>
-              <Ionicons
+              <Icon
                 name={value <= rating ? 'star' : 'star-outline'}
                 size={40}
                 color={value <= rating ? colors.gradientEnd : colors.border}
@@ -214,7 +204,7 @@ export default function RateReviewScreen({ navigation, route }) {
                 onPress={() => toggleTag(tag.key)}
                 style={[styles.tag, selected && styles.tagSelected]}
               >
-                <Ionicons
+                <Icon
                   name={tag.icon}
                   size={16}
                   color={colors.gradientStart}

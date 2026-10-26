@@ -43,6 +43,7 @@ export default function Footer() {
             <h4>Contact</h4>
             <ul>
               <li><a href="mailto:support@kinbech.com">support@kinbech.com</a></li>
+              <li><Link to="/security">Report a security issue</Link></li>
               <li><span>Kathmandu, Nepal</span></li>
               <li><span>+977 support line — coming soon</span></li>
             </ul>

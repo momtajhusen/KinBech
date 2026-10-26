@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -320,7 +320,7 @@ export default function EditShopScreen({ navigation }) {
               <Image source={{ uri: resolveMediaUrl(coverUri) || coverUri }} style={styles.fill} resizeMode="cover" />
             ) : (
               <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.coverEmpty}>
-                <Ionicons name="image-outline" size={30} color="rgba(255,255,255,0.85)" />
+                <Icon name="image-outline" size={30} color="rgba(255,255,255,0.85)" />
                 <Text style={styles.coverEmptyTitle}>Add a cover banner</Text>
                 <Text style={styles.coverEmptySub}>Recommended 1600 × 700 · shows on your store page</Text>
               </LinearGradient>
@@ -332,13 +332,13 @@ export default function EditShopScreen({ navigation }) {
             />
             <View style={[styles.coverBar, { top: insets.top + 8 }]}>
               <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.roundBtn}>
-                <Ionicons name="chevron-back" size={20} color="#fff" />
+                <Icon name="chevron-back" size={20} color="#fff" />
               </Pressable>
               <Text style={styles.coverTitle}>Edit store</Text>
               <View style={styles.roundGhost} />
             </View>
             <View style={styles.coverEdit}>
-              <Ionicons name="camera" size={13} color="#fff" />
+              <Icon name="camera" size={13} color="#fff" />
               <Text style={styles.coverEditText}>{coverUri ? 'Change cover' : 'Add cover'}</Text>
             </View>
           </Pressable>
@@ -349,11 +349,11 @@ export default function EditShopScreen({ navigation }) {
                 {logoUri ? (
                   <Image source={{ uri: resolveMediaUrl(logoUri) || logoUri }} style={styles.fill} />
                 ) : (
-                  <Ionicons name="storefront" size={34} color={colors.primary} />
+                  <Icon name="storefront" size={34} color={colors.primary} />
                 )}
               </View>
               <View style={styles.logoCamera}>
-                <Ionicons name="camera" size={13} color="#fff" />
+                <Icon name="camera" size={13} color="#fff" />
               </View>
             </Pressable>
             <View style={styles.identityText}>
@@ -361,7 +361,7 @@ export default function EditShopScreen({ navigation }) {
                 <Text style={styles.previewName} numberOfLines={1}>
                   {form.name.trim() || 'Your store'}
                 </Text>
-                {shop.isVerified ? <Ionicons name="shield-checkmark" size={15} color={colors.primary} /> : null}
+                {shop.isVerified ? <Icon name="shield-checkmark" size={15} color={colors.primary} /> : null}
               </View>
               <Text style={styles.previewTagline} numberOfLines={1}>
                 {form.tagline.trim() || form.category || 'Add a short tagline'}
@@ -417,7 +417,7 @@ export default function EditShopScreen({ navigation }) {
                         {cat.imageUrl ? (
                           <Image source={{ uri: cat.imageUrl }} style={styles.catImage} />
                         ) : (
-                          <Ionicons name={cat.icon} size={13} color={active ? colors.onPrimary : colors.textSecondary} />
+                          <Icon name={cat.icon} size={13} color={active ? colors.onPrimary : colors.textSecondary} />
                         )}
                         <Text style={[styles.catText, active && styles.catTextActive]}>{cat.label}</Text>
                       </Pressable>
@@ -469,7 +469,7 @@ export default function EditShopScreen({ navigation }) {
                 editable={false}
                 right={
                   <View style={styles.verifiedTag}>
-                    <Ionicons name="shield-checkmark" size={11} color={colors.success} />
+                    <Icon name="shield-checkmark" size={11} color={colors.success} />
                     <Text style={styles.verifiedText}>Verified</Text>
                   </View>
                 }
@@ -497,7 +497,7 @@ export default function EditShopScreen({ navigation }) {
               </FieldRow>
               {form.phone && !form.whatsapp ? (
                 <Pressable onPress={() => set('whatsapp')(form.phone)} style={styles.inlineAction}>
-                  <Ionicons name="copy-outline" size={12} color={colors.primary} />
+                  <Icon name="copy-outline" size={12} color={colors.primary} />
                   <Text style={styles.inlineActionText}>Use phone number for WhatsApp</Text>
                 </Pressable>
               ) : null}
@@ -547,7 +547,7 @@ export default function EditShopScreen({ navigation }) {
                       <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <>
-                        <Ionicons name="locate" size={13} color={colors.primary} />
+                        <Icon name="locate" size={13} color={colors.primary} />
                         <Text style={styles.gpsText}>GPS</Text>
                       </>
                     )}
@@ -640,7 +640,7 @@ export default function EditShopScreen({ navigation }) {
 
             <Pressable style={styles.verifyCard} onPress={() => navigation.navigate(ROUTES.SHOP_VERIFICATION)}>
               <View style={[styles.verifyIcon, { backgroundColor: `${verifyColor}1A` }]}>
-                <Ionicons name={verify.icon} size={18} color={verifyColor} />
+                <Icon name={verify.icon} size={18} color={verifyColor} />
               </View>
               <View style={styles.flex1}>
                 <Text style={styles.verifyTitle}>Business verification</Text>
@@ -658,7 +658,7 @@ export default function EditShopScreen({ navigation }) {
             style={styles.previewBtn}
             onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: shop._id || shop.id })}
           >
-            <Ionicons name="eye-outline" size={17} color={colors.primary} />
+            <Icon name="eye-outline" size={17} color={colors.primary} />
             <Text style={styles.previewBtnText}>View</Text>
           </Pressable>
           <Pressable style={[styles.saveBtn, saving && styles.saveBtnDisabled]} onPress={handleSave} disabled={saving}>
@@ -666,7 +666,7 @@ export default function EditShopScreen({ navigation }) {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Icon name="checkmark-circle" size={18} color="#fff" />
                 <Text style={styles.saveText}>Save store</Text>
               </>
             )}

@@ -40,24 +40,41 @@ export function PressableScale({
   const scale = useSharedValue(1);
   const animated = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
   return (
-    <Reanimated.View style={[style, animated]} entering={entering}>
-      <Pressable
-        style={contentStyle}
-        onPress={onPress}
-        disabled={disabled}
-        hitSlop={hitSlop}
-        unstable_pressDelay={50}
-        onPressIn={() => {
-          scale.value = withSpring(scaleTo, PRESS_SPRING);
-        }}
-        onPressOut={() => {
-          scale.value = withSpring(1, PRESS_SPRING);
-        }}
-      >
-        {children}
-      </Pressable>
+    <Reanimated.View style={style} entering={entering}>
+      <Reanimated.View style={animated}>
+        <Pressable
+          style={contentStyle}
+          onPress={onPress}
+          disabled={disabled}
+          hitSlop={hitSlop}
+          onPressIn={() => {
+            scale.value = withSpring(scaleTo, PRESS_SPRING);
+          }}
+          onPressOut={() => {
+            scale.value = withSpring(1, PRESS_SPRING);
+          }}
+        >
+          {children}
+        </Pressable>
+      </Reanimated.View>
     </Reanimated.View>
   );
+}
+
+/** One-time scale on an already sized view. Transform only, so it does not change layout or delay taps. */
+export function SoftPop({ index = 0, children, style }) {
+  const scale = useSharedValue(0.86);
+  const opacity = useSharedValue(0.55);
+  useEffect(() => {
+    const delay = Math.min(index, 6) * 35;
+    scale.value = withDelay(delay, withSpring(1, { damping: 12, stiffness: 240, mass: 0.45 }));
+    opacity.value = withDelay(delay, withTiming(1, { duration: 160 }));
+  }, [index, opacity, scale]);
+  const animated = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+  return <Reanimated.View style={[style, animated]}>{children}</Reanimated.View>;
 }
 
 /** Repeating soft heartbeat while `active` is true. */

@@ -308,7 +308,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '2. Delete in the app',
-        body: 'Path: Profile → Settings → Privacy & Security → scroll to "Delete account" → confirm. This starts permanent deletion of your profile, active listings, and personal preferences.',
+        body: 'Path: Profile → Settings → Privacy & Security → scroll to "Delete account" → Delete my account → confirm. You are signed out on every device and your listings and shop are hidden right away. Signing in again within 30 days cancels the request; after 30 days your profile, listings, shop, and personal preferences are permanently deleted. Use "Download my data" first if you want a copy.',
       },
       {
         title: '3. Delete by email',

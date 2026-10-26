@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import { Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -8,6 +9,7 @@ import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import LogoutConfirmModal from '../components/LogoutConfirmModal';
+import { AlertModal, showErrorAlert } from '../components/AlertModal';
 
 const ACCOUNT_ROWS = [
   { label: 'Edit Profile', subtitle: 'Update your personal information', icon: 'person-outline', screen: ROUTES.EDIT_PROFILE },
@@ -17,8 +19,8 @@ const ACCOUNT_ROWS = [
   { label: 'Wallet', subtitle: 'Sales, purchases, and deal history', icon: 'wallet-outline', screen: ROUTES.WALLET },
   { label: 'My Listings', subtitle: 'View and manage your posted items', icon: 'list-outline', screen: ROUTES.MY_LISTINGS },
   { label: 'Seller Preference', subtitle: 'Choose how you want to sell', icon: 'storefront-outline', screen: ROUTES.SELLER_TYPE_SELECTION, params: { fromSettings: true } },
-  { label: 'Invite Friends', subtitle: 'Earn 1 day featured listing per friend', icon: 'gift-outline', screen: ROUTES.INVITE_FRIENDS },
-  { label: 'Business Verification', subtitle: 'PAN/VAT & documents for verified badge', icon: 'shield-checkmark-outline', screen: ROUTES.SHOP_VERIFICATION },
+  { label: 'Invite Friends', subtitle: 'Earn a free 24-hour boost per friend', icon: 'gift-outline', screen: ROUTES.INVITE_FRIENDS },
+  { label: 'Business Verification', subtitle: 'PAN/VAT & documents for verified badge', icon: 'shield-checkmark-outline', screen: ROUTES.SHOP_VERIFICATION, shopOnly: true },
 ];
 
 const SUPPORT_ROWS = [
@@ -155,13 +157,13 @@ function Row({ icon, label, subtitle, showBorder, right, onPress }) {
   return (
     <Pressable style={[styles.row, showBorder && styles.rowBorder]} onPress={onPress}>
       <View style={styles.iconCircle}>
-        <Ionicons name={icon} size={20} color={colors.primary} />
+        <Icon name={icon} size={20} color={colors.primary} />
       </View>
       <View style={styles.rowText}>
         <Text style={styles.rowLabel}>{label}</Text>
         <Text style={styles.rowSubtitle}>{subtitle}</Text>
       </View>
-      {right ?? <Ionicons name="chevron-forward" size={20} color={colors.primary} />}
+      {right ?? <Icon name="chevron-forward" size={20} color={colors.primary} />}
     </Pressable>
   );
 }
@@ -176,6 +178,38 @@ export default function SettingsScreen({ navigation }) {
   const [currency, setCurrency] = useState('NPR (₨)');
   const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [alertConfig, setAlertConfig] = useState(null);
+  const isShopAccount = user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+  const accountRows = ACCOUNT_ROWS.filter((row) => !row.shopOnly || isShopAccount);
+
+  const signOutHere = async () => {
+    await logout();
+    navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+  };
+
+  const confirmLogoutAll = () => {
+    setAlertConfig({
+      type: 'warning',
+      title: 'Log out of all devices?',
+      message: 'You will be signed out on every phone, including this one. Log in again with your number to continue.',
+      primaryButton: {
+        text: 'Log out everywhere',
+        onPress: async () => {
+          const { error } = await api.logoutAllDevices();
+          if (error) {
+            setAlertConfig(showErrorAlert({
+              title: 'Could not log out',
+              message: error,
+              onConfirm: () => setAlertConfig(null),
+            }));
+            return;
+          }
+          await signOutHere();
+        },
+      },
+      secondaryButton: { text: 'Cancel', onPress: () => setAlertConfig(null) },
+    });
+  };
 
   useEffect(() => {
     if (user?.preferences) {
@@ -224,7 +258,7 @@ export default function SettingsScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.back}>
-          <Ionicons name="chevron-back" size={26} color={colors.onGradient} />
+          <Icon name="chevron-back" size={26} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>Settings</Text>
         <View style={styles.back} />
@@ -237,13 +271,13 @@ export default function SettingsScreen({ navigation }) {
       >
         <Text style={styles.sectionTitle}>Account</Text>
         <View style={styles.card}>
-          {(ACCOUNT_ROWS || []).map((item, index) => (
+          {accountRows.map((item, index) => (
             <Row
               key={item.label}
               icon={item.icon}
               label={item.label}
               subtitle={item.subtitle}
-              showBorder={index < ACCOUNT_ROWS.length - 1}
+              showBorder={index < accountRows.length - 1}
               onPress={() => navigation.navigate(item.screen, item.params)}
             />
           ))}
@@ -274,7 +308,7 @@ export default function SettingsScreen({ navigation }) {
             right={
               <View style={styles.valueRow}>
                 <Text style={styles.valueText}>{language}</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+                <Icon name="chevron-forward" size={18} color={colors.primary} />
               </View>
             }
             onPress={() => navigation.navigate(ROUTES.LANGUAGE_SELECT)}
@@ -300,7 +334,7 @@ export default function SettingsScreen({ navigation }) {
             right={
               <View style={styles.valueRow}>
                 <Text style={styles.valueText}>{currency}</Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+                <Icon name="chevron-forward" size={18} color={colors.primary} />
               </View>
             }
             onPress={() => navigation.navigate(ROUTES.CURRENCY_SELECT)}
@@ -340,16 +374,29 @@ export default function SettingsScreen({ navigation }) {
           onPress={() => setShowLogoutModal(true)}
         >
           <View style={styles.logoutIconCircle}>
-            <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+            <Icon name="log-out-outline" size={20} color={colors.danger} />
           </View>
           <View style={styles.rowText}>
             <Text style={styles.logoutLabel}>Log Out</Text>
             <Text style={styles.rowSubtitle}>Sign out from your account</Text>
           </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.danger} />
+          <Icon name="chevron-forward" size={20} color={colors.danger} />
         </Pressable>
 
-        <Text style={styles.versionText}>Version 1.0.0</Text>
+        <Pressable style={[styles.logoutCard, { marginTop: 10 }]} onPress={confirmLogoutAll}>
+          <View style={styles.logoutIconCircle}>
+            <Icon name="phone-portrait-outline" size={20} color={colors.danger} />
+          </View>
+          <View style={styles.rowText}>
+            <Text style={styles.logoutLabel}>Log out of all devices</Text>
+            <Text style={styles.rowSubtitle}>Use this if you lost a phone or shared your account</Text>
+          </View>
+          <Icon name="chevron-forward" size={20} color={colors.danger} />
+        </Pressable>
+
+        {Constants.expoConfig?.version ? (
+          <Text style={styles.versionText}>Version {Constants.expoConfig.version}</Text>
+        ) : null}
       </ScrollView>
 
       <LogoutConfirmModal
@@ -358,9 +405,13 @@ export default function SettingsScreen({ navigation }) {
         onCancel={() => setShowLogoutModal(false)}
         onConfirm={async () => {
           setShowLogoutModal(false);
-          await logout();
-          navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+          await signOutHere();
         }}
+      />
+      <AlertModal
+        visible={!!alertConfig}
+        onClose={() => setAlertConfig(null)}
+        {...(alertConfig || {})}
       />
     </View>
   );

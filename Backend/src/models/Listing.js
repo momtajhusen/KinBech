@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { audiencePlugin } = require('../utils/audience');
 
 const listingSchema = new mongoose.Schema(
   {
@@ -37,9 +38,43 @@ const listingSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'pending', 'sold'],
+      // hidden = auto-hidden by trust rules (see autoHidden); seller restores in one tap.
+      enum: ['active', 'pending', 'sold', 'removed', 'hidden'],
       default: 'active',
       index: true,
+    },
+    /** single = one piece, stock = counted stock, always = service / made to order. null = by seller type. */
+    listingKind: { type: String, enum: ['single', 'stock', 'always', null], default: null },
+    lowStockLimit: { type: Number, default: 3, min: 0 },
+    stockConfirmedAt: { type: Date, default: null },
+    /** Seller said "still available" (button or chat). */
+    availabilityConfirmedAt: { type: Date, default: null },
+    /** Computed by utils/listingTrust; reasons are shown to admin and the seller. */
+    trust: {
+      soldWordAt: { type: Date, default: null },
+      soldLikelihood: { type: Number, default: 0 },
+      reasons: [{ type: String }],
+      promptedAt: { type: Date, default: null },
+      confirmBy: { type: Date, default: null },
+      stockState: { type: String, default: '' },
+      outOfStockSince: { type: Date, default: null },
+      /** Subtracted from the ranking boost (likely sold, out of stock, unconfirmed). */
+      rankPenalty: { type: Number, default: 0 },
+      /** Sold by a detected deal (not by the seller); "still available" can undo it. */
+      autoSoldAt: { type: Date, default: null },
+    },
+    /** Who last changed `status` and why, so the seller sees "Sold by you" vs "Auto-sold". */
+    statusChange: {
+      status: { type: String, default: '' },
+      by: { type: String, enum: ['', 'seller', 'auto', 'admin'], default: '' },
+      reason: { type: String, default: '' },
+      at: { type: Date, default: null },
+    },
+    autoHidden: {
+      at: { type: Date, default: null },
+      reason: { type: String, default: '' },
+      restoredAt: { type: Date, default: null },
+      restoreCount: { type: Number, default: 0 },
     },
     moderationReason: { type: String, default: '' },
     matchedKeywords: [{ type: String }],
@@ -49,6 +84,10 @@ const listingSchema = new mongoose.Schema(
     soldAt: { type: Date, default: null, index: true },
     /** Time-boxed promo from referral credits (or future paid boosts) */
     featuredUntil: { type: Date, default: null, index: true },
+    /** Views when the boost started, for the "boost ended" summary. */
+    featuredViewsAtStart: { type: Number, default: 0 },
+    /** The featuredUntil the seller was already told about, so each boost ends with one notice. */
+    featuredEndNotifiedFor: { type: Date, default: null },
     featuredSource: {
       type: String,
       enum: ['', 'referral', 'promo', 'manual'],
@@ -83,9 +122,13 @@ const listingSchema = new mongoose.Schema(
         photo: { type: String, default: '' },
       },
     ],
+    /** Posted by a tester account; visible only to testers (utils/audience). */
+    isTest: { type: Boolean, default: false, index: true },
   },
   { timestamps: true }
 );
+
+listingSchema.plugin(audiencePlugin);
 
 listingSchema.index({ title: 'text', description: 'text', location: 'text' });
 listingSchema.index({ 'coordinates.lat': 1, 'coordinates.lng': 1 });

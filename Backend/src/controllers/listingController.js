@@ -3,25 +3,118 @@ const Shop = require('../models/Shop');
 const Report = require('../models/Report');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
-const { listingPayload, parsePrice, haversineDistanceKm, listingPoint, listingTrustBoost } = require('../utils/listing');
+const Notification = require('../models/Notification');
+const FlaggedMedia = require('../models/FlaggedMedia');
+const { sendUserPush } = require('../utils/callPush');
+const { listingPayload, parsePrice, haversineDistanceKm, listingPoint, listingTrustBoost, statusChange } = require('../utils/listing');
 const { parseVariantsFromBody } = require('../utils/listingVariants');
 const { recordShopMetric, recordShopSale } = require('../utils/shopAnalytics');
 const listingQueryCache = require('../utils/listingQueryCache');
-const { evaluateListingModeration, publicProhibitedBody } = require('../utils/listingModeration');
+const { evaluateListingModeration } = require('../utils/listingModeration');
+const { estimateForListing, priceReviewReason } = require('../utils/priceCheck');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
+const { getPlatformSettings } = require('../utils/platformSettings');
 const { resolveProductCategory } = require('../utils/productCategory');
 const { emitActivity } = require('../utils/realtime');
 const { listingActivityEvent } = require('../utils/activityEvents');
+const { isAdminRole } = require('../utils/adminScopes');
+const { onListingMarkedSold } = require('../utils/deals');
+const { confirmAvailable } = require('../utils/listingTrust');
+const { duplicatePhotoReason } = require('../utils/imageHash');
+const {
+  interestScore,
+  loadInterestProfile,
+  rankForUser,
+  recordInterestSoon,
+  topInterestCategories,
+} = require('../utils/userInterest');
 const {
   normalize, searchTokens, queryFilter, scoreName, scoreListing, hasWordMatch,
 } = require('../utils/searchMatch');
 
-const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates';
-const SHOP_POPULATE = 'name logo coverImage tagline phone ratingAverage reviewCount isVerified coordinates location';
+const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates rankBoost trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt createdAt';
+const SHOP_POPULATE = 'name logo coverImage tagline phone ratingAverage reviewCount isVerified coordinates location openDays openingHours';
 const LISTING_PAGE_DEFAULT = 20;
 const LISTING_PAGE_MAX = 50;
+const HELD_NOTE = 'Held for manual review.';
+const PHOTO_ISSUE_LABELS = {
+  nudity: 'nudity or adult content',
+  violence: 'violence',
+  weapon: 'a weapon',
+  drugs: 'drugs',
+  other: 'content that breaks KinBech rules',
+};
+
+function sentence(text) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  return /[.!?]$/.test(value) ? value : `${value}.`;
+}
+
+/** `imageFlag` comes from the AI photo check on the sell form: { issue, reason }. */
+function photoReviewReason(flag) {
+  if (!flag || typeof flag !== 'object') return '';
+  const label = PHOTO_ISSUE_LABELS[String(flag.issue || '').trim().toLowerCase()];
+  if (!label) return '';
+  const detail = sentence(String(flag.reason || '').slice(0, 200));
+  return `Photo may show ${label}.${detail ? ` ${detail}` : ''}`;
+}
+
+/**
+ * Every check that can send a listing to manual review: restricted words, category
+ * pre-approval, an unsafe photo, and a price of 0 or far from similar items.
+ */
+const UPLOAD_ISSUE_LABELS = {
+  NSFW_BLOCKED: 'nudity or adult content',
+  ADULT_IMAGE_TEXT: 'adult text',
+  WEAPON_IMAGE: 'a weapon',
+  STOCK_OR_WATERMARK: 'a stock or watermarked photo',
+  SUSPECT_WATERMARK: 'a watermarked or fake photo',
+  FRAUD_IMAGE_TEXT: 'misleading text',
+};
+
+/** Photos the upload safety check flagged (they were stored, not rejected). */
+async function flaggedPhotoReason(photos) {
+  const filenames = (Array.isArray(photos) ? photos : [])
+    .map((url) => String(url || '').split('?')[0].split('/').pop())
+    .filter(Boolean);
+  if (!filenames.length) return '';
+  const flagged = await FlaggedMedia.find({ filename: { $in: filenames } }).select('code').lean();
+  if (!flagged.length) return '';
+  const labels = [...new Set(flagged.map((item) => UPLOAD_ISSUE_LABELS[item.code] || 'content that breaks KinBech rules'))];
+  return `Photo may show ${labels.join(', ')}.`;
+}
+
+async function collectReviewReasons({ moderation, listingLike, price, excludeId, priceEstimate, imageFlag }) {
+  const reasons = [];
+  if (moderation.status === 'pending' && moderation.reason) reasons.push(sentence(moderation.reason));
+  const photoReason = photoReviewReason(imageFlag);
+  if (photoReason) reasons.push(photoReason);
+  const uploadReason = await flaggedPhotoReason(listingLike.photos);
+  if (uploadReason && uploadReason !== photoReason) reasons.push(uploadReason);
+  const duplicateReason = await duplicatePhotoReason(listingLike.photos, listingLike.seller, {
+    excludeListingId: excludeId || null,
+    createdBefore: listingLike.createdAt || new Date(),
+  });
+  if (duplicateReason) reasons.push(duplicateReason);
+  let priceHeld = false;
+  if (!listingLike.hasVariants) {
+    const estimate = await estimateForListing({
+      title: listingLike.title,
+      category: listingLike.category,
+      excludeId,
+      clientEstimate: priceEstimate,
+    });
+    const priceReason = priceReviewReason(price, estimate);
+    if (priceReason) {
+      reasons.push(sentence(priceReason));
+      priceHeld = true;
+    }
+  }
+  return { reasons, priceHeld, photoHeld: Boolean(photoReason || uploadReason) };
+}
 
 function normalizeSearchWords(value) {
   if (!Array.isArray(value)) return [];
@@ -142,9 +235,174 @@ function buildBaseFilter(req, { matchMode = 'all' } = {}) {
   return filter;
 }
 
+async function withPlatformWindow(filter, req) {
+  const requested = req.query.status;
+  const status = requested ? requested : 'active';
+  if (status !== 'active') return filter;
+  const settings = await getPlatformSettings();
+  const days = Number(settings.listingExpiryDays) || 0;
+  if (days > 0) {
+    // Global expiry applies to individual items only; a seller confirmation restarts the clock.
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    filter.$and = [
+      ...(filter.$and || []),
+      { $or: [{ sellerType: 'shop' }, { createdAt: { $gte: cutoff } }, { availabilityConfirmedAt: { $gte: cutoff } }] },
+    ];
+  }
+  return filter;
+}
+
+function parseListingKind(value) {
+  const kind = String(value || '').trim().toLowerCase();
+  return ['single', 'stock', 'always'].includes(kind) ? kind : '';
+}
+
+async function ownListing(req, res) {
+  const listing = await Listing.findById(req.params.id);
+  if (!listing) {
+    res.status(404).json({ message: 'Listing not found' });
+    return null;
+  }
+  if (String(listing.seller) !== String(req.user._id)) {
+    res.status(403).json({ message: 'You can only update your own listing' });
+    return null;
+  }
+  if (listing.status === 'hidden' && listing.autoHidden?.reason === 'account_suspended') {
+    res.status(403).json({ message: 'This listing was hidden by KinBech and cannot be restored yet' });
+    return null;
+  }
+  return listing;
+}
+
+/** "Still available" — one tap from a push, My Listings, or a hidden listing. Restores auto-hidden items. */
+async function confirmListingAvailable(req, res, next) {
+  try {
+    const listing = await ownListing(req, res);
+    if (!listing) return;
+    const autoSold = listing.status === 'sold' && listing.trust?.autoSoldAt;
+    if (!['active', 'hidden'].includes(listing.status) && !autoSold) {
+      return res.status(400).json({ message: 'Only live, auto-hidden or auto-sold listings can be confirmed' });
+    }
+    const { restored } = await confirmAvailable(listing, { stock: req.body?.stock });
+    const fresh = await Listing.findById(listing._id).populate('seller', SELLER_POPULATE).populate('shopId', SHOP_POPULATE);
+    res.json({ restored, listing: listingPayload(fresh) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** One-tap stock for store items: { stock } sets it, { delta } adds or removes. */
+async function updateListingStock(req, res, next) {
+  try {
+    const listing = await ownListing(req, res);
+    if (!listing) return;
+    if (listing.sellerType !== 'shop') {
+      return res.status(400).json({ message: 'Stock applies to store listings only' });
+    }
+    if (listing.hasVariants) {
+      return res.status(400).json({ message: 'Edit the listing to change stock per option' });
+    }
+    const current = Number(listing.stock) || 0;
+    let nextStock = current;
+    if (req.body?.stock !== undefined) nextStock = Number(req.body.stock);
+    else if (req.body?.delta !== undefined) nextStock = current + Number(req.body.delta);
+    if (!Number.isFinite(nextStock)) return res.status(400).json({ message: 'Stock must be a number' });
+    nextStock = Math.max(0, Math.floor(nextStock));
+    const wasHidden = listing.status === 'hidden';
+    if (nextStock > 0 && (wasHidden || listing.status === 'active')) {
+      await confirmAvailable(listing, { stock: nextStock });
+    } else {
+      await Listing.updateOne({ _id: listing._id }, { $set: { stock: nextStock, stockConfirmedAt: new Date() } });
+    }
+    listingQueryCache.invalidateAll();
+    const fresh = await Listing.findById(listing._id).populate('seller', SELLER_POPULATE).populate('shopId', SHOP_POPULATE);
+    res.json({ listing: listingPayload(fresh) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** "All stock is correct" for every store item at once. */
+async function confirmAllStock(req, res, next) {
+  try {
+    const now = new Date();
+    const result = await Listing.updateMany(
+      { seller: req.user._id, sellerType: 'shop', status: 'active' },
+      { $set: { stockConfirmedAt: now, availabilityConfirmedAt: now, 'trust.confirmBy': null } }
+    );
+    listingQueryCache.invalidateAll();
+    res.json({ confirmed: result.modifiedCount || 0 });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function minPriceError(parsedPrice) {
+  const settings = await getPlatformSettings();
+  const min = Number(settings.minListingPrice) || 0;
+  if (min > 0 && parsedPrice < min) {
+    return `Minimum listing price is ${min} ${settings.defaultCurrency || 'NPR'}`;
+  }
+  return '';
+}
+
+const PERSONAL_POOL = 300;
+
+/** Default feed for a signed-in buyer: the newest pool ranked by their interest, then the rest by date. */
+async function personalizedListings(req, filter, profile, { page, limit, userLat, userLng, radiusKm }) {
+  const { page: _page, limit: _limit, sort: _sort, ...poolQuery } = req.query;
+  const poolKey = listingQueryCache.buildListingCacheKey('listings-pool', poolQuery);
+  let pool = listingQueryCache.get(poolKey);
+  if (!pool) {
+    const docs = await Listing.find(filter)
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE)
+      .sort({ createdAt: -1 })
+      .limit(PERSONAL_POOL)
+      .lean();
+    const full = docs.length >= PERSONAL_POOL && !radiusKm;
+    pool = { docs, total: full ? await Listing.countDocuments(filter) : docs.length, full };
+    listingQueryCache.set(poolKey, pool);
+  }
+
+  let entries = attachDistances(pool.docs, userLat, userLng);
+  if (radiusKm) entries = entries.filter(({ distance }) => distance != null && distance <= radiusKm);
+  const ranked = rankForUser(entries, profile, { userId: req.user._id, diversify: !req.query.category });
+  const total = pool.full ? pool.total : ranked.length;
+  const start = (page - 1) * limit;
+  let items = ranked.slice(start, start + limit);
+
+  if (pool.full && items.length < limit && start + items.length < total) {
+    const rest = await Listing.find({ ...filter, _id: { $nin: pool.docs.map((doc) => doc._id) } })
+      .populate('seller', SELLER_POPULATE)
+      .populate('shopId', SHOP_POPULATE)
+      .sort({ createdAt: -1 })
+      .skip(Math.max(0, start - ranked.length))
+      .limit(limit - items.length)
+      .lean();
+    items = items.concat(attachDistances(rest, userLat, userLng));
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
+  return presentListings(
+    {
+      listings: items.map(({ doc, distance }) => listingPayload(doc, distance)),
+      total,
+      page,
+      limit,
+      totalPages,
+      hasMore: start + items.length < total,
+      appliedSort: 'recommended',
+      personalized: true,
+    },
+    userLat,
+    userLng,
+  );
+}
+
 async function getListings(req, res, next) {
   try {
-    const filter = buildBaseFilter(req);
+    const filter = await withPlatformWindow(buildBaseFilter(req), req);
     const {
       lat, lng, radius, sort,
     } = req.query;
@@ -154,6 +412,16 @@ async function getListings(req, res, next) {
     const radiusKm = radius && Number(radius) > 0 ? Number(radius) : null;
     const sortMode = String(sort || 'newest').toLowerCase();
     const { page, limit, skip } = parsePagination(req);
+
+    if (req.user && req.query.category && page === 1) {
+      recordInterestSoon(req.user._id, { kind: 'category', category: req.query.category });
+    }
+    if (req.user && (!sort || sortMode === 'recommended')) {
+      const profile = await loadInterestProfile(req.user._id);
+      if (profile) {
+        return res.json(await personalizedListings(req, filter, profile, { page, limit, userLat, userLng, radiusKm }));
+      }
+    }
 
     const cacheKey = listingQueryCache.buildListingCacheKey('listings-geo2', {
       ...req.query,
@@ -272,7 +540,7 @@ async function getListings(req, res, next) {
 
 async function searchListings(req, res, next) {
   try {
-    const filter = buildBaseFilter(req);
+    const filter = await withPlatformWindow(buildBaseFilter(req), req);
     const {
       lat, lng, radius, sort,
     } = req.query;
@@ -284,12 +552,18 @@ async function searchListings(req, res, next) {
     const sortMode = String(sort || (queryText ? 'relevance' : 'distance')).toLowerCase();
     const { page, limit } = parsePagination(req);
 
+    if (req.user && queryText && page === 1) {
+      recordInterestSoon(req.user._id, { kind: 'search', query: queryText, category: req.query.category });
+    }
+    const wantsProfile = (queryText && sortMode === 'relevance') || sortMode === 'recommended';
+    const profile = req.user && wantsProfile ? await loadInterestProfile(req.user._id) : null;
+
     const cacheKey = listingQueryCache.buildListingCacheKey('listings-search-geo3', {
       ...req.query,
       page,
       limit,
     });
-    const cached = listingQueryCache.get(cacheKey);
+    const cached = profile ? null : listingQueryCache.get(cacheKey);
     if (cached) {
       return res.json(presentListings(cached, userLat, userLng));
     }
@@ -309,7 +583,8 @@ async function searchListings(req, res, next) {
         distance = haversineDistanceKm(userLat, userLng, point.lat, point.lng);
       }
       const trust = listingTrustBoost(doc);
-      const relevance = queryText ? scoreListing(doc, queryText, tokens) + trust : trust;
+      const personal = profile ? interestScore(doc, profile) * 20 : 0;
+      const relevance = queryText ? scoreListing(doc, queryText, tokens) + trust + personal : trust;
       return { doc, distance, relevance, trust };
     }).filter(({ distance }) => {
       if (!radiusKm) return true;
@@ -321,11 +596,17 @@ async function searchListings(req, res, next) {
     let sorted = rankDocs(await fetchDocs(filter));
     if (!sorted.length && tokens.length > 1) {
       matchMode = 'partial';
-      const looseDocs = await fetchDocs(buildBaseFilter(req, { matchMode: 'any' }));
+      const looseDocs = await fetchDocs(await withPlatformWindow(buildBaseFilter(req, { matchMode: 'any' }), req));
       sorted = rankDocs(looseDocs.filter((doc) => hasWordMatch(doc, tokens)));
     }
 
-    if (sortMode === 'relevance') {
+    if (sortMode === 'recommended') {
+      if (profile) {
+        sorted = rankForUser(sorted, profile, { userId: req.user._id, diversify: !req.query.category });
+      } else {
+        sorted.sort((a, b) => new Date(b.doc.createdAt || 0) - new Date(a.doc.createdAt || 0));
+      }
+    } else if (sortMode === 'relevance') {
       sorted.sort((a, b) => {
         const diff = b.relevance - a.relevance;
         if (diff !== 0) return diff;
@@ -399,7 +680,7 @@ async function searchListings(req, res, next) {
       appliedSort: sortMode,
       matchMode,
     };
-    listingQueryCache.set(cacheKey, payload);
+    if (!profile) listingQueryCache.set(cacheKey, payload);
     return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
@@ -485,12 +766,44 @@ async function getSearchSuggestions(req, res, next) {
   }
 }
 
+/** Categories this buyer browses most, strongest first (used to order category chips). */
+async function getMyInterests(req, res, next) {
+  try {
+    res.json({ categories: await topInterestCategories(req.user._id) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getMyCategoryUsage(req, res, next) {
+  try {
+    const rows = await Listing.aggregate([
+      {
+        $match: {
+          seller: req.user._id,
+          status: { $in: ['active', 'pending', 'sold'] },
+        },
+      },
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1, _id: 1 } },
+    ]);
+    res.json({
+      categories: rows
+        .filter((row) => row._id)
+        .map((row) => ({ name: row._id, count: row.count })),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getMyListings(req, res, next) {
   try {
     const listings = await Listing.find({ seller: req.user._id })
       .populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences')
       .populate('shopId', 'name logo ratingAverage reviewCount')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const listingIds = listings.map((l) => l._id);
     let chatCountMap = {};
@@ -518,7 +831,8 @@ async function getMyListings(req, res, next) {
 
 async function getMyPurchases(req, res, next) {
   try {
-    const chats = await Chat.find({ participants: req.user._id })
+    const chats = await Chat.find({ participants: req.user._id, listing: { $ne: null } })
+      .select('listing meetupConfirmed lastMessageAt')
       .populate({
         path: 'listing',
         populate: [
@@ -549,6 +863,14 @@ async function getMyPurchases(req, res, next) {
   }
 }
 
+/** Pending/removed listings: only the seller, admins, and buyers already chatting about it. */
+async function canViewListing(doc, user) {
+  if (doc.status === 'active' || doc.status === 'sold') return true;
+  if (!user) return false;
+  if (String(doc.seller?._id || doc.seller) === String(user._id) || isAdminRole(user.role)) return true;
+  return Boolean(await Chat.exists({ listing: doc._id, participants: user._id }));
+}
+
 async function getListing(req, res, next) {
   try {
     const { lat, lng } = req.query;
@@ -559,8 +881,12 @@ async function getListing(req, res, next) {
       .populate('seller', SELLER_POPULATE)
       .populate('shopId', SHOP_POPULATE);
 
-    if (!doc) {
+    if (!doc || !(await canViewListing(doc, req.user))) {
       return res.status(404).json({ message: 'Listing not found' });
+    }
+
+    if (req.user && String(doc.seller?._id || doc.seller) !== String(req.user._id)) {
+      recordInterestSoon(req.user._id, { kind: 'view', listing: doc });
     }
 
     try {
@@ -639,6 +965,11 @@ async function createListing(req, res, next) {
     if (!title || Number.isNaN(parsedPrice) || !category) {
       return res.status(400).json({ message: 'Title, price, and category are required' });
     }
+    const priceError = await minPriceError(parsedPrice);
+    if (priceError) {
+      return res.status(400).json({ message: priceError });
+    }
+    const platform = await getPlatformSettings();
 
     const variantResult = parseVariantsFromBody(
       { hasVariants, variantOptions, variants },
@@ -720,10 +1051,12 @@ async function createListing(req, res, next) {
 
     const listingData = {
       seller: req.user._id,
+      isTest: Boolean(req.user.isTester),
       sellerType,
       title: String(title).trim(),
       description: description || '',
       price: parsedPrice,
+      currency: req.body.currency || platform.defaultCurrency || 'NPR',
       category: resolvedCategory?.name || String(category).trim(),
       condition: condition || 'Good',
       photos: Array.isArray(photos) ? photos : [],
@@ -746,14 +1079,33 @@ async function createListing(req, res, next) {
       listingData.stock = variantResult.hasVariants
         ? variantResult.stock
         : Math.max(0, Number(stock) || 1);
+      listingData.listingKind = parseListingKind(req.body.listingKind) || 'stock';
+      if (req.body.lowStockLimit !== undefined) listingData.lowStockLimit = Math.max(0, Math.floor(Number(req.body.lowStockLimit) || 0));
+      listingData.stockConfirmedAt = new Date();
+    } else {
+      listingData.listingKind = 'single';
     }
 
     const moderation = await evaluateListingModeration(listingData);
-    if (!moderation.ok) {
-      return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
+    const { reasons, priceHeld, photoHeld } = await collectReviewReasons({
+      moderation,
+      listingLike: listingData,
+      price: parsedPrice,
+      priceEstimate: req.body.priceEstimate,
+      imageFlag: req.body.imageFlag,
+    });
+    if (req.user.trustTier === 'restricted') {
+      reasons.push('New listings from this account are checked by our team first.');
+    }
+    if (reasons.length) {
+      moderation.status = 'pending';
+      moderation.reason = `${reasons.join(' ')} ${HELD_NOTE}`;
     }
 
     listingData.status = moderation.status;
+    listingData.statusChange = moderation.status === 'active'
+      ? statusChange('active', 'seller', 'posted')
+      : statusChange(moderation.status, 'auto', moderation.status === 'pending' ? 'review' : 'blocked');
     listingData.moderationReason = moderation.reason || '';
     listingData.matchedKeywords = moderation.matchedKeywords || [];
     listingData.heldAt = moderation.status === 'pending' ? new Date() : null;
@@ -774,6 +1126,8 @@ async function createListing(req, res, next) {
         reason: moderation.reason || '',
         matchedKeywords: moderation.matchedKeywords || [],
         requiresPreApproval: moderation.requiresPreApproval,
+        priceReview: priceHeld,
+        photoReview: photoHeld,
       },
     });
   } catch (error) {
@@ -792,7 +1146,11 @@ async function updateListing(req, res, next) {
       return res.status(403).json({ message: 'You can only edit your own listing' });
     }
 
+    const previousStatus = listing.status;
     const wasSold = listing.status === 'sold';
+    const wasRejected = listing.status === 'removed';
+    const wasPending = listing.status === 'pending';
+    const previousReason = listing.moderationReason || '';
 
     // For shop listings, ensure user still owns the shop
     if (listing.sellerType === 'shop' && listing.shopId) {
@@ -863,7 +1221,18 @@ async function updateListing(req, res, next) {
       } else if (req.body.stock !== undefined && !listing.hasVariants) {
         listing.stock = Math.max(0, Number(req.body.stock) || 0);
       }
+      const kind = parseListingKind(req.body.listingKind);
+      if (kind) listing.listingKind = kind;
+      if (req.body.lowStockLimit !== undefined) listing.lowStockLimit = Math.max(0, Math.floor(Number(req.body.lowStockLimit) || 0));
     }
+
+    // Any edit by the seller counts as "still available / stock checked".
+    listing.availabilityConfirmedAt = new Date();
+    listing.stockConfirmedAt = new Date();
+    listing.set('trust.soldWordAt', null);
+    listing.set('trust.promptedAt', null);
+    listing.set('trust.confirmBy', null);
+    listing.set('trust.rankPenalty', 0);
 
     if (req.body.coordinates) {
       const c = req.body.coordinates;
@@ -877,6 +1246,10 @@ async function updateListing(req, res, next) {
       const parsedPrice = parsePrice(req.body.price);
       if (Number.isNaN(parsedPrice)) {
         return res.status(400).json({ message: 'Invalid price' });
+      }
+      const priceError = await minPriceError(parsedPrice);
+      if (priceError) {
+        return res.status(400).json({ message: priceError });
       }
       listing.price = parsedPrice;
     }
@@ -900,8 +1273,24 @@ async function updateListing(req, res, next) {
         },
         { currentStatus: listing.status }
       );
-      if (!moderation.ok) {
-        return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
+      const { reasons } = await collectReviewReasons({
+        moderation,
+        listingLike: listing,
+        price: listing.price,
+        excludeId: listing._id,
+        priceEstimate: req.body.priceEstimate,
+        imageFlag: req.body.imageFlag,
+      });
+      if (reasons.length) {
+        moderation.status = 'pending';
+        moderation.reason = `${reasons.join(' ')} ${HELD_NOTE}`;
+      } else if (wasRejected) {
+        moderation.status = 'pending';
+        moderation.reason = `Edited after rejection. ${HELD_NOTE}`;
+      } else if (wasPending) {
+        // Only an admin can publish a held listing; editing it never self-publishes.
+        moderation.status = 'pending';
+        moderation.reason = previousReason || `Edited while in review. ${HELD_NOTE}`;
       }
       listing.status = moderation.status;
       listing.moderationReason = moderation.reason || '';
@@ -912,9 +1301,15 @@ async function updateListing(req, res, next) {
     if (!wasSold && listing.status === 'sold' && !listing.soldAt) {
       listing.soldAt = new Date();
     }
+    if (listing.status !== previousStatus) {
+      listing.statusChange = listing.status === 'pending'
+        ? statusChange('pending', 'auto', 'review')
+        : statusChange(listing.status, 'seller', listing.status === 'sold' ? 'marked_sold' : 'edited');
+    }
 
     await listing.save();
     if (!wasSold && listing.status === 'sold') {
+      onListingMarkedSold(listing);
       await User.findByIdAndUpdate(listing.seller, { $inc: { soldCount: 1 } });
       if (listing.sellerType === 'shop' && listing.shopId) {
         recordShopSale(listing.shopId, listing.price).catch(() => {});
@@ -954,7 +1349,7 @@ async function deleteListing(req, res, next) {
 
 async function getCategoryCounts(req, res, next) {
   try {
-    const filter = buildBaseFilter(req);
+    const filter = await withPlatformWindow(buildBaseFilter(req), req);
     const cacheKey = listingQueryCache.buildListingCacheKey('category-counts', {
       ...req.query,
     });
@@ -1021,7 +1416,7 @@ async function getAllListingsAdmin(req, res, next) {
       Listing.find(filter)
         .populate('seller', 'name phone avatarUrl location bio preferences')
         .populate('shopId', 'name logo')
-        .sort({ createdAt: -1 })
+        .sort(req.query.sort === 'oldest' ? { heldAt: 1, createdAt: 1 } : { createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -1056,6 +1451,34 @@ async function getAllListingsAdmin(req, res, next) {
   }
 }
 
+async function notifyReviewResult(listing) {
+  const approved = listing.status === 'active';
+  const note = await Notification.create({
+    user: listing.seller,
+    type: 'listing',
+    title: approved ? 'Listing approved' : 'Listing rejected',
+    body: approved
+      ? `"${listing.title}" passed review and is now live.`
+      : `"${listing.title}" was not approved. Reason: ${listing.moderationReason || 'Did not meet KinBech rules.'}`,
+    icon: approved ? 'checkmark-circle-outline' : 'close-circle-outline',
+    route: 'MyListings',
+    params: { listingTitle: listing.title, listingImage: listing.photos?.[0] || '' },
+    relatedListing: listing._id,
+  });
+  sendUserPush({
+    userId: note.user,
+    title: note.title,
+    body: note.body,
+    data: {
+      type: note.type,
+      notificationId: String(note._id),
+      route: note.route,
+      listingTitle: listing.title,
+      listingImage: listing.photos?.[0] || '',
+    },
+  }).catch(() => {});
+}
+
 async function updateListingStatusAdmin(req, res, next) {
   try {
     const { listingId } = req.params;
@@ -1066,27 +1489,47 @@ async function updateListingStatusAdmin(req, res, next) {
       return res.status(404).json({ message: 'Listing not found' });
     }
 
-    const nextStatus = status || listing.status;
-    if (!['active', 'pending', 'sold'].includes(nextStatus)) {
+    let nextStatus = status || listing.status;
+    if (nextStatus === 'rejected') nextStatus = 'removed';
+    if (!['active', 'pending', 'sold', 'removed'].includes(nextStatus)) {
       return res.status(400).json({
-        message: 'Status must be active, pending, or sold',
+        message: 'Status must be active, pending, sold, or removed',
       });
     }
 
+    const wasPending = listing.status === 'pending';
+    if (listing.status !== nextStatus) {
+      const reasons = { active: wasPending ? 'approved' : 'restored', pending: 'held', sold: 'marked_sold', removed: 'rejected' };
+      listing.statusChange = statusChange(nextStatus, 'admin', reasons[nextStatus]);
+    }
     listing.status = nextStatus;
     if (nextStatus === 'active') {
       listing.moderationReason = '';
       listing.matchedKeywords = [];
       listing.heldAt = null;
-    } else if (nextStatus === 'pending' && !listing.heldAt) {
-      listing.heldAt = new Date();
-      if (req.body.reason) {
-        listing.moderationReason = String(req.body.reason).trim();
+    } else if (nextStatus === 'pending' || nextStatus === 'removed') {
+      if (!listing.heldAt) listing.heldAt = new Date();
+      const reason = String(req.body.reason || '').trim();
+      const heldReason = String(listing.moderationReason || '').replace(/\s*Held for manual review\.?\s*$/i, '').trim();
+      if (reason) listing.moderationReason = reason;
+      else if (nextStatus === 'removed') {
+        listing.moderationReason =
+          heldReason || (status === 'rejected' ? 'Rejected by admin' : 'Removed by admin');
       }
     }
 
     await listing.save();
     listingQueryCache.invalidateAll();
+
+    if (nextStatus === 'active') {
+      // An admin has seen these photos; later edits should not hold the listing for them again.
+      const filenames = (listing.photos || []).map((url) => String(url || '').split('?')[0].split('/').pop()).filter(Boolean);
+      if (filenames.length) await FlaggedMedia.deleteMany({ filename: { $in: filenames } }).catch(() => {});
+    }
+
+    if (wasPending && (nextStatus === 'active' || nextStatus === 'removed')) {
+      notifyReviewResult(listing).catch(() => {});
+    }
 
     res.json({ 
       message: 'Listing status updated successfully',
@@ -1102,6 +1545,9 @@ async function featureListing(req, res, next) {
     const listing = await Listing.findById(req.params.id);
     if (!listing) {
       return res.status(404).json({ message: 'Listing not found' });
+    }
+    if (req.user.trustTier === 'restricted') {
+      return res.status(403).json({ message: 'Featuring is not available for this account right now.', code: 'TRUST_RESTRICTED' });
     }
 
     const result = await featureListingWithCredit(req.user, listing);
@@ -1236,6 +1682,8 @@ module.exports = {
   getSearchSuggestions,
   getRelatedListings,
   getCategoryCounts,
+  getMyCategoryUsage,
+  getMyInterests,
   getMyListings,
   getMyPurchases,
   getListing,
@@ -1246,4 +1694,7 @@ module.exports = {
   featureListing,
   getAllListingsAdmin,
   updateListingStatusAdmin,
+  confirmListingAvailable,
+  updateListingStock,
+  confirmAllStock,
 };

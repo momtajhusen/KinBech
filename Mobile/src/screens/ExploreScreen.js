@@ -1,21 +1,21 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
+  ActivityIndicator,
   Animated,
-  Easing,
   Image,
   Pressable,
   ScrollView,
   Text,
   View,
   useWindowDimensions,
-  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { INFO_COPY, navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
+import { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import {
   attachDistanceToCard,
@@ -24,7 +24,6 @@ import {
   formatPrice,
   toCardItem,
 } from '../utils/listing';
-import ScreenLoader from '../components/ScreenLoader';
 import {
   catalogFingerprint,
   getExploreMemory,
@@ -42,7 +41,10 @@ import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
 import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
+import { isNearEnd } from '../utils/scroll';
 import { ProductCardSkeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
+import { PressableScale, Reanimated, SoftPop, enterUp } from '../components/Motion';
+import ExploreFilterSheet, { DEFAULT_EXPLORE_FILTERS, countActiveFilters } from '../components/ExploreFilterSheet';
 
 const SIDEBAR_WIDTH = 62;
 const GRID_GUTTER = 8;
@@ -50,12 +52,18 @@ const GRID_PADDING = 10;
 const ALL_TINT = '#047857';
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const FOCUS_CACHE_TTL_MS = 300_000; // 5 minutes
+const SEARCH_PAUSE_MS = 450;
+const MIN_SEARCH_CHARS = 2;
+const EXPLORE_PAGE = 24;
+const CATEGORY_PAGE = 40;
 
+const DEFAULT_SORT = 'forYou';
 const SORT_OPTIONS = [
+  { key: 'forYou', label: 'For you', icon: 'sparkles-outline', activeIcon: 'sparkles' },
   { key: 'newest', label: 'Newest', icon: 'star-outline', activeIcon: 'star' },
   { key: 'nearby', label: 'Nearest', icon: 'navigate-outline' },
-  { key: 'priceLow', label: '₹ Price ↑', icon: 'trending-up-outline' },
-  { key: 'priceHigh', label: '₹ Price ↓', icon: 'trending-down-outline' },
+  { key: 'priceLow', label: 'Price ↑', icon: 'trending-up-outline' },
+  { key: 'priceHigh', label: 'Price ↓', icon: 'trending-down-outline' },
   { key: 'topRated', label: 'Popular', icon: 'flame-outline' },
 ];
 
@@ -75,6 +83,33 @@ function nearestLabel(distances) {
 function listingCreatedAt(item) {
   const time = new Date(item?.listing?.createdAt || item?.postedAt || 0).getTime();
   return Number.isFinite(time) ? time : 0;
+}
+
+function productPasses(item, filters) {
+  const price = Number(item?.listing?.price) || 0;
+  if (filters.priceMin != null && price < filters.priceMin) return false;
+  if (filters.priceMax != null && price > filters.priceMax) return false;
+  if (filters.condition && (item.condition || item.listing?.condition) !== filters.condition) return false;
+  if (filters.postedDays) {
+    const created = listingCreatedAt(item);
+    if (!created || Date.now() - created > filters.postedDays * 86400000) return false;
+  }
+  if (filters.maxKm && (item.distanceKm == null || item.distanceKm > filters.maxKm)) return false;
+  if (filters.sellerType !== 'all' && (item.sellerType || item.listing?.sellerType || 'individual') !== filters.sellerType) {
+    return false;
+  }
+  if (filters.verified && !item.verified) return false;
+  return true;
+}
+
+function sellerPasses(seller, filters) {
+  if (filters.verified && !seller.verified) return false;
+  if (filters.maxKm && (seller.distance == null || seller.distance > filters.maxKm)) return false;
+  if (filters.sellerType !== 'all') {
+    const type = seller.sellerType || (seller.shopId ? 'shop' : 'individual');
+    if (type !== filters.sellerType) return false;
+  }
+  return true;
 }
 
 const createStyles = (colors) => ({
@@ -130,25 +165,28 @@ const createStyles = (colors) => ({
     borderColor: 'rgba(255,255,255,0.22)',
   },
   searchWrap: {
-    marginTop: -22,
+    marginTop: -18,
     paddingHorizontal: 16,
+    marginBottom: 8,
   },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 4,
     paddingBottom: 8,
     gap: 8,
   },
   tabsTrack: {
     flex: 1,
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
     borderRadius: 14,
     padding: 4,
     borderWidth: 1,
     borderColor: colors.border,
+    minHeight: 44,
   },
   tabBtn: {
     flex: 1,
@@ -162,32 +200,20 @@ const createStyles = (colors) => ({
   tabBtnActive: {
     backgroundColor: '#059669',
   },
+  tabSlider: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    left: 4,
+    borderRadius: 10,
+    backgroundColor: '#059669',
+  },
   tabBtnText: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.textMuted,
   },
   tabBtnTextActive: {
-    color: '#fff',
-  },
-  tabCount: {
-    minWidth: 20,
-    paddingHorizontal: 5,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
-  },
-  tabCountActive: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
-  },
-  tabCountText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textSecondary,
-  },
-  tabCountTextActive: {
     color: '#fff',
   },
   filterBtn: {
@@ -230,14 +256,16 @@ const createStyles = (colors) => ({
   },
   sidebar: {
     width: SIDEBAR_WIDTH,
+    alignSelf: 'stretch',
     backgroundColor: colors.surface,
     borderTopRightRadius: 20,
-    borderBottomRightRadius: 20,
     borderRightWidth: 1,
     borderTopWidth: 1,
-    borderBottomWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
+  },
+  sidebarList: {
+    flex: 1,
   },
   sidebarContent: {
     paddingTop: 4,
@@ -348,9 +376,25 @@ const createStyles = (colors) => ({
     paddingBottom: 4,
   },
   resultsTitle: {
+    flexShrink: 1,
+    marginRight: 8,
     fontSize: 13,
     fontWeight: '800',
     color: colors.text,
+  },
+  searchingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: GRID_PADDING + 2,
+    paddingTop: 4,
+    paddingBottom: 10,
+  },
+  searchingText: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textMuted,
   },
   clearLink: {
     flexDirection: 'row',
@@ -362,49 +406,16 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: '#10B981',
   },
+  loadMoreRow: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
   productGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     paddingHorizontal: GRID_PADDING,
     paddingBottom: 4,
     gap: GRID_GUTTER,
-  },
-  trustBanner: {
-    marginHorizontal: GRID_PADDING,
-    marginTop: 10,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.45)',
-    backgroundColor: 'rgba(16, 185, 129, 0.08)',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  trustIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  trustCopy: {
-    flex: 1,
-  },
-  trustTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  trustTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#34D399',
-  },
-  trustSub: {
-    marginTop: 2,
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.textMuted,
   },
   sellerSection: {
     marginTop: 4,
@@ -445,122 +456,6 @@ const createStyles = (colors) => ({
     fontSize: 11,
     fontWeight: '800',
   },
-  filterHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginBottom: 14,
-  },
-  sortChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  filterActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 8,
-  },
-  clearButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  clearButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  applyButtonFlex: {
-    flex: 2,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  applyButtonText: {
-    color: colors.onPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  filterModal: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  filterModalContent: {
-    backgroundColor: colors.background,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-  },
-  filterModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 18,
-  },
-  filterModalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  filterCloseButton: {
-    padding: 6,
-  },
-  filterSection: {
-    marginBottom: 18,
-  },
-  filterSectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 10,
-  },
-  filterOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  filterOptionIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterOptionText: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  filterCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  filterCheckboxChecked: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
 });
 
 const GridCard = memo(function GridCard({ item, width, onOpen, onSave }) {
@@ -578,11 +473,68 @@ const GridCard = memo(function GridCard({ item, width, onOpen, onSave }) {
   );
 });
 
+const TAB_SLIDE = { duration: 240, easing: Easing.bezier(0.22, 1, 0.36, 1) };
+
+const ExploreTabs = memo(function ExploreTabs({ styles, colors, activeTab, onChange }) {
+  const [selected, setSelected] = useState(activeTab);
+  const [tabWidth, setTabWidth] = useState(0);
+  const offset = useSharedValue(0);
+  const tabs = [
+    { key: 'products', label: 'Products', icon: 'cube-outline' },
+    { key: 'sellers', label: 'Sellers', icon: 'storefront-outline' },
+  ];
+  const indexOf = (key) => Math.max(0, tabs.findIndex((tab) => tab.key === key));
+
+  useEffect(() => {
+    if (activeTab === selected) return;
+    setSelected(activeTab);
+    if (tabWidth) offset.value = withTiming(indexOf(activeTab) * tabWidth, TAB_SLIDE);
+  }, [activeTab]);
+
+  const sliderStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: offset.value }],
+  }));
+
+  const onLayout = (event) => {
+    const next = Math.max(0, (event.nativeEvent.layout.width - 2 - 8) / 2);
+    offset.value = indexOf(selected) * next;
+    setTabWidth(next);
+  };
+
+  const press = (key) => {
+    if (key === selected) return;
+    if (tabWidth) offset.value = withTiming(indexOf(key) * tabWidth, TAB_SLIDE);
+    setSelected(key);
+    onChange(key);
+  };
+
+  return (
+    <View style={styles.tabsTrack} onLayout={onLayout}>
+      {tabWidth ? (
+        <Reanimated.View pointerEvents="none" style={[styles.tabSlider, { width: tabWidth }, sliderStyle]} />
+      ) : null}
+      {tabs.map((tab) => {
+        const isActive = selected === tab.key;
+        return (
+          <Pressable
+            key={tab.key}
+            style={[styles.tabBtn, isActive && !tabWidth && styles.tabBtnActive]}
+            onPress={() => press(tab.key)}
+          >
+            <Icon name={tab.icon} size={14} color={isActive ? colors.onPrimary : colors.textMuted} />
+            <Text style={[styles.tabBtnText, isActive && styles.tabBtnTextActive]}>{tab.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+});
+
 function SectionTitle({ styles, icon, tint, title, subtitle, count }) {
   return (
     <View style={styles.sectionHeader}>
       <View style={[styles.sectionIcon, { backgroundColor: `${tint}1F` }]}>
-        <Ionicons name={icon} size={15} color={tint} />
+        <Icon name={icon} size={15} color={tint} />
       </View>
       <View style={styles.sectionCopy}>
         <Text style={styles.sectionTitle}>{title}</Text>
@@ -605,6 +557,11 @@ export default function ExploreScreen({ navigation, route }) {
   const initialCategory = route?.params?.category;
   const productCategories = useCategories('product');
   const shopCategories = useCategories('shop');
+  const [interestCategories, setInterestCategories] = useState([]);
+  const [liveCounts, setLiveCounts] = useState(null);
+  const [sellerCounts, setSellerCounts] = useState(null);
+  const [categorySellers, setCategorySellers] = useState({});
+  const [sellerReloadTick, setSellerReloadTick] = useState(0);
 
   const [activeTab, setActiveTab] = useState('products');
   const [activeCategory, setActiveCategory] = useState(null);
@@ -614,28 +571,72 @@ export default function ExploreScreen({ navigation, route }) {
     : (getHomeListingsMemory()?.listings || []);
   const [itemsLoading, setItemsLoading] = useState(seededProducts.length === 0);
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
+  const userCoordsRef = useRef(userCoords);
+  userCoordsRef.current = userCoords;
   const [pinnedStores, setPinnedStores] = useState([]);
   const [featuredSellers, setFeaturedSellers] = useState(seededExplore?.featured || []);
   const [popularSellers, setPopularSellers] = useState(seededExplore?.popular || []);
   const [nearbySellers, setNearbySellers] = useState(seededExplore?.nearby || []);
   const [products, setProducts] = useState(seededProducts);
   const [showFilterModal, setShowFilterModal] = useState(false);
-  const [selectedFilters, setSelectedFilters] = useState({
-    verified: false,
-    nearby: false,
-    topRated: false,
-  });
-  const [sortBy, setSortBy] = useState('newest');
+  const [selectedFilters, setSelectedFilters] = useState(DEFAULT_EXPLORE_FILTERS);
+  const [sortBy, setSortBy] = useState(DEFAULT_SORT);
+  const productRankRef = useRef(new Map());
+  const [productOrderTick, setProductOrderTick] = useState(0);
+  const rememberProductOrder = useCallback((key, listings, reset = false) => {
+    let ranks = productRankRef.current.get(key);
+    if (!ranks || reset) {
+      ranks = new Map();
+      productRankRef.current.set(key, ranks);
+    }
+    listings.forEach((item) => {
+      const id = String(item?.id || item?._id || '');
+      if (id && !ranks.has(id)) ranks.set(id, ranks.size);
+    });
+  }, []);
+  const [searchText, setSearchText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchProducts, setSearchProducts] = useState([]);
+  const [searchSellers, setSearchSellers] = useState([]);
+  const searchAbortRef = useRef(null);
+  const searchQueryRef = useRef('');
+  searchQueryRef.current = searchQuery;
 
   const hasLoadedRef = useRef(seededProducts.length > 0);
   const productsFpRef = useRef(catalogFingerprint(seededProducts));
+  const productPagingRef = useRef(new Map());
+  const loadingMoreRef = useRef(false);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
+
+  const mergeProducts = useCallback((listings, key = 'All', reset = false) => {
+    const incoming = listings
+      .map(toCardItem)
+      .filter(Boolean)
+      .map((it) => attachDistanceToCard(it, userCoordsRef.current));
+    rememberProductOrder(key, incoming, reset);
+    startTransition(() => {
+      setProductOrderTick((tick) => tick + 1);
+      setProducts((prev) => {
+        const byId = new Map(prev.map((item) => [String(item.id), item]));
+        let changed = false;
+        for (const item of incoming) {
+          const key = String(item.id);
+          if (!byId.has(key)) changed = true;
+          byId.set(key, item);
+        }
+        return changed ? [...byId.values()] : prev;
+      });
+    });
+  }, [rememberProductOrder]);
   const sellersFpRef = useRef(catalogFingerprint([
     ...(seededExplore?.featured || []),
     ...(seededExplore?.popular || []),
     ...(seededExplore?.nearby || []),
   ]));
-  const paneAnim = useRef(new Animated.Value(1)).current;
   const sidebarItemAnims = useRef(new Map()).current;
+  const skipEnter = useRef(false);
 
   const getSidebarItemAnim = useCallback((label) => {
     if (!sidebarItemAnims.has(label)) {
@@ -644,21 +645,14 @@ export default function ExploreScreen({ navigation, route }) {
     return sidebarItemAnims.get(label);
   }, [sidebarItemAnims]);
 
-  const triggerPaneAnim = useCallback(() => {
-    paneAnim.stopAnimation();
-    paneAnim.setValue(0);
-    Animated.timing(paneAnim, {
-      toValue: 1,
-      duration: 200,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [paneAnim]);
+  const [catPending, startCatTransition] = useTransition();
+  const [pendingCategory, setPendingCategory] = useState(null);
 
   const handleCategoryChange = useCallback((label) => {
-    setActiveCategory((curr) => {
-      if (curr === label) return curr;
-      return label;
+    skipEnter.current = true;
+    setPendingCategory(label);
+    startCatTransition(() => {
+      setActiveCategory(label);
     });
   }, []);
 
@@ -695,7 +689,11 @@ export default function ExploreScreen({ navigation, route }) {
     const nextProductFp = catalogFingerprint(nextProducts);
     if (nextProductFp !== productsFpRef.current || !hasLoadedRef.current) {
       productsFpRef.current = nextProductFp;
+      rememberProductOrder('All', nextProducts, true);
       setProducts(nextProducts);
+      productPagingRef.current = new Map(
+        productsRes.error ? [] : [['All', { page: 1, hasMore: Boolean(productsRes.data?.hasMore) }]]
+      );
     }
 
     const nextSellers = [
@@ -722,6 +720,11 @@ export default function ExploreScreen({ navigation, route }) {
   const fetchSellers = useCallback(async ({ silent = false, force = false } = {}) => {
     // Check if we have fresh cache
     if (!force && silent && isExploreFresh(FOCUS_CACHE_TTL_MS) && hasLoadedRef.current) {
+      const pinned = await pinnedStoresUtils.getPinnedStores({
+        lat: userCoordsRef.current?.lat,
+        lng: userCoordsRef.current?.lng,
+      });
+      setPinnedStores(Array.isArray(pinned) ? pinned : []);
       return;
     }
 
@@ -743,7 +746,7 @@ export default function ExploreScreen({ navigation, route }) {
         api.getFeaturedSellers(locParams),
         api.getPopularSellers(locParams),
         api.getNearbySellers(locParams),
-        api.getListings({ ...locParams, page: 1, limit: 24 }),
+        api.getListings({ ...locParams, page: 1, limit: EXPLORE_PAGE }),
       ]);
 
       applyExplorePayload(featuredRes, popularRes, nearbyRes, productsRes, coords);
@@ -774,6 +777,7 @@ export default function ExploreScreen({ navigation, route }) {
       const productsFromDisk = explore?.products?.length ? explore.products : home?.listings;
       if (productsFromDisk?.length) {
         productsFpRef.current = catalogFingerprint(productsFromDisk);
+        rememberProductOrder('All', productsFromDisk, true);
         setProducts(productsFromDisk);
         hasLoadedRef.current = true;
         setItemsLoading(false);
@@ -805,11 +809,25 @@ export default function ExploreScreen({ navigation, route }) {
     }).catch(() => {});
   }, [userCoords.lat, userCoords.lng]);
 
+  const loadLiveCounts = useCallback(async () => {
+    const [products, sellers] = await Promise.all([api.getCategoryCounts(), api.getSellerCategoryCounts()]);
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    if (products.data?.counts) setLiveCounts((prev) => (same(prev, products.data) ? prev : products.data));
+    if (sellers.data?.categories) setSellerCounts((prev) => (same(prev, sellers.data) ? prev : sellers.data));
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       refreshCategories('product');
+      loadLiveCounts();
       fetchSellers({ silent: true });
-    }, [fetchSellers])
+      // Only on focus, so the sidebar never jumps while the buyer is tapping through it.
+      api.getMyInterests().then(({ data }) => {
+        if (!Array.isArray(data?.categories)) return;
+        const names = data.categories.map((c) => c.name);
+        setInterestCategories((prev) => (prev.join('|') === names.join('|') ? prev : names));
+      });
+    }, [fetchSellers, loadLiveCounts])
   );
 
   // Load the selected category from API so sidebar filter shows correct items, then shuffle
@@ -820,7 +838,7 @@ export default function ExploreScreen({ navigation, route }) {
 
     let cancelled = false;
     (async () => {
-      const params = { category: activeCategory, page: 1, limit: 40 };
+      const params = { category: activeCategory, page: 1, limit: CATEGORY_PAGE };
       if (userCoords?.lat != null && userCoords?.lng != null) {
         params.lat = userCoords.lat;
         params.lng = userCoords.lng;
@@ -828,35 +846,109 @@ export default function ExploreScreen({ navigation, route }) {
       const { data, error } = await api.getListings(params);
       if (cancelled || error || !data?.listings) return;
 
-      const incoming = data.listings
-        .map(toCardItem)
-        .filter(Boolean)
-        .map((it) => attachDistanceToCard(it, userCoords));
-
-      setProducts((prev) => {
-        const byId = new Map(prev.map((item) => [String(item.id), item]));
-        for (const item of incoming) {
-          byId.set(String(item.id), item);
-        }
-        return [...byId.values()];
-      });
+      if (!productPagingRef.current.has(activeCategory)) {
+        productPagingRef.current.set(activeCategory, { page: 1, hasMore: Boolean(data.hasMore) });
+      }
+      mergeProducts(data.listings, activeCategory, true);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, activeTab, userCoords]);
+  }, [activeCategory, activeTab, userCoords, mergeProducts]);
 
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMoreRef.current) return;
+    const key = activeCategory && activeCategory !== 'All' ? activeCategory : 'All';
+    const paging = productPagingRef.current.get(key) || { page: 0, hasMore: true };
+    if (!paging.hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMoreProducts(true);
+    const params = { page: paging.page + 1, limit: key === 'All' ? EXPLORE_PAGE : CATEGORY_PAGE };
+    if (key !== 'All') params.category = key;
+    if (userCoords?.lat != null && userCoords?.lng != null) {
+      params.lat = userCoords.lat;
+      params.lng = userCoords.lng;
+    }
+    const { data, error } = await api.getListings(params);
+    if (!error && data?.listings) {
+      productPagingRef.current.set(key, { page: paging.page + 1, hasMore: Boolean(data.hasMore) });
+      mergeProducts(data.listings, key);
+    }
+    loadingMoreRef.current = false;
+    setLoadingMoreProducts(false);
+  }, [activeCategory, userCoords, mergeProducts]);
 
+  const cleanSearch = searchText.replace(/\s+/g, ' ').trim();
+  const searchPending = cleanSearch.length >= MIN_SEARCH_CHARS && cleanSearch !== searchQuery;
+  const searchActive = Boolean(searchQuery);
+  const searchBusy = searching || searchPending;
 
-  const { refreshing, onRefresh } = usePullRefresh(() => fetchSellers({ silent: true, force: true }));
+  const applySearch = useCallback((text) => {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (clean === searchQueryRef.current) return;
+    skipEnter.current = true;
+    setActiveCategory('All');
+    setSearchQuery(clean);
+  }, []);
+
+  useEffect(() => {
+    if (cleanSearch === searchQuery) return undefined;
+    if (cleanSearch.length > 0 && cleanSearch.length < MIN_SEARCH_CHARS) return undefined;
+    const timer = setTimeout(() => applySearch(cleanSearch), cleanSearch ? SEARCH_PAUSE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [cleanSearch, searchQuery, applySearch]);
+
+  const runSearch = useCallback(async (q) => {
+    searchAbortRef.current?.abort();
+    if (!q) {
+      setSearchProducts([]);
+      setSearchSellers([]);
+      setSearching(false);
+      return;
+    }
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+    setSearching(true);
+
+    const coords = userCoordsRef.current;
+    const params = { q, sort: 'relevance', page: 1, limit: 40 };
+    if (coords?.lat != null && coords?.lng != null) {
+      params.lat = coords.lat;
+      params.lng = coords.lng;
+    }
+    const options = { signal: controller.signal };
+    const [listingRes, sellerRes] = await Promise.all([
+      api.searchListings(params, options),
+      api.searchSellers({ ...params, nearby: params.lat != null ? 'true' : undefined }, options),
+    ]);
+    if (controller.signal.aborted || listingRes?.aborted || sellerRes?.aborted) return;
+
+    setSearchProducts(
+      listingRes?.error ? [] : (listingRes?.data?.listings || []).map(toCardItem).filter(Boolean)
+    );
+    setSearchSellers(sellerRes?.error ? [] : sellerRes?.data?.sellers || []);
+    setSearching(false);
+  }, []);
+
+  useEffect(() => {
+    runSearch(searchQuery);
+  }, [searchQuery, runSearch]);
+
+  useEffect(() => () => searchAbortRef.current?.abort(), []);
+
+  const clearSearch = useCallback(() => {
+    setSearchText('');
+    applySearch('');
+  }, [applySearch]);
+
+  const { refreshing, onRefresh } = usePullRefresh(() => {
+    if (searchQueryRef.current) return runSearch(searchQueryRef.current);
+    setSellerReloadTick((tick) => tick + 1);
+    return Promise.all([fetchSellers({ silent: true, force: true }), loadLiveCounts()]);
+  });
 
   const handleSellerPress = useCallback((seller) => {
-    const sellerId = seller?._id || seller?.id || seller?.shopId;
-    if (sellerId) {
-      pinnedStoresUtils.incrementUsage(sellerId).catch(() => {});
-    }
-
     if (seller?.sellerType === 'shop' || seller?.shopId) {
       navigation.navigate(ROUTES.SHOP_PROFILE, {
         shopId: seller.shopId || seller._id || seller.id,
@@ -907,74 +999,155 @@ export default function ExploreScreen({ navigation, route }) {
     });
   }, [featuredSellers, popularSellers, nearbySellers]);
 
-  const mainTabs = [
-    { key: 'products', label: 'Products', icon: 'cube-outline', count: products.length },
-    { key: 'sellers', label: 'Sellers', icon: 'storefront-outline', count: uniqueSellers.length },
-  ];
+  const sourceProducts = searchActive ? searchProducts : products;
+  const sourceSellers = useMemo(() => {
+    if (!searchActive) return uniqueSellers;
+    const seen = new Set();
+    return searchSellers.filter((seller) => {
+      const id = String(seller._id || seller.id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [searchActive, searchSellers, uniqueSellers]);
 
   const sortOptions = activeTab === 'products'
     ? SORT_OPTIONS
     : SORT_OPTIONS.filter((o) => !PRICE_SORTS.includes(o.key));
 
-  const activeFilterCount =
-    (sortBy !== 'newest' ? 1 : 0) +
-    Object.values(selectedFilters).filter(Boolean).length;
+  const activeFilterCount = countActiveFilters(selectedFilters, sortBy, DEFAULT_SORT);
 
-  const switchTab = (key) => {
-    setActiveTab(key);
-    setActiveCategory('All');
-    if (key === 'sellers' && PRICE_SORTS.includes(sortBy)) setSortBy('newest');
-  };
+  const [tabPending, startTabTransition] = useTransition();
+  const [targetTab, setTargetTab] = useState(activeTab);
+
+  const switchTab = useCallback((key) => {
+    skipEnter.current = true;
+    setTargetTab(key);
+    startTabTransition(() => {
+      setActiveTab(key);
+      setActiveCategory('All');
+      setSortBy((prev) => (key === 'sellers' && PRICE_SORTS.includes(prev) ? DEFAULT_SORT : prev));
+    });
+  }, []);
 
   const clearFilters = () => {
-    setSortBy('newest');
-    setSelectedFilters({ verified: false, nearby: false, topRated: false });
+    setSortBy(DEFAULT_SORT);
+    setSelectedFilters(DEFAULT_EXPLORE_FILTERS);
   };
 
   const categories = useMemo(() => {
+    const useLive = activeTab === 'products' && !searchActive && liveCounts;
     const allOption = {
       label: 'All',
       icon: activeTab === 'products' ? 'grid' : 'storefront',
       tint: ALL_TINT,
-      count: activeTab === 'products' ? products.length : uniqueSellers.length,
+      count: activeTab === 'products'
+        ? Math.max(sourceProducts.length, useLive ? liveCounts.total || 0 : 0)
+        : sourceSellers.length,
     };
+    // Keep the selected category visible even if it just ran out of items.
+    const options = { hideEmpty: true, keep: [activeCategory, initialCategory].filter(Boolean) };
 
     if (activeTab === 'products') {
       const found = {};
-      for (const it of products) {
+      for (const it of sourceProducts) {
         const name = it.category || it.listing?.category;
         if (name) found[name] = (found[name] || 0) + 1;
       }
-      return mergeSidebarCategories(productCategories, found, allOption);
+      if (useLive) {
+        const known = new Set(productCategories.map((c) => c.label));
+        for (const [name, count] of Object.entries(liveCounts.counts)) {
+          if (count > 0 && (known.has(name) || found[name])) found[name] = Math.max(found[name] || 0, count);
+        }
+      }
+      return mergeSidebarCategories(productCategories, found, allOption, interestCategories, options);
     }
 
     const found = {};
-    for (const seller of uniqueSellers) {
+    for (const seller of sourceSellers) {
       const name = seller.category || 'General';
       found[name] = (found[name] || 0) + 1;
     }
-    return mergeSidebarCategories(shopCategories, found, allOption);
-  }, [products, uniqueSellers, activeTab, productCategories, shopCategories]);
+    if (!searchActive && sellerCounts) {
+      const bump = (name, count) => {
+        if (count > 0) found[name] = Math.max(found[name] || 0, count);
+      };
+      for (const [name, info] of Object.entries(sellerCounts.categories || {})) bump(name, info.sellers);
+      for (const [name, count] of Object.entries(sellerCounts.storeTypes || {})) bump(name, count);
+      allOption.count = Math.max(allOption.count, sellerCounts.totals?.sellers || 0);
+    }
+    return mergeSidebarCategories([...shopCategories, ...productCategories], found, allOption, [], options);
+  }, [
+    sourceProducts,
+    sourceSellers,
+    activeTab,
+    searchActive,
+    liveCounts,
+    sellerCounts,
+    activeCategory,
+    initialCategory,
+    productCategories,
+    shopCategories,
+    interestCategories,
+  ]);
+
+  useEffect(() => {
+    if (activeTab !== 'sellers' || !activeCategory || activeCategory === 'All') return undefined;
+    let cancelled = false;
+    const params = { category: activeCategory };
+    if (userCoords.lat != null && userCoords.lng != null) {
+      params.lat = userCoords.lat;
+      params.lng = userCoords.lng;
+    }
+    const category = activeCategory;
+    api.getSellers(params).then(({ data }) => {
+      if (cancelled) return;
+      if (!Array.isArray(data?.sellers)) {
+        // null = request failed; fall back to matching the sellers already loaded.
+        setCategorySellers((prev) => ({ ...prev, [category]: prev[category] || null }));
+        return;
+      }
+      // A shop whose store type is this category belongs here even before it lists anything.
+      const list = data.sellers
+        .filter((s) => Number(s.listingCount) > 0 || s.category === category)
+        .sort((a, b) => (Number(b.listingCount) || 0) - (Number(a.listingCount) || 0));
+      setCategorySellers((prev) => ({ ...prev, [category]: list }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, activeCategory, userCoords.lat, userCoords.lng, sellerReloadTick]);
+
+  const categorySellerIds = useMemo(() => {
+    const list = activeCategory ? categorySellers[activeCategory] : null;
+    return list ? new Set(list.map((s) => String(s._id || s.id))) : null;
+  }, [categorySellers, activeCategory]);
 
   const matchesCategory = useCallback(
-    (seller) => !activeCategory || activeCategory === 'All' || (seller.category || 'General') === activeCategory,
-    [activeCategory]
+    (seller) => {
+      if (!activeCategory || activeCategory === 'All') return true;
+      if (categorySellerIds) return categorySellerIds.has(String(seller._id || seller.id));
+      return (seller.category || 'General') === activeCategory;
+    },
+    [activeCategory, categorySellerIds]
   );
 
-  const filteredProducts = useMemo(() => {
-    let filtered = products.map((item) => ({
+  const productBase = useMemo(() => {
+    const mapped = sourceProducts.map((item) => ({
       ...attachDistanceToCard(item, userCoords),
       condition: item.condition || item.listing?.condition || undefined,
       postedAt: item.postedAt || item.listing?.createdAt || undefined,
     }));
+    if (!activeCategory || activeCategory === 'All') return mapped;
+    const target = String(activeCategory).trim().toLowerCase();
+    return mapped.filter((it) => {
+      const cat = String(it.category || it.listing?.category || '').trim().toLowerCase();
+      return cat === target;
+    });
+  }, [sourceProducts, activeCategory, userCoords]);
 
-    if (activeCategory && activeCategory !== 'All') {
-      const target = String(activeCategory).trim().toLowerCase();
-      filtered = filtered.filter((it) => {
-        const cat = String(it.category || it.listing?.category || '').trim().toLowerCase();
-        return cat === target;
-      });
-    }
+  const filteredProducts = useMemo(() => {
+    const filtered = productBase.filter((item) => productPasses(item, selectedFilters));
 
     if (sortBy === 'nearby' || selectedFilters.nearby) {
       filtered.sort((a, b) => (a.distanceKm ?? 9999) - (b.distanceKm ?? 9999));
@@ -984,17 +1157,42 @@ export default function ExploreScreen({ navigation, route }) {
       filtered.sort((a, b) => (Number(a.listing?.price) || 0) - (Number(b.listing?.price) || 0));
     } else if (sortBy === 'priceHigh') {
       filtered.sort((a, b) => (Number(b.listing?.price) || 0) - (Number(a.listing?.price) || 0));
-    } else {
+    } else if (sortBy === 'newest' && !searchActive) {
       filtered.sort((a, b) => listingCreatedAt(b) - listingCreatedAt(a));
+    } else if (!searchActive) {
+      // "For you": keep the server's interest order for this category (or the main feed).
+      const key = activeCategory && activeCategory !== 'All' ? activeCategory : 'All';
+      const ranks = productRankRef.current.get(key);
+      const feed = productRankRef.current.get('All');
+      const rankOf = (item) => {
+        const id = String(item.id);
+        if (ranks?.has(id)) return ranks.get(id);
+        return 1e6 + (feed?.get(id) ?? 1e6);
+      };
+      filtered.sort((a, b) => rankOf(a) - rankOf(b));
     }
 
     return filtered;
-  }, [products, activeCategory, selectedFilters, sortBy, userCoords]);
+  }, [productBase, searchActive, activeCategory, selectedFilters, sortBy, productOrderTick]);
+
+  const allSellers = useMemo(() => {
+    const fetched = activeCategory ? categorySellers[activeCategory] : null;
+    return searchActive || !fetched ? sourceSellers : fetched;
+  }, [searchActive, activeCategory, categorySellers, sourceSellers]);
 
   const sellerSections = useMemo(() => {
-    const keep = (seller) => matchesCategory(seller) && (!selectedFilters.verified || seller.verified);
+    const keep = (seller) => matchesCategory(seller) && sellerPasses(seller, selectedFilters);
     const order = (list) => {
-      const withDistance = list.map((seller) => attachDistanceToSeller(seller, userCoords)).filter(keep);
+      const seen = new Set();
+      const withDistance = list
+        .filter((seller) => {
+          const id = String(seller._id || seller.id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        })
+        .map((seller) => attachDistanceToSeller(seller, userCoords))
+        .filter(keep);
       if (sortBy === 'nearby' || selectedFilters.nearby) {
         withDistance.sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
       } else if (sortBy === 'topRated' || selectedFilters.topRated) {
@@ -1004,26 +1202,41 @@ export default function ExploreScreen({ navigation, route }) {
     };
     return {
       pinned: order(pinnedStores).sort((a, b) => {
-        const aTime = new Date(a.pinnedAt || 0).getTime();
-        const bTime = new Date(b.pinnedAt || 0).getTime();
-        return bTime - aTime;
+        const views = (b.viewCount || 0) - (a.viewCount || 0);
+        if (views !== 0) return views;
+        return new Date(b.pinnedAt || 0).getTime() - new Date(a.pinnedAt || 0).getTime();
       }),
       featured: order(featuredSellers),
       popular: order(popularSellers),
       nearby: order(nearbySellers).slice(0, 8),
-      all: order(uniqueSellers),
+      all: order(allSellers),
     };
   }, [
     pinnedStores,
     featuredSellers,
     popularSellers,
     nearbySellers,
-    uniqueSellers,
+    allSellers,
     matchesCategory,
     selectedFilters,
     sortBy,
     userCoords,
   ]);
+
+  const countFilterMatches = useCallback(
+    (filters) => {
+      if (activeTab === 'products') return productBase.filter((item) => productPasses(item, filters)).length;
+      return allSellers
+        .map((seller) => attachDistanceToSeller(seller, userCoords))
+        .filter((seller) => matchesCategory(seller) && sellerPasses(seller, filters)).length;
+    },
+    [activeTab, productBase, allSellers, userCoords, matchesCategory]
+  );
+
+  const applyFilterSheet = useCallback(({ sortBy: nextSort, filters }) => {
+    setSortBy(nextSort);
+    setSelectedFilters(filters);
+  }, []);
 
   const activeMeta = categories.find((c) => c.label === activeCategory) || categories[0];
   const activeTint = activeMeta?.tint || activeMeta?.color || ALL_TINT;
@@ -1047,20 +1260,15 @@ export default function ExploreScreen({ navigation, route }) {
     setActiveCategory(initialCategory || 'All');
   }, [requestStamp, requestedTab, initialCategory]);
 
-  useEffect(() => {
-    if (!activeCategory) return;
-    triggerPaneAnim();
-  }, [activeCategory, activeTab, triggerPaneAnim]);
-
   const mainWidth = windowWidth - SIDEBAR_WIDTH;
   const productCardWidth = Math.floor((mainWidth - GRID_PADDING * 2 - GRID_GUTTER) / 2);
 
   const pressSideItem = (cat, itemAnim) => {
-    Animated.sequence([
-      Animated.timing(itemAnim, { toValue: 0.9, duration: 70, useNativeDriver: true }),
-      Animated.spring(itemAnim, { toValue: 1, tension: 280, friction: 12, useNativeDriver: true }),
-    ]).start();
     handleCategoryChange(cat.label);
+    Animated.sequence([
+      Animated.timing(itemAnim, { toValue: 0.92, duration: 40, useNativeDriver: true }),
+      Animated.spring(itemAnim, { toValue: 1, tension: 380, friction: 14, useNativeDriver: true }),
+    ]).start();
   };
 
   const renderSellerGrid = (list, isPinned = false) => {
@@ -1104,7 +1312,28 @@ export default function ExploreScreen({ navigation, route }) {
     );
   };
 
-  const sellerBlocks = [
+  const sellerCategoryLoading =
+    activeTab === 'sellers' && !isAll && !searchActive && categorySellers[activeCategory] === undefined;
+
+  const sellerBlocks = searchActive ? [
+    {
+      key: 'search',
+      icon: 'search',
+      tint: colors.primary,
+      title: 'Matching sellers',
+      subtitle: `Results for “${searchQuery}”`,
+      list: sellerSections.all,
+    },
+  ].filter((block) => block.list.length > 0) : !isAll ? [
+    {
+      key: `cat-${activeCategory}`,
+      icon: activeMeta?.icon || 'storefront',
+      tint: activeTint,
+      title: `${activeCategory} sellers`,
+      subtitle: 'Shops and people selling in this category',
+      list: sellerSections.all,
+    },
+  ].filter((block) => block.list.length > 0) : [
     pinnedStores.length > 0 && {
       key: 'pinned',
       icon: 'bookmark',
@@ -1144,47 +1373,47 @@ export default function ExploreScreen({ navigation, route }) {
                 </Text>
               </View>
             </View>
-            <Pressable style={styles.headerBtn} onPress={() => navigation.navigate(ROUTES.WISHLIST)} hitSlop={6}>
-              <Ionicons name="heart-outline" size={19} color={colors.onGradient} />
-            </Pressable>
-            <Pressable style={styles.headerBtn} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)} hitSlop={6}>
-              <Ionicons name="map-outline" size={19} color={colors.onGradient} />
-            </Pressable>
+            <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.WISHLIST)}>
+              <Icon name="heart-outline" size={19} color={colors.onGradient} />
+            </PressableScale>
+            <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
+              <Icon name="map-outline" size={19} color={colors.onGradient} />
+            </PressableScale>
           </View>
         </LinearGradient>
 
         <View style={styles.searchWrap}>
           <SearchBar
             placeholder="Search sellers, stores or products..."
-            onPress={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}
+            value={searchText}
+            onChangeText={setSearchText}
+            onSubmitEditing={() => applySearch(searchText)}
+            onClear={clearSearch}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            focused={searchFocused}
+            loading={searchBusy}
+            onVoiceResult={(text, isFinal) => {
+              setSearchText(text);
+              if (isFinal) applySearch(text);
+            }}
           />
         </View>
 
         <View style={styles.body}>
           <View style={styles.toolbar}>
-            <View style={styles.tabsTrack}>
-              {mainTabs.map((tab) => {
-                const isActive = activeTab === tab.key;
-                return (
-                  <Pressable
-                    key={tab.key}
-                    style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-                    onPress={() => switchTab(tab.key)}
-                  >
-                    <Ionicons name={tab.icon} size={14} color={isActive ? colors.onPrimary : colors.textMuted} />
-                    <Text style={[styles.tabBtnText, isActive && styles.tabBtnTextActive]}>{tab.label}</Text>
-                    <View style={[styles.tabCount, isActive && styles.tabCountActive]}>
-                      <Text style={[styles.tabCountText, isActive && styles.tabCountTextActive]}>{tab.count}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-            <Pressable
-              style={[styles.filterBtn, activeFilterCount > 0 && styles.filterBtnActive]}
+            <ExploreTabs
+              styles={styles}
+              colors={colors}
+              activeTab={activeTab}
+              onChange={switchTab}
+            />
+            <PressableScale
+              contentStyle={[styles.filterBtn, activeFilterCount > 0 && styles.filterBtnActive]}
+              scaleTo={0.94}
               onPress={() => setShowFilterModal(true)}
             >
-              <Ionicons
+              <Icon
                 name="options-outline"
                 size={18}
                 color={activeFilterCount > 0 ? colors.onPrimary : colors.text}
@@ -1194,17 +1423,18 @@ export default function ExploreScreen({ navigation, route }) {
                   <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
                 </View>
               ) : null}
-            </Pressable>
+            </PressableScale>
           </View>
 
           <View style={styles.split}>
             <View style={styles.sidebar}>
               <ScrollView
+                style={styles.sidebarList}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={[styles.sidebarContent, { paddingBottom: insets.bottom }]}
               >
-                {categories.map((cat) => {
-                  const isActive = cat.label === activeCategory;
+                {categories.map((cat, index) => {
+                  const isActive = cat.label === (catPending ? pendingCategory : activeCategory);
                   const tint = cat.tint || cat.color || colors.primary;
                   const itemAnim = getSidebarItemAnim(cat.label);
                   return (
@@ -1214,7 +1444,8 @@ export default function ExploreScreen({ navigation, route }) {
                         onPress={() => pressSideItem(cat, itemAnim)}
                       >
                         {isActive ? <View style={styles.sideIndicator} /> : null}
-                        <View
+                        <SoftPop
+                          index={index}
                           style={[
                             styles.sideIcon,
                             { backgroundColor: isActive ? tint : `${tint}22` },
@@ -1224,9 +1455,9 @@ export default function ExploreScreen({ navigation, route }) {
                           {cat.imageUrl ? (
                             <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
                           ) : (
-                            <Ionicons name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
+                            <Icon name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
                           )}
-                        </View>
+                        </SoftPop>
                         <Text numberOfLines={2} style={[styles.sideLabel, isActive && styles.sideLabelActive]}>
                           {cat.label}
                         </Text>
@@ -1237,19 +1468,7 @@ export default function ExploreScreen({ navigation, route }) {
               </ScrollView>
             </View>
 
-            <Animated.View
-              style={[
-                styles.mainContent,
-                {
-                  opacity: paneAnim,
-                  transform: [
-                    {
-                      translateY: paneAnim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
-                    },
-                  ],
-                },
-              ]}
-            >
+            <View style={styles.mainContent}>
               <View>
                 <ScrollView
                   horizontal
@@ -1260,24 +1479,35 @@ export default function ExploreScreen({ navigation, route }) {
                   {sortOptions.map((opt) => {
                     const active = sortBy === opt.key;
                     return (
-                      <Pressable
+                      <PressableScale
                         key={opt.key}
-                        style={[styles.sortChip, active && styles.sortChipActive]}
+                        contentStyle={[styles.sortChip, active && styles.sortChipActive]}
+                        scaleTo={0.96}
                         onPress={() => setSortBy(opt.key)}
                       >
-                        <Ionicons name={active ? (opt.activeIcon || opt.icon) : opt.icon} size={13} color={active ? '#fff' : colors.textMuted} />
+                        <Icon name={active ? (opt.activeIcon || opt.icon) : opt.icon} size={13} color={active ? '#fff' : colors.textMuted} />
                         <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{opt.label}</Text>
-                      </Pressable>
+                      </PressableScale>
                     );
                   })}
                 </ScrollView>
               </View>
 
-              {activeFilterCount > 0 ? (
+              {searchActive && !searchBusy ? (
+                <View style={styles.resultsBar}>
+                  <Text style={styles.resultsTitle} numberOfLines={1}>
+                    {activeTab === 'products' ? filteredProducts.length : sellerSections.all.length} results for “{searchQuery}”
+                  </Text>
+                  <Pressable style={styles.clearLink} onPress={clearSearch} hitSlop={8}>
+                    <Icon name="close-circle" size={14} color="#10B981" />
+                    <Text style={styles.clearLinkText}>Clear</Text>
+                  </Pressable>
+                </View>
+              ) : activeFilterCount > 0 && !searchBusy ? (
                 <View style={styles.resultsBar}>
                   <Text style={styles.resultsTitle}>{filteredProducts.length} results</Text>
                   <Pressable style={styles.clearLink} onPress={clearFilters} hitSlop={8}>
-                    <Ionicons name="close-circle" size={14} color="#10B981" />
+                    <Icon name="close-circle" size={14} color="#10B981" />
                     <Text style={styles.clearLinkText}>Clear filters</Text>
                   </Pressable>
                 </View>
@@ -1286,10 +1516,51 @@ export default function ExploreScreen({ navigation, route }) {
               <ScrollView
                 style={styles.mainContent}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 contentContainerStyle={[styles.scrollViewContent, { paddingBottom: insets.bottom }]}
-                refreshControl={refreshControl(colors, refreshing, onRefresh)}
+                refreshControl={refreshControl(colors, refreshing, onRefresh, !searchFocused)}
+                scrollEventThrottle={100}
+                onScroll={(event) => {
+                  if (activeTab === 'products' && !searchActive && isNearEnd(event, 900)) loadMoreProducts();
+                }}
               >
-                {activeTab === 'products' ? (
+                {tabPending || catPending ? (
+                  <View style={styles.productGrid}>
+                    {[0, 1, 2, 3, 4, 5].map((i) => (
+                      (tabPending ? targetTab : activeTab) === 'products'
+                        ? <ProductCardSkeleton key={i} width={productCardWidth} compact />
+                        : <SellerProfileCardSkeleton key={i} width={productCardWidth} />
+                    ))}
+                  </View>
+                ) : searchBusy ? (
+                  <View>
+                    <View style={styles.searchingRow}>
+                      <ActivityIndicator size="small" color={colors.primary} />
+                      <Text style={styles.searchingText} numberOfLines={1}>
+                        Searching “{cleanSearch || searchQuery}”...
+                      </Text>
+                    </View>
+                    <View style={styles.productGrid}>
+                      {[0, 1, 2, 3].map((i) => (
+                        activeTab === 'products'
+                          ? <ProductCardSkeleton key={i} width={productCardWidth} compact />
+                          : <SellerProfileCardSkeleton key={i} width={productCardWidth} />
+                      ))}
+                    </View>
+                  </View>
+                ) : searchActive && (activeTab === 'products' ? filteredProducts.length === 0 : sellerBlocks.length === 0) ? (
+                  <EmptyState
+                    compact
+                    icon="search-outline"
+                    title={`No results for “${searchQuery}”`}
+                    body={isAll
+                      ? 'Try a different word or check the spelling.'
+                      : `Nothing in ${activeCategory}. Try All categories.`}
+                    buttonLabel={isAll ? 'Clear search' : 'Show all'}
+                    onButtonPress={isAll ? clearSearch : () => handleCategoryChange('All')}
+                  />
+                ) : activeTab === 'products' ? (
                   <View>
                     {itemsLoading && filteredProducts.length === 0 ? (
                       <View style={styles.productGrid}>
@@ -1300,33 +1571,34 @@ export default function ExploreScreen({ navigation, route }) {
                     ) : filteredProducts.length > 0 ? (
                       <>
                         <View style={styles.productGrid}>
-                          {filteredProducts.map((item) => (
-                            <GridCard
-                              key={item.id}
-                              item={item}
-                              width={productCardWidth}
-                              onOpen={handleProductPress}
-                              onSave={handleSaveProduct}
-                            />
-                          ))}
+                          {filteredProducts.map((item, index) => {
+                            const card = (
+                              <GridCard
+                                item={item}
+                                width={productCardWidth}
+                                onOpen={handleProductPress}
+                                onSave={handleSaveProduct}
+                              />
+                            );
+                            if (skipEnter.current || index > 7) {
+                              return (
+                                <View key={item.id} style={{ width: productCardWidth }}>
+                                  {card}
+                                </View>
+                              );
+                            }
+                            return (
+                              <Reanimated.View key={item.id} entering={enterUp(index, 28)} style={{ width: productCardWidth }}>
+                                {card}
+                              </Reanimated.View>
+                            );
+                          })}
                         </View>
-                        <Pressable
-                          style={styles.trustBanner}
-                          onPress={() => navigation.navigate(ROUTES.INFO, INFO_COPY.SafetyTips)}
-                        >
-                          <View style={styles.trustIcons}>
-                            <Ionicons name="shield-checkmark" size={22} color="#34D399" />
-                            <Ionicons name="lock-closed" size={16} color="#34D399" style={{ marginLeft: -6, marginTop: 8 }} />
+                        {loadingMoreProducts ? (
+                          <View style={styles.loadMoreRow}>
+                            <ActivityIndicator size="small" color={colors.primary} />
                           </View>
-                          <View style={styles.trustCopy}>
-                            <View style={styles.trustTitleRow}>
-                              <Ionicons name="shield-checkmark" size={13} color="#34D399" />
-                              <Text style={styles.trustTitle}>Safe & Trusted</Text>
-                            </View>
-                            <Text style={styles.trustSub}>Verified sellers · Secure payments · Buyer protection</Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={16} color="#34D399" />
-                        </Pressable>
+                        ) : null}
                       </>
                     ) : (
                       <EmptyState
@@ -1339,7 +1611,7 @@ export default function ExploreScreen({ navigation, route }) {
                       />
                     )}
                   </View>
-                ) : itemsLoading && sellerBlocks.length === 0 ? (
+                ) : sellerCategoryLoading || (itemsLoading && sellerBlocks.length === 0) ? (
                   <View style={styles.productGrid}>
                     {[0, 1, 2, 3].map((i) => (
                       <SellerProfileCardSkeleton key={i} width={productCardWidth} />
@@ -1347,19 +1619,33 @@ export default function ExploreScreen({ navigation, route }) {
                   </View>
                 ) : sellerBlocks.length > 0 ? (
                   <View>
-                    {sellerBlocks.map((block) => (
-                      <View key={block.key} style={styles.sellerSection}>
-                        <SectionTitle
-                          styles={styles}
-                          icon={block.icon}
-                          tint={block.tint}
-                          title={block.title}
-                          subtitle={block.subtitle}
-                          count={block.list.length}
-                        />
-                        {renderSellerGrid(block.list, block.isPinned)}
-                      </View>
-                    ))}
+                    {sellerBlocks.map((block, index) => {
+                      const body = (
+                        <>
+                          <SectionTitle
+                            styles={styles}
+                            icon={block.icon}
+                            tint={block.tint}
+                            title={block.title}
+                            subtitle={block.subtitle}
+                            count={block.list.length}
+                          />
+                          {renderSellerGrid(block.list, block.isPinned)}
+                        </>
+                      );
+                      if (skipEnter.current) {
+                        return (
+                          <View key={block.key} style={styles.sellerSection}>
+                            {body}
+                          </View>
+                        );
+                      }
+                      return (
+                        <Reanimated.View key={block.key} entering={enterUp(index, 40)} style={styles.sellerSection}>
+                          {body}
+                        </Reanimated.View>
+                      );
+                    })}
                   </View>
                 ) : (
                   <EmptyState
@@ -1370,89 +1656,23 @@ export default function ExploreScreen({ navigation, route }) {
                   />
                 )}
               </ScrollView>
-            </Animated.View>
+            </View>
           </View>
         </View>
-        {itemsLoading && products.length === 0 ? <ScreenLoader overlay label="Loading items..." /> : null}
       </View>
 
-      <Modal
+      <ExploreFilterSheet
         visible={showFilterModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowFilterModal(false)}
-      >
-        <View style={styles.filterModal}>
-          <Pressable style={styles.mainContent} onPress={() => setShowFilterModal(false)} />
-          <View style={[styles.filterModalContent, { paddingBottom: Math.max(insets.bottom, 20) + 12 }]}>
-            <View style={styles.filterHandle} />
-            <View style={styles.filterModalHeader}>
-              <Text style={styles.filterModalTitle}>Sort & filters</Text>
-              <Pressable style={styles.filterCloseButton} onPress={() => setShowFilterModal(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </Pressable>
-            </View>
-
-            <View style={styles.filterSection}>
-              <Text style={styles.filterSectionTitle}>Sort by</Text>
-              <View style={styles.sortChips}>
-                {sortOptions.map((opt) => {
-                  const active = sortBy === opt.key;
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      style={[styles.sortChip, active && styles.sortChipActive]}
-                      onPress={() => setSortBy(opt.key)}
-                    >
-                      <Ionicons name={opt.icon} size={13} color={active ? colors.onPrimary : colors.textMuted} />
-                      <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{opt.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-
-            <View style={styles.filterSection}>
-              <Text style={styles.filterSectionTitle}>Show only</Text>
-              {[
-                activeTab === 'sellers'
-                  ? { key: 'verified', label: 'Verified sellers', icon: 'shield-checkmark', tint: colors.success }
-                  : null,
-                { key: 'nearby', label: 'Nearby first', icon: 'navigate', tint: colors.info || colors.primary },
-                { key: 'topRated', label: 'Most popular', icon: 'flame', tint: colors.danger },
-              ]
-                .filter(Boolean)
-                .map((opt) => {
-                  const checked = selectedFilters[opt.key];
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      style={styles.filterOption}
-                      onPress={() => setSelectedFilters((prev) => ({ ...prev, [opt.key]: !prev[opt.key] }))}
-                    >
-                      <View style={[styles.filterOptionIcon, { backgroundColor: `${opt.tint}1F` }]}>
-                        <Ionicons name={opt.icon} size={16} color={opt.tint} />
-                      </View>
-                      <Text style={styles.filterOptionText}>{opt.label}</Text>
-                      <View style={[styles.filterCheckbox, checked && styles.filterCheckboxChecked]}>
-                        {checked ? <Ionicons name="checkmark" size={14} color={colors.onPrimary} /> : null}
-                      </View>
-                    </Pressable>
-                  );
-                })}
-            </View>
-
-            <View style={styles.filterActions}>
-              <Pressable style={styles.clearButton} onPress={clearFilters}>
-                <Text style={styles.clearButtonText}>Clear</Text>
-              </Pressable>
-              <Pressable style={styles.applyButtonFlex} onPress={() => setShowFilterModal(false)}>
-                <Text style={styles.applyButtonText}>Show results</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setShowFilterModal(false)}
+        activeTab={activeTab}
+        sortOptions={sortOptions}
+        defaultSort={DEFAULT_SORT}
+        sortBy={sortBy}
+        filters={selectedFilters}
+        onApply={applyFilterSheet}
+        countFor={countFilterMatches}
+        hasLocation={userCoords.lat != null && userCoords.lng != null}
+      />
     </>
   );
 }

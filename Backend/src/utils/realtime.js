@@ -1,4 +1,3 @@
-const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
 const ADMIN_ROLES = ['admin', 'super_admin', 'moderator', 'support'];
@@ -17,14 +16,16 @@ async function authenticateSocket(socket, next) {
       return next(new Error('Authentication required'));
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(payload.userId).select('name role');
-    if (!user) {
-      return next(new Error('User not found'));
+    // Lazy require: middleware/auth pulls in models that require this module.
+    // eslint-disable-next-line global-require
+    const { resolveSession } = require('../middleware/auth');
+    const session = await resolveSession(token);
+    if (!session.user || session.scope) {
+      return next(new Error(session.body?.message || 'Invalid or expired token'));
     }
 
-    const role = user.role || payload.role;
-    if (!ADMIN_ROLES.includes(role)) {
+    const { user } = session;
+    if (!ADMIN_ROLES.includes(user.role) || user.status === 'suspended' || user.mustChangePassword) {
       return next(new Error('Admin access required'));
     }
 
@@ -45,7 +46,13 @@ function initRealtime(httpServer) {
   const { Server } = require('socket.io');
 
   io = new Server(httpServer, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin(origin, callback) {
+        // eslint-disable-next-line global-require
+        callback(null, require('../middleware/security').isAllowedOrigin(origin));
+      },
+      methods: ['GET', 'POST'],
+    },
     path: '/socket.io',
   });
 

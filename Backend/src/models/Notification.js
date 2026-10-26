@@ -19,6 +19,8 @@ const notificationSchema = new mongoose.Schema(
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     audience: { type: String, enum: ['all', 'buyers', 'individual_sellers', 'shop_sellers', 'specific_city'], default: 'all' },
     deliveryMethod: { type: String, enum: ['push', 'banner', 'both'], default: 'both' },
+    broadcastStatus: { type: String, enum: ['draft', 'sent'], default: 'sent' },
+    city: { type: String, default: '', trim: true },
   },
   { timestamps: true, collection: 'notifications' }
 );

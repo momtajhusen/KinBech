@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
 
@@ -119,7 +119,7 @@ export default function LogoutConfirmModal({ visible, onCancel, onConfirm, userN
         <View style={styles.card}>
           <View style={styles.iconRing}>
             <View style={styles.iconInner}>
-              <Ionicons name="log-out-outline" size={28} color="#fff" />
+              <Icon name="log-out-outline" size={28} color="#fff" />
             </View>
           </View>
           <Text style={styles.title}>Log out of KinBech?</Text>
@@ -128,13 +128,13 @@ export default function LogoutConfirmModal({ visible, onCancel, onConfirm, userN
           </Text>
           {userName ? (
             <View style={styles.userChip}>
-              <Ionicons name="person-circle-outline" size={18} color={colors.primary} />
+              <Icon name="person-circle-outline" size={18} color={colors.primary} />
               <Text style={styles.userName}>{userName}</Text>
             </View>
           ) : null}
           <View style={styles.buttons}>
             <Pressable style={styles.logoutBtn} onPress={onConfirm}>
-              <Ionicons name="log-out-outline" size={18} color="#fff" />
+              <Icon name="log-out-outline" size={18} color="#fff" />
               <Text style={styles.logoutText}>Log Out</Text>
             </Pressable>
             <Pressable style={styles.cancelBtn} onPress={onCancel}>

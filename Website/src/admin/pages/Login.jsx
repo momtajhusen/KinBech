@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Lock, Mail, Moon, Sun } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, Moon, ShieldCheck, Sun } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { adminPath } from '../routes';
 import { BRAND_TAGLINE } from '../../content/brand';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
+import Turnstile from '../../components/Turnstile';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -13,7 +14,11 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const { login } = useAuth();
+  const [challenge, setChallenge] = useState('');
+  const [code, setCode] = useState('');
+  const [captchaSiteKey, setCaptchaSiteKey] = useState('');
+  const [captchaToken, setCaptchaToken] = useState('');
+  const { login, verifyTwoFactor } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
@@ -23,14 +28,91 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(email, password);
+      const result = await login(email, password, captchaToken);
+      setCaptchaSiteKey('');
+      setCaptchaToken('');
+      if (result.twoFactorRequired) {
+        setChallenge(result.challenge);
+        setCode('');
+        return;
+      }
       navigate(adminPath('dashboard'));
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
+      const data = err.response?.data;
+      if (data?.code === 'CAPTCHA_REQUIRED') {
+        // Turnstile tokens are single use; a fresh widget renders for the next try.
+        setCaptchaToken('');
+        setCaptchaSiteKey('');
+        setTimeout(() => setCaptchaSiteKey(data.siteKey || ''), 0);
+      }
+      setError(data?.message || 'Login failed');
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCode = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await verifyTwoFactor(challenge, code);
+      navigate(adminPath('dashboard'));
+    } catch (err) {
+      const data = err.response?.data;
+      if (data?.code === 'CHALLENGE_EXPIRED') setChallenge('');
+      setError(data?.message || 'Could not verify the code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (challenge) {
+    return (
+      <div className="login-container">
+        <div className="login-card">
+          <div className="login-header">
+            <img src={BRAND_ICON_SRC} alt="" className="login-logo" />
+            <h1>Two-step verification</h1>
+            <p className="login-subtitle">
+              Enter the 6-digit code from your authenticator app, or one of your backup codes.
+            </p>
+          </div>
+          {error && <div className="error-message">{error}</div>}
+          <form onSubmit={handleCode} className="login-form">
+            <div className="form-group">
+              <label htmlFor="code">Verification code</label>
+              <div className="input-wrapper">
+                <ShieldCheck className="input-icon" aria-hidden />
+                <input
+                  id="code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                  autoFocus
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  maxLength={11}
+                  className="form-input"
+                />
+              </div>
+            </div>
+            <button type="submit" className="login-btn" disabled={loading}>
+              {loading ? 'Checking...' : 'Verify'}
+            </button>
+          </form>
+          <div className="login-footer">
+            <p>
+              <button type="button" className="link-button" onClick={() => { setChallenge(''); setError(''); }}>
+                Use a different account
+              </button>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
@@ -64,7 +146,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                placeholder="admin@kinbech.com"
+                placeholder="you@company.com"
                 className="form-input"
               />
             </div>
@@ -92,7 +174,15 @@ const Login = () => {
               </button>
             </div>
           </div>
-          <button type="submit" className="login-btn" disabled={loading}>
+          {captchaSiteKey && (
+            <Turnstile
+              siteKey={captchaSiteKey}
+              theme={theme === 'light' ? 'light' : 'dark'}
+              onToken={setCaptchaToken}
+              onError={setError}
+            />
+          )}
+          <button type="submit" className="login-btn" disabled={loading || (Boolean(captchaSiteKey) && !captchaToken)}>
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>

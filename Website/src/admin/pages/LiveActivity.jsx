@@ -216,7 +216,8 @@ const LiveActivity = () => {
     }
 
     const options = {
-      auth: { token },
+      // Read on every (re)connect so a silently refreshed token is used.
+      auth: (cb) => cb({ token: localStorage.getItem('adminToken') }),
       transports: ['websocket', 'polling'],
     };
     const socket = API_BASE ? io(API_BASE, options) : io(options);

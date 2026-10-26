@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Pressable,
@@ -180,7 +180,9 @@ export default function CurrencySelectScreen({ navigation }) {
       setAlertConfig(
         showSuccessAlert({
           title: 'Currency Updated',
-          message: `All prices will be shown in ${key}.`,
+          message: key.startsWith('NPR')
+            ? `All prices will be shown in ${key}.`
+            : `Prices will be shown in ${key}. Sellers set prices in NPR, so these are approximate (≈).`,
           onConfirm: () => {
             setAlertConfig(null);
             navigation.goBack();
@@ -209,7 +211,7 @@ export default function CurrencySelectScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
+          <Icon name="arrow-back" size={24} color={colors.white} />
         </Pressable>
         <Text style={styles.headerTitle}>Currency</Text>
         <View style={{ width: 24 }} />
@@ -265,9 +267,9 @@ export default function CurrencySelectScreen({ navigation }) {
         </View>
 
         <View style={styles.hintCard}>
-          <Ionicons name="information-circle-outline" size={20} color={colors.textTertiary} />
+          <Icon name="information-circle-outline" size={20} color={colors.textTertiary} />
           <Text style={styles.hintText}>
-            KinBech supports cross-border transactions between Nepal and India. Prices are converted using daily market rates where the original listing currency differs.
+            Sellers always set prices in NPR, and deals are settled in NPR. Other currencies are shown as an approximate (≈) conversion for reference.
           </Text>
         </View>
       </ScrollView>

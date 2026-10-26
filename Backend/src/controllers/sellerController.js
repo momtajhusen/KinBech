@@ -6,6 +6,8 @@ const { haversineDistanceKm } = require('../utils/listing');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { mapShopCategory } = require('../utils/shopCategory');
 const { scoreSeller, sellerMatches } = require('../utils/searchMatch');
+const { sellerSignals } = require('../utils/token');
+const { currentAudience, sameAudienceUser } = require('../utils/audience');
 
 function readCoords(entity) {
   const c = entity?.coordinates || {};
@@ -156,7 +158,8 @@ async function collectSellers(req) {
   if (includeShops) {
     const shopQuery = { status: 'active' };
     if (category) {
-      shopQuery.category = mapShopCategory(category);
+      const withListings = [...byShop.keys()].filter((id) => mongoose.Types.ObjectId.isValid(id));
+      shopQuery.$or = [{ category: mapShopCategory(category) }, { _id: { $in: withListings } }];
     }
     const shops = await Shop.find(shopQuery).lean();
     for (const shop of shops) {
@@ -293,6 +296,7 @@ async function getSeller(req, res, next) {
         .select('photos category location coordinates createdAt status price title')
         .sort({ createdAt: -1 })
         .lean();
+      const shopOwnerSignals = await User.findById(shop.owner).select('trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt').lean();
       const activeCount = listings.filter((l) => l.status === 'active').length;
       const soldCount = listings.filter((l) => l.status === 'sold').length;
       return res.json({
@@ -301,14 +305,15 @@ async function getSeller(req, res, next) {
           activeCount,
           soldCount,
           memberSince: shop.createdAt || null,
+          signals: shopOwnerSignals ? sellerSignals(shopOwnerSignals) : null,
         },
       });
     }
 
     const user = await User.findById(sellerId)
-      .select('name avatarUrl location coordinates phone status bio preferences createdAt soldCount')
+      .select('name avatarUrl location coordinates phone status bio preferences createdAt soldCount deletionScheduledFor trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt isTester')
       .lean();
-    if (!user || user.status === 'suspended') {
+    if (!user || user.status === 'suspended' || user.deletionScheduledFor || !sameAudienceUser(user)) {
       return res.status(404).json({ message: 'Seller not found' });
     }
 
@@ -331,6 +336,7 @@ async function getSeller(req, res, next) {
         soldCount,
         memberSince: user.createdAt || null,
         soldCountTotal: user.soldCount || soldCount,
+        signals: sellerSignals(user),
       },
     });
   } catch (error) {
@@ -338,7 +344,105 @@ async function getSeller(req, res, next) {
   }
 }
 
+const COUNTS_TTL_MS = 60 * 1000;
+const FACES_PER_CATEGORY = 3;
+const countsCache = new Map();
+
+/** Sellers per listing category (same rules as collectSellers), shops per store type, and totals. */
+async function getSellerCategoryCounts(req, res, next) {
+  try {
+    const audience = currentAudience();
+    const cached = countsCache.get(audience);
+    if (cached && Date.now() - cached.at < COUNTS_TTL_MS) {
+      return res.json(cached.payload);
+    }
+
+    const [rows, shops] = await Promise.all([
+      Listing.aggregate([
+        { $match: { status: 'active', category: { $nin: [null, ''] } } },
+        {
+          $group: {
+            _id: {
+              category: '$category',
+              shop: {
+                $cond: [{ $and: [{ $eq: ['$sellerType', 'shop'] }, { $ne: ['$shopId', null] }] }, '$shopId', null],
+              },
+              seller: '$seller',
+            },
+            items: { $sum: 1 },
+          },
+        },
+      ]),
+      Shop.find({ status: 'active' }).select('name logo category isVerified').lean(),
+    ]);
+
+    const shopById = new Map(shops.map((shop) => [String(shop._id), shop]));
+    const userIds = [
+      ...new Set(rows.filter((row) => !row._id.shop && row._id.seller).map((row) => String(row._id.seller))),
+    ].filter((id) => mongoose.Types.ObjectId.isValid(id));
+    const users = userIds.length
+      ? await User.find({ _id: { $in: userIds }, status: { $ne: 'suspended' } }).select('name avatarUrl').lean()
+      : [];
+    const userById = new Map(users.map((user) => [String(user._id), user]));
+
+    const byCategory = new Map();
+    const individuals = new Set();
+    for (const row of rows) {
+      const { category, shop: shopId, seller } = row._id;
+      let face;
+      if (shopId) {
+        const shop = shopById.get(String(shopId));
+        if (!shop) continue;
+        face = { key: `s${shopId}`, name: shop.name || 'Shop', avatarUrl: shop.logo || '', type: 'shop' };
+      } else {
+        const user = userById.get(String(seller));
+        if (!user) continue;
+        individuals.add(String(user._id));
+        face = { key: `u${user._id}`, name: user.name || 'Seller', avatarUrl: user.avatarUrl || '', type: 'individual' };
+      }
+      if (!byCategory.has(category)) byCategory.set(category, new Map());
+      const sellers = byCategory.get(category);
+      const prev = sellers.get(face.key);
+      sellers.set(face.key, { ...face, items: (prev?.items || 0) + row.items });
+    }
+
+    const categories = {};
+    for (const [category, sellers] of byCategory) {
+      const list = [...sellers.values()].sort((a, b) => b.items - a.items);
+      const shopCount = list.filter((s) => s.type === 'shop').length;
+      categories[category] = {
+        sellers: list.length,
+        shops: shopCount,
+        individuals: list.length - shopCount,
+        faces: list.slice(0, FACES_PER_CATEGORY).map(({ name, avatarUrl, type }) => ({ name, avatarUrl, type })),
+      };
+    }
+
+    const storeTypes = {};
+    for (const shop of shops) {
+      const type = shop.category || 'Other';
+      storeTypes[type] = (storeTypes[type] || 0) + 1;
+    }
+
+    const payload = {
+      categories,
+      storeTypes,
+      totals: {
+        sellers: shops.length + individuals.size,
+        shops: shops.length,
+        individuals: individuals.size,
+        verified: shops.filter((shop) => shop.isVerified).length,
+      },
+    };
+    countsCache.set(audience, { at: Date.now(), payload });
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  getSellerCategoryCounts,
   getSellers,
   searchSellers,
   getFeaturedSellers,

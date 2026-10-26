@@ -100,37 +100,83 @@ async function compressVideo(buffer) {
 }
 
 const IMAGE_FOLDERS = new Set(['listings', 'avatars']);
+const OTHER_IMAGE_MAX_EDGE = 2560;
 
-async function compressListingMedia({ buffer, mimeType, filename, folder }) {
-  const folderName = String(folder || '').toLowerCase();
-  const compressImages = IMAGE_FOLDERS.has(folderName);
-  const compressVideos = folderName === 'listings';
-  if ((!compressImages && !compressVideos) || !buffer?.length) {
-    return { buffer, mimeType, filename };
+/**
+ * Every image is decoded and re-encoded: drops EXIF (GPS, device) and anything hidden
+ * after the pixels. Throws when the bytes are not a real image.
+ */
+async function sanitizeImage(buffer, folder, mimeType) {
+  if (mimeType === 'image/gif') {
+    const out = await sharp(buffer, { animated: true, failOn: 'none' }).gif().toBuffer();
+    return { buffer: out, mimeType: 'image/gif', ext: '.gif' };
   }
+  if (IMAGE_FOLDERS.has(folder)) {
+    const compressed = await compressImage(buffer);
+    if (compressed) return compressed;
+    const out = await sharp(buffer, { failOn: 'none' })
+      .rotate()
+      .resize(IMAGE_MAX_EDGE, IMAGE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 88, mozjpeg: true })
+      .toBuffer();
+    return { buffer: out, mimeType: 'image/jpeg', ext: '.jpg' };
+  }
+  // Logos, category icons and documents keep their format (PNG transparency matters).
+  const pipeline = sharp(buffer, { failOn: 'none' })
+    .rotate()
+    .resize(OTHER_IMAGE_MAX_EDGE, OTHER_IMAGE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true });
+  if (mimeType === 'image/png') {
+    return { buffer: await pipeline.png({ compressionLevel: 9 }).toBuffer(), mimeType: 'image/png', ext: '.png' };
+  }
+  if (mimeType === 'image/webp') {
+    return { buffer: await pipeline.webp({ quality: 88 }).toBuffer(), mimeType: 'image/webp', ext: '.webp' };
+  }
+  return { buffer: await pipeline.jpeg({ quality: 88, mozjpeg: true }).toBuffer(), mimeType: 'image/jpeg', ext: '.jpg' };
+}
 
-  const mime = String(mimeType || '').toLowerCase();
-  const ext = path.extname(filename || '').toLowerCase();
-  const isGif = mime === 'image/gif' || ext === '.gif';
-  const isImage = !isGif && (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp'].includes(ext));
-  const isVideo = mime.startsWith('video/') || ['.mp4', '.mov', '.m4v', '.webm'].includes(ext);
-
+/** Container remux without re-encoding; only drops metadata such as GPS. */
+async function stripVideoMetadata(buffer, mimeType) {
+  const ext = mimeType === 'video/webm' ? '.webm' : mimeType === 'video/quicktime' ? '.mov' : '.mp4';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kinbech-meta-'));
+  const input = path.join(dir, `in${ext}`);
+  const output = path.join(dir, `out${ext}`);
   try {
-    const result = isImage && compressImages
-      ? await compressImage(buffer)
-      : isVideo && compressVideos
-        ? await compressVideo(buffer)
-        : null;
-    if (!result) return { buffer, mimeType, filename };
-    return {
-      buffer: result.buffer,
-      mimeType: result.mimeType,
-      filename: replaceExtension(filename, result.ext),
-    };
-  } catch (error) {
-    console.error('[media] compress skipped:', error.message || error);
-    return { buffer, mimeType, filename };
+    fs.writeFileSync(input, buffer);
+    await runFfmpeg(['-y', '-i', input, '-map', '0', '-c', 'copy', '-map_metadata', '-1', output]);
+    const out = fs.readFileSync(output);
+    return out.length ? { buffer: out, mimeType, ext } : null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 }
 
-module.exports = { compressListingMedia };
+/**
+ * `mimeType` must come from magic bytes (utils/fileType). Images always re-encode;
+ * listing videos compress, other videos only lose metadata.
+ */
+async function compressListingMedia({ buffer, mimeType, filename, folder }) {
+  const folderName = String(folder || '').toLowerCase();
+  const mime = String(mimeType || '').toLowerCase();
+  if (!buffer?.length) return { buffer, mimeType, filename };
+
+  if (mime.startsWith('image/')) {
+    const result = await sanitizeImage(buffer, folderName, mime);
+    return { buffer: result.buffer, mimeType: result.mimeType, filename: replaceExtension(filename, result.ext) };
+  }
+
+  if (mime.startsWith('video/')) {
+    try {
+      const result =
+        (folderName === 'listings' ? await compressVideo(buffer) : null) ||
+        (await stripVideoMetadata(buffer, mime));
+      if (result) {
+        return { buffer: result.buffer, mimeType: result.mimeType, filename: replaceExtension(filename, result.ext) };
+      }
+    } catch (error) {
+      console.error('[media] video processing skipped:', error.message || error);
+    }
+  }
+  return { buffer, mimeType, filename };
+}
+
+module.exports = { compressListingMedia, sanitizeImage };

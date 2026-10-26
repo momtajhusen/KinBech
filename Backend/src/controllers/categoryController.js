@@ -226,4 +226,5 @@ module.exports = {
   updateCategory,
   deleteCategory,
   uploadCategoryImage,
+  toPublic,
 };

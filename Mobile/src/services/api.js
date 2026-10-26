@@ -1,14 +1,165 @@
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
 import { reportMobileError } from '../utils/errorReporting';
+import { readRefreshToken, readToken, writeRefreshToken, writeToken } from './tokenStorage';
+import { withHumanCheck } from '../utils/humanCheck';
+
+// OkHttp rejects non-ASCII header values.
+function headerSafe(value, max = 80) {
+  return String(value || '').replace(/[^\x20-\x7E]/g, '').trim().slice(0, max);
+}
+
+const DEVICE_HEADERS = (() => {
+  const pc = Platform.constants || {};
+  const androidName = [pc.Brand, pc.Model].filter(Boolean).join(' ');
+  const name =
+    (Platform.OS === 'android' ? androidName : '') ||
+    Constants.deviceName ||
+    (Platform.OS === 'ios' ? (Platform.isPad ? 'iPad' : 'iPhone') : Platform.OS);
+  return {
+    'X-Device-Name': headerSafe(name) || 'Phone',
+    'X-Device-Platform': headerSafe(Platform.OS, 20),
+    'X-App-Version': headerSafe(Constants.expoConfig?.version, 20),
+    'X-Token-Refresh': '1',
+  };
+})();
+
+// Random per-install id; lets the server link accounts that share one phone. Not tied to hardware.
+const INSTALL_ID_KEY = 'kinbech_install_id';
+let installId = '';
+const installIdReady = AsyncStorage.getItem(INSTALL_ID_KEY)
+  .then(async (stored) => {
+    if (stored) {
+      installId = stored;
+      return;
+    }
+    const random = () => Math.random().toString(36).slice(2, 10);
+    installId = `${Date.now().toString(36)}-${random()}${random()}`;
+    await AsyncStorage.setItem(INSTALL_ID_KEY, installId);
+  })
+  .catch(() => {});
 
 let authToken = null;
 let workingBaseUrl = null;
+let refreshToken = null;
+let refreshLoaded = false;
+let refreshInFlight = null;
+const tokenListeners = new Set();
 
 export function setAuthToken(token) {
   authToken = token || null;
+  if (!token) {
+    refreshToken = null;
+    refreshLoaded = true;
+  }
 }
 
 export function getAuthToken() {
+  return authToken;
+}
+
+/** Called with the new access token after a silent refresh, or null when the session ended. */
+export function onAuthTokenChange(listener) {
+  tokenListeners.add(listener);
+  return () => tokenListeners.delete(listener);
+}
+
+function notifyToken(token) {
+  tokenListeners.forEach((listener) => {
+    try {
+      listener(token);
+    } catch {
+      /* listener errors must not break requests */
+    }
+  });
+}
+
+function rememberRefreshToken(token) {
+  if (!token) return;
+  refreshToken = token;
+  refreshLoaded = true;
+  writeRefreshToken(token).catch(() => {});
+}
+
+async function currentRefreshToken() {
+  if (!refreshLoaded) {
+    refreshToken = (await readRefreshToken().catch(() => null)) || refreshToken;
+    refreshLoaded = true;
+  }
+  return refreshToken;
+}
+
+const expiryCache = { token: null, exp: 0 };
+
+function tokenExpiryMs(token) {
+  if (expiryCache.token === token) return expiryCache.exp;
+  let exp = 0;
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = part + '='.repeat((4 - (part.length % 4)) % 4);
+    exp = (JSON.parse(atob(padded)).exp || 0) * 1000;
+  } catch {
+    exp = 0;
+  }
+  expiryCache.token = token;
+  expiryCache.exp = exp;
+  return exp;
+}
+
+const SESSION_ENDED_CODES = new Set(['REFRESH_INVALID', 'REFRESH_REUSED', 'SESSION_EXPIRED', 'ACCOUNT_SUSPENDED']);
+
+/** One refresh at a time; parallel 401s all wait for the same result. */
+function refreshAccessToken() {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async () => {
+    const staleAccess = authToken;
+    const current = await currentRefreshToken();
+    if (!current) return false;
+    const result = await request('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken: current }),
+      skipAuthRefresh: true,
+      timeoutMs: 8000,
+    });
+    if (result.data?.token && result.data?.refreshToken) {
+      authToken = result.data.token;
+      await writeToken(result.data.token).catch(() => {});
+      notifyToken(result.data.token);
+      return true;
+    }
+    const code = result.data?.code;
+    if (code === 'REFRESH_RACE') {
+      // Another JS context (e.g. the call headless task) refreshed first.
+      const [storedAccess, storedRefresh] = await Promise.all([readToken(), readRefreshToken()]);
+      if (storedAccess && storedAccess !== staleAccess) {
+        authToken = storedAccess;
+        refreshToken = storedRefresh || refreshToken;
+        notifyToken(storedAccess);
+        return true;
+      }
+      return false;
+    }
+    if (SESSION_ENDED_CODES.has(code)) {
+      authToken = null;
+      refreshToken = null;
+      notifyToken(null);
+    }
+    return false;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+/** Refresh ahead of time when the access token is about to expire. */
+export async function ensureFreshToken() {
+  if (!authToken) return authToken;
+  const exp = tokenExpiryMs(authToken);
+  if (exp && exp - Date.now() < 60 * 1000 && (await currentRefreshToken())) {
+    await refreshAccessToken();
+  }
   return authToken;
 }
 
@@ -80,9 +231,26 @@ function safeUrl(baseUrl, path) {
 async function requestWithTimeout(url, options, timeoutMs) {
   const controller =
     typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const signal = controller ? controller.signal : undefined;
+  const { signal: externalSignal, ...fetchOptions } = options || {};
   let timeoutId = null;
   let timedOut = false;
+  let callerAborted = false;
+
+  if (externalSignal && controller) {
+    if (externalSignal.aborted) {
+      callerAborted = true;
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => {
+        callerAborted = true;
+        try {
+          controller.abort();
+        } catch {
+          /* noop */
+        }
+      }, { once: true });
+    }
+  }
 
   if (controller && timeoutMs > 0) {
     timeoutId = setTimeout(() => {
@@ -96,9 +264,17 @@ async function requestWithTimeout(url, options, timeoutMs) {
   }
 
   try {
-    const response = await fetch(url, { ...options, signal });
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller ? controller.signal : undefined,
+    });
     return { response, timedOut: false };
   } catch (err) {
+    if (callerAborted) {
+      const abortErr = new Error('Aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
     throw new Error(timedOut ? 'Request timeout' : (err?.message || 'Network request failed'));
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
@@ -110,7 +286,10 @@ async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
   const isFormData =
     typeof FormData !== 'undefined' && options?.body && options.body instanceof FormData;
 
+  await installIdReady;
   const headers = {
+    ...DEVICE_HEADERS,
+    ...(installId ? { 'X-Install-Id': installId } : {}),
     ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...(extraHeaders || {}),
   };
@@ -165,6 +344,9 @@ async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
     };
   }
 
+  // Login, /auth/me upgrade and /auth/refresh hand out a rotating refresh token.
+  if (data?.refreshToken) rememberRefreshToken(data.refreshToken);
+
   return {
     ok: true,
     isNetwork: false,
@@ -191,8 +373,9 @@ function buildCandidates() {
 }
 
 async function request(path, options = {}) {
-  const { headers: extraHeaders, timeoutMs: overrideTimeout, ...rest } = options;
+  const { headers: extraHeaders, timeoutMs: overrideTimeout, skipAuthRefresh, ...rest } = options;
   const initialTimeoutMs = overrideTimeout || 8000;
+  if (!skipAuthRefresh) await ensureFreshToken();
 
   let lastData = null;
   let lastNonNetworkError = null;
@@ -228,6 +411,15 @@ async function request(path, options = {}) {
             return { data: result.data, error: null };
           }
 
+          if (
+            !skipAuthRefresh &&
+            result.status === 401 &&
+            result.data?.code === 'TOKEN_EXPIRED' &&
+            (await refreshAccessToken())
+          ) {
+            return request(path, { ...options, skipAuthRefresh: true });
+          }
+
           lastData = result.data;
 
           if (isTransientHttpStatus(result.status) && attempt < attemptsPerUrl - 1) {
@@ -245,6 +437,9 @@ async function request(path, options = {}) {
           lastNonNetworkError = result.error;
           break;
         } catch (rawErr) {
+          if (rawErr?.name === 'AbortError') {
+            return { data: null, error: null, aborted: true };
+          }
           const msg = rawErr?.message || 'Network request failed';
           console.log(`[${label}] failed:`, baseUrl, msg);
 
@@ -284,14 +479,27 @@ async function request(path, options = {}) {
 
 export const api = {
   login: (payload) =>
-    request('/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
+    withHumanCheck((extra) =>
+      request('/auth/login', { method: 'POST', body: JSON.stringify({ ...payload, ...extra }) })
+    ),
   signup: (payload) =>
-    request('/auth/signup', { method: 'POST', body: JSON.stringify(payload) }),
+    withHumanCheck((extra) =>
+      request('/auth/signup', { method: 'POST', body: JSON.stringify({ ...payload, ...extra }) })
+    ),
   verifyOtp: (payload) =>
     request('/auth/otp', { method: 'POST', body: JSON.stringify(payload) }),
   completeSignup: (payload) =>
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
+  logoutAllDevices: () => request('/auth/logout-all', { method: 'POST' }),
+  logout: () => request('/auth/logout', { method: 'POST', timeoutMs: 4000, skipAuthRefresh: true }),
+  getCallWatchToken: () => request('/auth/call-watch-token'),
+  getSessions: () => request('/auth/sessions'),
+  exportMyData: () => request('/auth/me/export', { timeoutMs: 30000 }),
+  deleteAccount: () =>
+    request('/auth/me/delete', { method: 'POST', body: JSON.stringify({ confirm: 'DELETE' }) }),
+  revokeSession: (sessionId) =>
+    request(`/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
   saveDeviceToken: (token) =>
     request('/auth/device-token', {
       method: 'POST',
@@ -325,12 +533,14 @@ export const api = {
     request(`/listings${toQuery(withListingPagination(params))}`),
   getRelatedListings: (params = {}) =>
     request(`/listings/related${toQuery(params)}`),
-  searchListings: (params = {}) =>
-    request(`/listings/search${toQuery(withListingPagination(params))}`),
+  searchListings: (params = {}, options = {}) =>
+    request(`/listings/search${toQuery(withListingPagination(params))}`, options),
   getSearchSuggestions: (q) => request(`/listings/suggestions${toQuery({ q })}`),
   getCategoryCounts: (params = {}) =>
     request(`/listings/category-counts${toQuery(params)}`),
   getMyListings: () => request('/listings/mine'),
+  getMyCategoryUsage: () => request('/listings/mine/categories'),
+  getMyInterests: () => request('/listings/mine/interests'),
   getMyPurchases: () => request('/listings/purchases'),
   getListing: (id, loc) => {
     const params = {};
@@ -349,10 +559,17 @@ export const api = {
   updateListing: (id, payload) =>
     request(`/listings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteListing: (id) => request(`/listings/${id}`, { method: 'DELETE' }),
+  confirmStillAvailable: (id, payload = {}) =>
+    request(`/listings/${id}/still-available`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateListingStock: (id, payload) =>
+    request(`/listings/${id}/stock`, { method: 'POST', body: JSON.stringify(payload) }),
+  confirmAllStock: () => request('/listings/mine/confirm-stock', { method: 'POST' }),
+  setDealOutcome: (chatId, outcome) =>
+    request(`/chats/${chatId}/deal`, { method: 'POST', body: JSON.stringify({ outcome }) }),
   getChats: () => request('/chats'),
   createChat: (payload) =>
     request('/chats', { method: 'POST', body: JSON.stringify(payload) }),
-  getMessages: (chatId) => request(`/chats/${chatId}/messages`),
+  getMessages: (chatId, params = {}) => request(`/chats/${chatId}/messages${toQuery(params)}`),
   setTyping: (chatId, active) =>
     request(`/chats/${chatId}/typing`, {
       method: 'POST',
@@ -408,7 +625,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
-  getWishlist: () => request('/wishlist'),
+  getWishlist: (params = {}) => request(`/wishlist${toQuery(params)}`),
   toggleWishlist: (listingId) =>
     request('/wishlist', {
       method: 'POST',
@@ -441,6 +658,8 @@ export const api = {
   getPaymentMethods: () => request('/auth/payment-methods'),
   createPaymentMethod: (payload) =>
     request('/auth/payment-methods', { method: 'POST', body: JSON.stringify(payload) }),
+  updatePaymentMethod: (id, payload) =>
+    request(`/auth/payment-methods/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deletePaymentMethod: (id) => request(`/auth/payment-methods/${id}`, { method: 'DELETE' }),
   getWallet: () => request('/auth/wallet'),
   getSupportTickets: () => request('/auth/support'),
@@ -454,7 +673,8 @@ export const api = {
   // Seller/Store Discovery APIs
   getSellers: (params = {}) => request(`/sellers${toQuery(params)}`),
   getSeller: (sellerId) => request(`/sellers/${sellerId}`),
-  searchSellers: (params = {}) => request(`/sellers/search${toQuery(params)}`),
+  searchSellers: (params = {}, options = {}) => request(`/sellers/search${toQuery(params)}`, options),
+  getSellerCategoryCounts: () => request('/sellers/category-counts'),
   getFeaturedSellers: (params = {}) => request(`/sellers/featured${toQuery(params)}`),
   getPopularSellers: (params = {}) => request(`/sellers/popular${toQuery(params)}`),
   getNearbySellers: (params = {}) => request(`/sellers/nearby${toQuery(params)}`),
@@ -463,19 +683,22 @@ export const api = {
   getPinnedStores: (params = {}) => request(`/auth/pinned-stores${toQuery(params)}`),
   pinStore: (payload) =>
     request('/auth/pinned-stores', { method: 'POST', body: JSON.stringify(payload) }),
+  recordPinnedView: (storeId) =>
+    request(`/auth/pinned-stores/${storeId}/view`, { method: 'POST' }),
   unpinStore: (storeId) => request(`/auth/pinned-stores/${storeId}`, { method: 'DELETE' }),
   
   // Shop APIs
   createShop: (payload) =>
     request('/shops', { method: 'POST', body: JSON.stringify(payload) }),
   getMyShop: () => request('/shops/mine'),
+  getMyShopCategories: () => request('/shops/mine/categories', { timeoutMs: 60000 }),
   getMyShopAnalytics: (period = '30d') => request(`/shops/mine/analytics${toQuery({ period })}`),
   getMyShopStorefront: () => request('/shops/mine/storefront'),
   getMapNearby: (params = {}) => request(`/map/nearby${toQuery(params)}`),
   getShopById: (shopId) => request(`/shops/${shopId}`),
   updateShop: (shopId, payload) =>
     request(`/shops/${shopId}`, { method: 'PUT', body: JSON.stringify(payload) }),
-  getShopListings: (shopId) => request(`/shops/${shopId}/listings`),
+  getShopListings: (shopId, params = {}) => request(`/shops/${shopId}/listings${toQuery(params)}`),
   getShopReviews: (shopId) => request(`/shops/${shopId}/reviews`),
   getAllShops: (params = {}) => request(`/shops${toQuery(params)}`),
   getCategories: (type) => request(`/categories${toQuery(type ? { type } : {})}`),

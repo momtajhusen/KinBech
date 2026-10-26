@@ -3,6 +3,8 @@
  * Avoids repeating expensive compound filters (price + category + distance) for a few minutes.
  */
 
+const { currentAudience } = require('./audience');
+
 const DEFAULT_TTL_MS = 7 * 60 * 1000; // 7 minutes (within 5–10 min)
 const MAX_ENTRIES = 200;
 
@@ -42,6 +44,7 @@ function buildListingCacheKey(endpoint, query = {}) {
     }
     parts.push(`${key}=${value}`);
   }
+  parts.push(`aud=${currentAudience()}`);
   return parts.join('|');
 }
 

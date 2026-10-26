@@ -1,27 +1,28 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import {
-  Animated,
   Alert,
   Image,
   Pressable,
   ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
+import { PressableScale, Reanimated, SoftPop, enterUp } from '../components/Motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import FilterBottomSheet from '../components/FilterBottomSheet';
 import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
-import ScreenLoader from '../components/ScreenLoader';
+import { ProductCarouselSkeleton } from '../components/SkeletonLoader';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { attachDistanceToCard, formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
+import { attachDistanceToCard, formatDistanceLabel, formatPrice, resolveMediaUrl, toCardItem } from '../utils/listing';
+import { useDisplayCurrency } from '../utils/currency';
 import { loadRecentlyViewed, getRecentlyViewed } from '../utils/recentlyViewed';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -33,6 +34,7 @@ import {
   isHomeListingsFresh,
   loadHomeListingsCache,
   setHomeListingsCache,
+  setHomePlace,
 } from '../utils/homeListingsCache';
 import pinnedStoresUtils from '../utils/pinnedStores';
 
@@ -65,13 +67,14 @@ function mergeStores(...lists) {
 }
 
 export default function HomeScreen({ navigation }) {
+  const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
+  useDisplayCurrency();
   const productCategories = useCategories('product');
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const initialCatalog = getHomeListingsMemory();
+  const [initialCatalog] = useState(getHomeListingsMemory);
   const [listings, setListings] = useState(() => initialCatalog?.listings || []);
   const [stores, setStores] = useState(() => storesMemory);
   const [, setLoading] = useState(false);
@@ -83,26 +86,22 @@ export default function HomeScreen({ navigation }) {
   const [pinnedStores, setPinnedStores] = useState([]);
   const hasLoadedRef = useRef(Boolean(initialCatalog?.listings?.length));
   const catalogFpRef = useRef(catalogFingerprint(initialCatalog?.listings || []));
-  const hasAnimatedRef = useRef(false);
   const locationLabelRef = useRef('Kathmandu');
   const userCoordsRef = useRef({ lat: null, lng: null });
   const [pickedCategory, setPickedCategory] = useState(null);
+  const [personalized, setPersonalized] = useState(() => Boolean(initialCatalog?.personalized));
+  const [interestCategories, setInterestCategories] = useState([]);
+  const [liveCounts, setLiveCounts] = useState(null);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  const revealContent = useCallback(() => {
-    if (hasAnimatedRef.current) {
-      fadeAnim.setValue(1);
-      slideAnim.setValue(0);
-      return;
-    }
-    hasAnimatedRef.current = true;
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start();
-  }, [fadeAnim, slideAnim]);
+  useEffect(() => {
+    const hasCoords = userCoords.lat != null && userCoords.lng != null;
+    const cached = getHomeListingsMemory();
+    if (!hasCoords && location === 'Kathmandu' && !cached?.location) return;
+    setHomePlace({
+      location,
+      coords: hasCoords ? userCoords : undefined,
+    });
+  }, [location, userCoords]);
 
   const fetchCurrentLocation = useCallback(async () => {
     try {
@@ -179,14 +178,13 @@ export default function HomeScreen({ navigation }) {
         userCoordsRef.current = cached.coords;
         setUserCoords(cached.coords);
       }
-      revealContent();
     })();
     // Start location fetch in background, don't block cache load
     fetchCurrentLocation();
     return () => {
       cancelled = true;
     };
-  }, [fetchCurrentLocation, revealContent]);
+  }, [fetchCurrentLocation]);
 
   const resolveCoordsQuick = useCallback(async () => {
     const known = userCoordsRef.current;
@@ -266,24 +264,21 @@ export default function HomeScreen({ navigation }) {
       if (changed || !hasLoadedRef.current) {
         setListings(withDistance);
       }
+      setPersonalized(Boolean(data?.personalized));
       setSettled(true);
       hasLoadedRef.current = true;
       setHomeListingsCache({
         listings: withDistance,
         location: locationLabelRef.current,
         coords: coords || userCoordsRef.current,
+        personalized: data?.personalized,
       });
-      revealContent();
     }
 
     setLoading(false);
-  }, [loadStores, resolveCoordsQuick, revealContent]);
+  }, [loadStores, resolveCoordsQuick]);
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true, force: true }));
-
-  useEffect(() => {
-    if (listings.length) revealContent();
-  }, [listings.length, revealContent]);
 
   useEffect(() => {
     if (userCoords.lat == null || userCoords.lng == null) return;
@@ -292,14 +287,25 @@ export default function HomeScreen({ navigation }) {
 
   useFocusEffect(
     useCallback(() => {
+      const known = userCoordsRef.current;
+      const loc = known.lat != null && known.lng != null ? { lat: known.lat, lng: known.lng } : {};
       if (!storesMemory.length) {
-        const known = userCoordsRef.current;
-        loadStores(known.lat != null && known.lng != null ? { lat: known.lat, lng: known.lng } : {});
+        loadStores(loc);
       }
+      pinnedStoresUtils.getPinnedStores(loc).then((pinned) => {
+        if (Array.isArray(pinned)) setPinnedStores(pinned);
+      }).catch(() => {});
       // Always silent load for instant display
       loadListings({ silent: true });
       // Load other data in background
       loadRecentlyViewed().then((items) => setRecentViews(items));
+      api.getCategoryCounts().then(({ data }) => {
+        if (!data?.counts) return;
+        setLiveCounts((prev) => (JSON.stringify(prev) === JSON.stringify(data.counts) ? prev : data.counts));
+      });
+      api.getMyInterests().then(({ data }) => {
+        if (Array.isArray(data?.categories)) setInterestCategories(data.categories.map((c) => c.name));
+      });
       api.getNotifications().then(({ data }) => {
         if (data) setUnreadCount(data.unreadCount || 0);
       });
@@ -352,6 +358,12 @@ export default function HomeScreen({ navigation }) {
   );
 
 
+  // The server already ranked `listings` by this buyer's interests when `personalized` is set.
+  const forYou = useMemo(
+    () => (personalized ? nearbyListings.slice(0, 12).map(decorate) : []),
+    [personalized, nearbyListings, decorate]
+  );
+
   const fresh = useMemo(
     () =>
       [...nearbyListings]
@@ -396,23 +408,39 @@ export default function HomeScreen({ navigation }) {
     [nearbyListings, decorate]
   );
 
-  const topCategories = useMemo(
-    () =>
-      Object.entries(categoryCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 4)
-        .map(([name]) => name),
-    [categoryCounts]
+  const interestRank = useMemo(
+    () => new Map(interestCategories.map((name, index) => [name, index])),
+    [interestCategories]
   );
+
+  const topCategories = useMemo(() => {
+    const rankOf = (name) => (interestRank.has(name) ? interestRank.get(name) : Infinity);
+    return Object.entries(categoryCounts)
+      .sort((a, b) => rankOf(a[0]) - rankOf(b[0]) || b[1] - a[1])
+      .slice(0, 4)
+      .map(([name]) => name);
+  }, [categoryCounts, interestRank]);
+
+  const homeCategories = useMemo(() => {
+    const rankOf = (cat) => (interestRank.has(cat.label) ? interestRank.get(cat.label) : Infinity);
+    return productCategories
+      .map((cat, index) => ({
+        cat: { ...cat, count: Math.max(liveCounts?.[cat.label] || 0, categoryCounts[cat.label] || 0) },
+        index,
+      }))
+      .filter(({ cat }) => cat.count > 0)
+      .sort((a, b) => rankOf(a.cat) - rankOf(b.cat) || b.cat.count - a.cat.count || a.index - b.index)
+      .map(({ cat }) => cat);
+  }, [productCategories, interestRank, liveCounts, categoryCounts]);
   const activeCategory = topCategories.includes(pickedCategory) ? pickedCategory : topCategories[0];
   const categoryItems = useMemo(
     () =>
       nearbyListings
         .filter((item) => item.category === activeCategory)
-        .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0))
+        .sort((a, b) => (personalized ? 0 : (Number(b.views) || 0) - (Number(a.views) || 0)))
         .slice(0, 10)
         .map(decorate),
-    [nearbyListings, activeCategory, decorate]
+    [nearbyListings, activeCategory, decorate, personalized]
   );
 
   const greeting = useMemo(() => {
@@ -429,9 +457,12 @@ export default function HomeScreen({ navigation }) {
   const firstName = String(user?.name || '').trim().split(/\s+/)[0];
 
   const categoryTiles = [
-    ...productCategories.slice(0, 5),
-    { label: 'All', icon: 'grid', color: colors.warning, isMore: true },
+    ...homeCategories.slice(0, 5),
+    { label: 'All', icon: 'grid', color: colors.warning, isMore: true, count: homeCategories.length },
   ];
+  const CATEGORY_COLS = 3;
+  const categoryGap = 8;
+  const categoryTileWidth = Math.floor((windowWidth - 32 - categoryGap * (CATEGORY_COLS - 1)) / CATEGORY_COLS);
 
   const renderStore = (store) => {
     const isShop = store.sellerType === 'shop';
@@ -462,7 +493,7 @@ export default function HomeScreen({ navigation }) {
             {logo ? (
               <Image source={{ uri: logo }} style={styles.fill} />
             ) : (
-              <Ionicons name={typeIcon} size={20} color={accent} />
+              <Icon name={typeIcon} size={20} color={accent} />
             )}
           </View>
           <View style={styles.storeHeaderText}>
@@ -471,19 +502,19 @@ export default function HomeScreen({ navigation }) {
                 {store.name}
               </Text>
               {store.verified ? (
-                <Ionicons name="checkmark-circle" size={12} color={colors.info} />
+                <Icon name="checkmark-circle" size={12} color={colors.info} />
               ) : null}
             </View>
             <View style={styles.storeBadgesRow}>
               <View style={[styles.storeTypePill, { backgroundColor: accentSoft }]}>
-                <Ionicons name={typeIcon} size={8} color={accent} />
+                <Icon name={typeIcon} size={8} color={accent} />
                 <Text style={[styles.storeTypeText, { color: accent }]}>
                   {isShop ? 'STORE' : 'INDIVIDUAL'}
                 </Text>
               </View>
               {store.verified ? (
                 <View style={[styles.storeTypePill, { backgroundColor: `${colors.info}20` }]}>
-                  <Ionicons name="checkmark-circle" size={8} color={colors.info} />
+                  <Icon name="checkmark-circle" size={8} color={colors.info} />
                   <Text style={[styles.storeTypeText, { color: colors.info }]}>VERIFIED</Text>
                 </View>
               ) : null}
@@ -503,16 +534,16 @@ export default function HomeScreen({ navigation }) {
 
         <View style={styles.storeStats}>
           <View style={styles.storeStat}>
-            <Ionicons name="star" size={10} color={rating > 0 ? colors.warning : colors.textMuted} />
+            <Icon name="star" size={10} color={rating > 0 ? colors.warning : colors.textMuted} />
             <Text style={styles.storeStatText}>{rating > 0 ? rating.toFixed(1) : 'New'}</Text>
           </View>
           <View style={styles.storeStat}>
-            <Ionicons name="cube-outline" size={10} color={colors.textMuted} />
+            <Icon name="cube-outline" size={10} color={colors.textMuted} />
             <Text style={styles.storeStatText}>{Number(store.listingCount) || 0} items</Text>
           </View>
           {distance ? (
             <View style={styles.storeStat}>
-              <Ionicons name="navigate-outline" size={10} color={colors.textMuted} />
+              <Icon name="navigate-outline" size={10} color={colors.textMuted} />
               <Text style={styles.storeStatText}>{distance}</Text>
             </View>
           ) : null}
@@ -543,41 +574,29 @@ export default function HomeScreen({ navigation }) {
                   }}
                   hitSlop={8}
                 >
-                  <Ionicons name="location" size={12} color="rgba(255,255,255,0.9)" />
+                  <Icon name="location" size={12} color="rgba(255,255,255,0.9)" />
                   <Text style={styles.locationText} numberOfLines={1}>
                     {location}
                   </Text>
-                  <Ionicons name="chevron-down" size={12} color="rgba(255,255,255,0.8)" />
+                  <Icon name="chevron-down" size={12} color="rgba(255,255,255,0.8)" />
                 </Pressable>
               </View>
             </View>
             <View style={styles.headerActions}>
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}
-                style={styles.headerBtn}
-                hitSlop={6}
-              >
-                <Ionicons name="map-outline" size={19} color={colors.onGradient} />
-              </Pressable>
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.WISHLIST)}
-                style={styles.headerBtn}
-                hitSlop={6}
-              >
-                <Ionicons name="heart-outline" size={20} color={colors.onGradient} />
-              </Pressable>
-              <Pressable
-                onPress={() => navigation.navigate(ROUTES.NOTIFICATIONS)}
-                style={styles.headerBtn}
-                hitSlop={6}
-              >
-                <Ionicons name="notifications-outline" size={20} color={colors.onGradient} />
+              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
+                <Icon name="map-outline" size={19} color={colors.onGradient} />
+              </PressableScale>
+              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.WISHLIST)}>
+                <Icon name="heart-outline" size={20} color={colors.onGradient} />
+              </PressableScale>
+              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.NOTIFICATIONS)}>
+                <Icon name="notifications-outline" size={20} color={colors.onGradient} />
                 {unreadCount > 0 ? (
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
                   </View>
                 ) : null}
-              </Pressable>
+              </PressableScale>
             </View>
           </View>
           <Text style={styles.greeting}>
@@ -591,7 +610,9 @@ export default function HomeScreen({ navigation }) {
           <SearchBar
             placeholder="Search products, stores, sellers..."
             onPress={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}
-            onFilterPress={() => setFiltersOpen(true)}
+            onVoiceResult={(text, isFinal) => {
+              if (isFinal) navigation.navigate(ROUTES.SEARCH_RESULTS, { query: text });
+            }}
           />
         </View>
       </View>
@@ -607,32 +628,44 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.miniTitle}>Categories</Text>
             <Pressable onPress={() => navigation.navigate(ROUTES.ALL_CATEGORIES)} hitSlop={8} style={styles.viewAll}>
               <Text style={styles.viewAllText}>See all</Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.link} />
+              <Icon name="chevron-forward" size={14} color={colors.link} />
             </Pressable>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
-            {categoryTiles.map((cat) => {
+          <View style={styles.categoryRow}>
+            {categoryTiles.map((cat, index) => {
               const tint = cat.color || cat.tint || colors.primary;
+              const countLabel = cat.isMore
+                ? `${cat.count} categor${cat.count === 1 ? 'y' : 'ies'}`
+                : `${cat.count} item${cat.count === 1 ? '' : 's'}`;
               return (
-                <Pressable
+                <PressableScale
                   key={cat.label}
-                  style={({ pressed }) => [styles.categoryTile, pressed && styles.pressed]}
+                  style={{ width: categoryTileWidth }}
+                  scaleTo={0.95}
                   onPress={() => (cat.isMore ? navigation.navigate(ROUTES.ALL_CATEGORIES) : openCategory(cat.label))}
                 >
-                  <View style={[styles.categoryIcon, { backgroundColor: `${tint}1F` }]}>
-                    {cat.imageUrl ? (
-                      <Image source={{ uri: cat.imageUrl }} style={styles.categoryImage} />
-                    ) : (
-                      <Ionicons name={cat.icon || 'pricetag-outline'} size={18} color={tint} />
-                    )}
-                  </View>
-                  <Text style={styles.categoryLabel} numberOfLines={1}>
-                    {cat.label}
-                  </Text>
-                </Pressable>
+                  <LinearGradient
+                    colors={[`${tint}33`, `${tint}0D`]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.categoryCard, { borderColor: `${tint}40` }]}
+                  >
+                    <SoftPop index={index} style={[styles.categoryIcon, { backgroundColor: tint }]}>
+                      {cat.imageUrl ? (
+                        <Image source={{ uri: cat.imageUrl }} style={styles.categoryImage} />
+                      ) : (
+                        <Icon name={cat.icon || 'pricetag-outline'} size={14} color="#FFFFFF" />
+                      )}
+                    </SoftPop>
+                    <View style={styles.categoryCopy}>
+                      <Text style={styles.categoryLabel} numberOfLines={1}>{cat.label}</Text>
+                      <Text style={[styles.categoryCountLabel, { color: tint }]} numberOfLines={1}>{countLabel}</Text>
+                    </View>
+                  </LinearGradient>
+                </PressableScale>
               );
             })}
-          </ScrollView>
+          </View>
         </View>
 
         {listings.length === 0 ? (
@@ -645,25 +678,36 @@ export default function HomeScreen({ navigation }) {
               buttonLabel="Post your first item"
               onButtonPress={() => navigateToTab(navigation, TABS.POST)}
             />
-          ) : null
+          ) : (
+            <>
+              <ProductCarouselSkeleton />
+              <ProductCarouselSkeleton />
+            </>
+          )
         ) : (
-          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-            {recent.length > 0 ? (
+          <>
+            {forYou.length > 0 ? (
               <Section
                 styles={styles}
                 colors={colors}
-                icon="time"
-                tint={colors.info}
-                title="Recently viewed"
-                subtitle="Pick up where you left off"
-                onViewAll={() => navigation.navigate(ROUTES.RECENTLY_VIEWED)}
-                items={recent}
+                icon="sparkles"
+                tint={colors.primary}
+                title="Picked for you"
+                subtitle="Based on what you browse and save"
+                onViewAll={() =>
+                  openCollection({
+                    sort: 'recommended',
+                    title: 'Picked for you',
+                    subtitle: 'Based on your interests',
+                  })
+                }
+                items={forYou}
                 onPressItem={openItem}
               />
             ) : null}
 
             {pinnedStores.length > 0 ? (
-              <View style={styles.block}>
+              <Reanimated.View entering={enterUp(3, 46)} style={styles.block}>
                 <SectionHeader
                   styles={styles}
                   colors={colors}
@@ -680,9 +724,10 @@ export default function HomeScreen({ navigation }) {
                 >
                   {pinnedStores.map(renderStore)}
                 </ScrollView>
-              </View>
+              </Reanimated.View>
             ) : null}
 
+            <Reanimated.View entering={enterUp(4, 46)}>
             <Section
               styles={styles}
               colors={colors}
@@ -700,9 +745,10 @@ export default function HomeScreen({ navigation }) {
               items={trending}
               onPressItem={openItem}
             />
+            </Reanimated.View>
 
             {topCategories.length > 1 ? (
-              <View style={styles.block}>
+              <Reanimated.View entering={enterUp(5, 46)} style={styles.block}>
                 <SectionHeader
                   styles={styles}
                   colors={colors}
@@ -716,20 +762,22 @@ export default function HomeScreen({ navigation }) {
                   {topCategories.map((name) => {
                     const active = name === activeCategory;
                     return (
-                      <Pressable
+                      <PressableScale
                         key={name}
+                        scaleTo={0.96}
+                        contentStyle={[styles.tab, active && styles.tabActive]}
                         onPress={() => setPickedCategory(name)}
-                        style={[styles.tab, active && styles.tabActive]}
                       >
                         <Text style={[styles.tabText, active && styles.tabTextActive]}>{name}</Text>
-                      </Pressable>
+                      </PressableScale>
                     );
                   })}
                 </ScrollView>
                 <ProductCardCarousel key={activeCategory} items={categoryItems} onPressItem={openItem} />
-              </View>
+              </Reanimated.View>
             ) : null}
 
+            <Reanimated.View entering={enterUp(6, 46)}>
             <Section
               styles={styles}
               colors={colors}
@@ -743,8 +791,9 @@ export default function HomeScreen({ navigation }) {
               items={fresh}
               onPressItem={openItem}
             />
+            </Reanimated.View>
 
-            <View style={styles.sellBanner}>
+            <Reanimated.View entering={enterUp(7, 46)} style={styles.sellBanner}>
               <LinearGradient
                 colors={colors.gradient}
                 start={{ x: 0, y: 0 }}
@@ -752,7 +801,7 @@ export default function HomeScreen({ navigation }) {
                 style={styles.sellBannerInner}
               >
                 <View style={styles.sellIcon}>
-                  <Ionicons name="camera" size={22} color={colors.primary} />
+                  <Icon name="camera" size={22} color={colors.primary} />
                 </View>
                 <View style={styles.sellCopy}>
                   <Text style={styles.sellTitle}>Sell in 30 seconds</Text>
@@ -760,61 +809,62 @@ export default function HomeScreen({ navigation }) {
                   <View style={styles.sellPerks}>
                     {['Free', 'AI fill', 'Local buyers'].map((perk) => (
                       <View key={perk} style={styles.sellPerk}>
-                        <Ionicons name="checkmark-circle" size={11} color={colors.onGradient} />
+                        <Icon name="checkmark-circle" size={11} color={colors.onGradient} />
                         <Text style={styles.sellPerkText}>{perk}</Text>
                       </View>
                     ))}
                   </View>
                 </View>
-                <Pressable
+                <PressableScale
+                  scaleTo={0.96}
+                  contentStyle={styles.sellButton}
                   onPress={() => navigateToTab(navigation, TABS.POST)}
-                  style={({ pressed }) => [styles.sellButton, pressed && styles.pressed]}
                 >
-                  <Ionicons name="add" size={16} color={colors.primary} />
+                  <Icon name="add" size={16} color={colors.primary} />
                   <Text style={styles.sellButtonText}>Post</Text>
-                </Pressable>
+                </PressableScale>
               </LinearGradient>
-            </View>
+            </Reanimated.View>
 
             {budget.length > 0 ? (
+              <Reanimated.View entering={enterUp(8, 46)}>
               <Section
                 styles={styles}
                 colors={colors}
                 icon="pricetags"
                 tint={colors.success}
-                title={`Under ₹${BUDGET_LIMIT.toLocaleString('en-IN')}`}
+                title={`Under ${formatPrice(BUDGET_LIMIT)}`}
                 subtitle="Budget-friendly picks near you"
                 onViewAll={() =>
                   openCollection({
                     maxPrice: BUDGET_LIMIT,
                     sort: 'price-low',
-                    title: `Under ₹${BUDGET_LIMIT.toLocaleString('en-IN')}`,
+                    title: `Under ${formatPrice(BUDGET_LIMIT)}`,
                     subtitle: 'Cheapest first',
                   })
                 }
                 items={budget}
                 onPressItem={openItem}
               />
+              </Reanimated.View>
             ) : null}
-          </Animated.View>
+
+            {recent.length > 0 ? (
+              <Section
+                styles={styles}
+                colors={colors}
+                icon="time"
+                tint={colors.info}
+                title="Recently viewed"
+                subtitle="Pick up where you left off"
+                onViewAll={() => navigation.navigate(ROUTES.RECENTLY_VIEWED)}
+                items={recent}
+                onPressItem={openItem}
+              />
+            ) : null}
+          </>
         )}
       </ScrollView>
-      <FilterBottomSheet
-        visible={filtersOpen}
-        onClose={() => setFiltersOpen(false)}
-        onApply={(filters) => {
-          setFiltersOpen(false);
-          navigation.navigate(ROUTES.SEARCH_RESULTS, {
-            category: filters.category,
-            condition: filters.condition,
-            minPrice: filters.priceMin,
-            maxPrice: filters.priceMax,
-            radiusKm: filters.radiusKm,
-            sort: filters.sortKey,
-          });
-        }}
-      />
-      {listings.length === 0 && !settled ? <ScreenLoader overlay label="Loading items..." /> : null}
     </View>
   );
 }
@@ -837,7 +887,7 @@ function SectionHeader({ styles, colors, icon, tint, title, subtitle, onViewAll 
   return (
     <View style={styles.sectionHeader}>
       <View style={[styles.sectionIcon, { backgroundColor: `${tint}1F` }]}>
-        <Ionicons name={icon} size={15} color={tint} />
+        <Icon name={icon} size={15} color={tint} />
       </View>
       <View style={styles.sectionCopy}>
         <Text style={styles.sectionTitle}>{title}</Text>
@@ -846,7 +896,7 @@ function SectionHeader({ styles, colors, icon, tint, title, subtitle, onViewAll 
       {onViewAll ? (
         <Pressable onPress={onViewAll} hitSlop={8} style={styles.viewAll}>
           <Text style={styles.viewAllText}>See all</Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.link} />
+          <Icon name="chevron-forward" size={14} color={colors.link} />
         </Pressable>
       ) : null}
     </View>
@@ -983,8 +1033,9 @@ const createStyles = (colors) => ({
     color: colors.onGradient,
   },
   searchWrap: {
-    marginTop: -20,
+    marginTop: -22,
     paddingHorizontal: 16,
+    marginBottom: 4,
   },
   block: {
     marginTop: 10,
@@ -1042,48 +1093,48 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   categoryRow: {
-    paddingHorizontal: 12,
-    gap: 4,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    gap: 8,
   },
-  categoryTile: {
-    width: 58,
+  categoryCard: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 7,
+    paddingVertical: 7,
+    paddingHorizontal: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+    backgroundColor: colors.surface,
   },
   categoryIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   categoryImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-  },
-  categoryCount: {
-    position: 'absolute',
-    top: -4,
-    right: -6,
-    minWidth: 18,
-    height: 18,
+    width: 28,
+    height: 28,
     borderRadius: 9,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: colors.background,
   },
-  categoryCountText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#fff',
+  categoryCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   categoryLabel: {
-    marginTop: 4,
-    fontSize: 10,
-    fontWeight: '700',
+    fontSize: 11.5,
+    fontWeight: '800',
     color: colors.text,
+  },
+  categoryCountLabel: {
+    marginTop: 1,
+    fontSize: 10,
+    fontWeight: '800',
   },
   tabRow: {
     paddingHorizontal: 16,

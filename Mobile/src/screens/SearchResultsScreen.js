@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
+import VoiceSearchButton from '../components/VoiceSearchButton';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 import HighlightText from '../components/HighlightText';
 import ProductCard from '../components/ProductCard';
@@ -27,10 +28,13 @@ import { api } from '../services/api';
 import {
   attachDistanceToCard,
   attachDistanceToSeller,
+  cardPrice,
   formatDistanceLabel,
+  formatPrice,
   resolveMediaUrl,
   toCardItem,
 } from '../utils/listing';
+import { useDisplayCurrency } from '../utils/currency';
 import {
   catalogFingerprint,
   getHomeListingsMemory,
@@ -38,6 +42,7 @@ import {
   writeSearchMemory,
 } from '../utils/homeListingsCache';
 import { useCategories } from '../utils/categories';
+import { isNearEnd } from '../utils/scroll';
 import {
   clearRecentSearches,
   forgetSearch,
@@ -53,6 +58,8 @@ const GRID_GUTTER = 12;
 const PRICE_DEFAULT_MIN = 5000;
 const PRICE_DEFAULT_MAX = 100000;
 const SELLER_PREVIEW = 8;
+const SEARCH_PAUSE_MS = 450;
+const MIN_SEARCH_CHARS = 2;
 
 const SCOPES = [
   { key: 'all', label: 'All' },
@@ -62,6 +69,7 @@ const SCOPES = [
 
 const SORT_ORDER = [
   { key: 'relevance', label: 'Best match', icon: 'sparkles-outline' },
+  { key: 'recommended', label: 'For you', icon: 'heart-outline' },
   { key: 'distance', label: 'Nearest first', icon: 'navigate-outline' },
   { key: 'newest', label: 'Newest first', icon: 'time-outline' },
   { key: 'trending', label: 'Trending', icon: 'flame-outline' },
@@ -72,6 +80,7 @@ const SORT_ORDER = [
 const SHEET_SORT_LABELS = {
   distance: 'Nearest First',
   relevance: 'Most Relevant',
+  recommended: 'For You',
   newest: 'Newest First',
   trending: 'Trending',
   'price-low': 'Price: Low to High',
@@ -85,13 +94,13 @@ function cleanPrice(value, fallback) {
 }
 
 function priceLabel(min, max) {
-  const fmt = (n) => `Rs ${Number(n).toLocaleString('en-IN')}`;
-  if (min != null && max != null) return `${fmt(min)} – ${fmt(max)}`;
-  if (min != null) return `From ${fmt(min)}`;
-  return `Up to ${fmt(max)}`;
+  if (min != null && max != null) return `${formatPrice(min)} – ${formatPrice(max, { approx: false })}`;
+  if (min != null) return `From ${formatPrice(min)}`;
+  return `Up to ${formatPrice(max)}`;
 }
 
 export default function SearchResultsScreen({ navigation, route }) {
+  useDisplayCurrency();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -101,6 +110,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const productCategories = useCategories('product');
   const params = route?.params || {};
   const initialQuery = String(params.query || '').trim();
+  const spokenQuery = String(route?.params?.query || '').trim();
   const presetTitle = params.title ? String(params.title) : '';
   const presetSubtitle = params.subtitle ? String(params.subtitle) : '';
 
@@ -108,13 +118,17 @@ export default function SearchResultsScreen({ navigation, route }) {
   const sortTouchedRef = useRef(Boolean(params.sort));
   const layoutTouchedRef = useRef(false);
   const listingsFpRef = useRef('');
+  const searchAbortRef = useRef(null);
+  const loadResultsRef = useRef(null);
+  const hasListingsRef = useRef(false);
+  const userCoordsRef = useRef({ lat: null, lng: null });
 
   const [searchText, setSearchText] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery);
   const [browseAll] = useState(Boolean(params.browse));
   const [inputFocused, setInputFocused] = useState(false);
   const [sortKey, setSortKey] = useState(params.sort || (initialQuery ? 'relevance' : 'distance'));
-  const [layout, setLayout] = useState(initialQuery ? 'list' : 'grid');
+  const [layout, setLayout] = useState('grid');
   const [scope, setScope] = useState('all');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
@@ -132,16 +146,15 @@ export default function SearchResultsScreen({ navigation, route }) {
   const [listings, setListings] = useState([]);
   const [sellers, setSellers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [totalResults, setTotalResults] = useState(0);
   const [matchMode, setMatchMode] = useState('all');
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
+  userCoordsRef.current = userCoords;
   const [hasLocationPerm, setHasLocationPerm] = useState(true);
-
-  const [suggest, setSuggest] = useState({ q: '', suggestions: [], categories: [], stores: [] });
-  const [suggestLoading, setSuggestLoading] = useState(false);
 
   const categoryActive = Boolean(filters.category && filters.category !== 'All' && filters.category !== 'More');
   const conditionActive = Boolean(filters.condition && filters.condition !== 'All');
@@ -151,23 +164,25 @@ export default function SearchResultsScreen({ navigation, route }) {
 
   const trimmedText = searchText.trim();
   const hasContext = Boolean(query) || activeFilterCount > 0 || browseAll;
-  const showSuggestions = Boolean(trimmedText) && trimmedText !== query;
-  const showDiscovery = !showSuggestions && (!hasContext || (inputFocused && !trimmedText));
-  const showResults = !showSuggestions && !showDiscovery;
+  const showDiscovery = !trimmedText && (!hasContext || inputFocused);
+  const showResults = !showDiscovery;
 
   useEffect(() => {
     loadRecentSearches().then(setRecent);
   }, []);
 
+  const spokenAppliedRef = useRef('');
+  useEffect(() => {
+    if (!spokenQuery || spokenQuery === spokenAppliedRef.current) return;
+    spokenAppliedRef.current = spokenQuery;
+    setSearchText(spokenQuery);
+    setQuery(spokenQuery);
+  }, [spokenQuery]);
+
   useEffect(() => {
     if (initialQuery || params.category || params.browse) return undefined;
-    const focus = () => inputRef.current?.focus();
-    const unsubscribe = navigation.addListener('transitionEnd', focus);
-    const timer = setTimeout(focus, 500);
-    return () => {
-      unsubscribe();
-      clearTimeout(timer);
-    };
+    const timer = setTimeout(() => inputRef.current?.focus(), 300);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -175,16 +190,17 @@ export default function SearchResultsScreen({ navigation, route }) {
     let active = true;
     (async () => {
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (!active) return;
         if (status !== 'granted') {
           setHasLocationPerm(false);
           return;
         }
         setHasLocationPerm(true);
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        }).catch(() => null);
+        const loc = await Location.getLastKnownPositionAsync().catch(() => null)
+          || await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          }).catch(() => null);
         if (active && loc?.coords) {
           setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
         }
@@ -198,25 +214,16 @@ export default function SearchResultsScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (!showSuggestions) return undefined;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setSuggestLoading(true);
-      const { data } = await api.getSearchSuggestions(trimmedText);
-      if (cancelled) return;
-      setSuggest({
-        q: trimmedText,
-        suggestions: data?.suggestions || [],
-        categories: data?.categories || [],
-        stores: data?.stores || [],
-      });
-      setSuggestLoading(false);
-    }, 180);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [trimmedText, showSuggestions]);
+    const clean = trimmedText.replace(/\s+/g, ' ').trim();
+    if (clean === query) return undefined;
+    if (clean.length > 0 && clean.length < MIN_SEARCH_CHARS) return undefined;
+    const timer = setTimeout(() => {
+      setQuery(clean);
+      setScope('all');
+      if (!sortTouchedRef.current) setSortKey(clean ? 'relevance' : 'distance');
+    }, clean ? SEARCH_PAUSE_MS : 0);
+    return () => clearTimeout(timer);
+  }, [trimmedText, query]);
 
   const queryParams = useMemo(() => {
     const next = { sort: sortKey };
@@ -226,25 +233,42 @@ export default function SearchResultsScreen({ navigation, route }) {
     if (filters.priceMin != null) next.minPrice = Number(filters.priceMin);
     if (filters.priceMax != null) next.maxPrice = Number(filters.priceMax);
     if (distanceActive) next.radius = Number(filters.radiusKm);
-    if (userCoords.lat != null && userCoords.lng != null) {
-      next.lat = userCoords.lat;
-      next.lng = userCoords.lng;
-    }
     return next;
-  }, [query, filters, sortKey, userCoords, categoryActive, conditionActive, distanceActive]);
+  }, [query, filters, sortKey, categoryActive, conditionActive, distanceActive]);
 
   const loadResults = useCallback(async ({ silent = false, pageToLoad = 1, append = false } = {}) => {
+    let controller = null;
+    if (!append) {
+      searchAbortRef.current?.abort();
+      controller = new AbortController();
+      searchAbortRef.current = controller;
+    }
+    const requestOptions = controller ? { signal: controller.signal } : {};
+    const coords = userCoordsRef.current;
+    const requestParams = { ...queryParams, page: pageToLoad, limit: 20 };
+    if (coords.lat != null && coords.lng != null) {
+      requestParams.lat = coords.lat;
+      requestParams.lng = coords.lng;
+    }
     if (append) setLoadingMore(true);
-    else if (!silent) setLoading(true);
+    else {
+      setSearching(true);
+      if (!silent) setLoading(true);
+    }
 
-    const listingPromise = api.searchListings({ ...queryParams, page: pageToLoad, limit: 20 });
+    const listingPromise = api.searchListings(requestParams, requestOptions);
     const sellerPromise = append || !queryParams.q
       ? Promise.resolve(null)
-      : api.searchSellers({
-          ...queryParams,
-          nearby: queryParams.lat != null ? 'true' : undefined,
-        });
-    const [{ data, error }, sellerResult] = await Promise.all([listingPromise, sellerPromise]);
+      : api.searchSellers(
+          {
+            ...requestParams,
+            nearby: requestParams.lat != null ? 'true' : undefined,
+          },
+          requestOptions
+        );
+    const [listingResult, sellerResult] = await Promise.all([listingPromise, sellerPromise]);
+    if (controller?.signal?.aborted || listingResult?.aborted || sellerResult?.aborted) return;
+    const { data, error } = listingResult;
     const radiusKm = Number(queryParams.radius);
     const nextSellers = (sellerResult?.data?.sellers || []).filter((seller) => {
       if (!radiusKm) return true;
@@ -284,7 +308,10 @@ export default function SearchResultsScreen({ navigation, route }) {
     }
 
     if (append) setLoadingMore(false);
-    else if (!silent) setLoading(false);
+    else {
+      setSearching(false);
+      setLoading(false);
+    }
   }, [queryParams]);
 
   const { refreshing, onRefresh } = usePullRefresh(() =>
@@ -292,19 +319,25 @@ export default function SearchResultsScreen({ navigation, route }) {
   );
 
   const searchKey = JSON.stringify(queryParams);
+  loadResultsRef.current = loadResults;
+  hasListingsRef.current = listings.length > 0;
 
   useEffect(() => {
     if (!hasContext) {
+      searchAbortRef.current?.abort();
       listingsFpRef.current = '';
+      hasListingsRef.current = false;
       setListings([]);
       setSellers([]);
       setTotalResults(0);
       setLoading(false);
-      return;
+      setSearching(false);
+      return undefined;
     }
     const cached = readSearchMemory(searchKey);
-    if (cached) {
+    if (cached?.listings?.length) {
       listingsFpRef.current = catalogFingerprint(cached.listings || []);
+      hasListingsRef.current = true;
       setListings(cached.listings || []);
       setSellers(cached.sellers || []);
       setPage(cached.page || 1);
@@ -312,13 +345,14 @@ export default function SearchResultsScreen({ navigation, route }) {
       setTotalResults(cached.total || cached.listings?.length || 0);
       setMatchMode(cached.matchMode || 'all');
       setLoading(false);
-      loadResults({ silent: true, pageToLoad: 1, append: false });
-      return;
     }
-    listingsFpRef.current = '';
-    loadResults({ silent: false, pageToLoad: 1, append: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchKey, hasContext, loadResults]);
+    loadResultsRef.current({
+      silent: Boolean(cached?.listings?.length || hasListingsRef.current),
+      pageToLoad: 1,
+      append: false,
+    });
+    return undefined;
+  }, [searchKey, hasContext]);
 
   const loadMore = useCallback(() => {
     if (loading || loadingMore || !hasMore || scope === 'sellers') return;
@@ -326,7 +360,11 @@ export default function SearchResultsScreen({ navigation, route }) {
   }, [loading, loadingMore, hasMore, page, loadResults, scope]);
 
   const cards = useMemo(
-    () => listings.map(toCardItem).filter(Boolean).map((it) => attachDistanceToCard(it, userCoords)),
+    () => listings.map(toCardItem).filter(Boolean).map((it) => ({
+      ...attachDistanceToCard(it, userCoords),
+      condition: it.condition || it.listing?.condition || undefined,
+      postedAt: it.postedAt || it.listing?.createdAt || undefined,
+    })),
     [listings, userCoords],
   );
 
@@ -354,7 +392,6 @@ export default function SearchResultsScreen({ navigation, route }) {
     setScope('all');
     if (clean) setRecent(rememberSearch(clean));
     if (!sortTouchedRef.current) setSortKey(clean ? 'relevance' : 'distance');
-    if (!layoutTouchedRef.current) setLayout(clean ? 'list' : 'grid');
     Keyboard.dismiss();
     inputRef.current?.blur();
   }, []);
@@ -401,6 +438,7 @@ export default function SearchResultsScreen({ navigation, route }) {
     category: filters.category ?? 'All',
     condition: filters.condition ?? 'All',
     distance: distanceActive ? `Within ${filters.radiusKm} km` : 'All Distances',
+    radiusKm: distanceActive ? Number(filters.radiusKm) : null,
     sortBy: SHEET_SORT_LABELS[sortKey] || 'Nearest First',
     priceMin: filters.priceMin ?? PRICE_DEFAULT_MIN,
     priceMax: filters.priceMax ?? PRICE_DEFAULT_MAX,
@@ -414,16 +452,16 @@ export default function SearchResultsScreen({ navigation, route }) {
       style={[styles.chip, active && styles.chipActive]}
       onPress={() => setFiltersOpen(true)}
     >
-      <Ionicons name={icon} size={14} color={active ? colors.onPrimary : colors.textSecondary} />
+      <Icon name={icon} size={14} color={active ? colors.onPrimary : colors.textSecondary} />
       <Text style={[styles.chipText, active && styles.chipTextActive]} numberOfLines={1}>
         {label}
       </Text>
       {active ? (
         <Pressable hitSlop={8} onPress={() => clearFilter(key)}>
-          <Ionicons name="close-circle" size={15} color={colors.onPrimary} />
+          <Icon name="close-circle" size={15} color={colors.onPrimary} />
         </Pressable>
       ) : (
-        <Ionicons name="chevron-down" size={12} color={colors.textMuted} />
+        <Icon name="chevron-down" size={12} color={colors.textMuted} />
       )}
     </Pressable>
   );
@@ -470,12 +508,12 @@ export default function SearchResultsScreen({ navigation, route }) {
           <View style={styles.bannerTags}>
             {distance ? (
               <View style={styles.bannerPill}>
-                <Ionicons name="navigate" size={10} color={colors.white} />
+                <Icon name="navigate" size={10} color={colors.white} />
                 <Text style={styles.bannerPillText}>{distance}</Text>
               </View>
             ) : <View />}
             <View style={styles.bannerPill}>
-              <Ionicons name={isShop ? 'storefront' : 'person'} size={10} color={colors.white} />
+              <Icon name={isShop ? 'storefront' : 'person'} size={10} color={colors.white} />
               <Text style={styles.bannerPillText}>{isShop ? 'STORE' : 'SELLER'}</Text>
             </View>
           </View>
@@ -501,7 +539,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                 numberOfLines={1}
               />
               {seller.verified ? (
-                <Ionicons
+                <Icon
                   name={isShop ? 'shield-checkmark' : 'checkmark-circle'}
                   size={16}
                   color={isShop ? colors.success : colors.info}
@@ -525,18 +563,18 @@ export default function SearchResultsScreen({ navigation, route }) {
 
           <View style={styles.storeStats}>
             <View style={styles.statPill}>
-              <Ionicons name="star" size={12} color={colors.warning} />
+              <Icon name="star" size={12} color={colors.warning} />
               <Text style={styles.statText}>
                 {rating > 0 ? `${rating.toFixed(1)}${reviews ? ` (${reviews})` : ''}` : 'New'}
               </Text>
             </View>
             <View style={styles.statPill}>
-              <Ionicons name="cube-outline" size={12} color={accent} />
+              <Icon name="cube-outline" size={12} color={accent} />
               <Text style={styles.statText}>{seller.listingCount || 0} items</Text>
             </View>
             {seller.verificationLabel ? (
               <View style={styles.statPill}>
-                <Ionicons name="ribbon-outline" size={12} color={colors.success} />
+                <Icon name="ribbon-outline" size={12} color={colors.success} />
                 <Text style={styles.statText} numberOfLines={1}>{seller.verificationLabel}</Text>
               </View>
             ) : null}
@@ -561,7 +599,7 @@ export default function SearchResultsScreen({ navigation, route }) {
             <Text style={[styles.visitText, { color: accent }]}>
               {isShop ? 'Visit store' : 'View profile'}
             </Text>
-            <Ionicons name="arrow-forward" size={15} color={accent} />
+            <Icon name="arrow-forward" size={15} color={accent} />
           </View>
         </View>
       </Pressable>
@@ -576,27 +614,30 @@ export default function SearchResultsScreen({ navigation, route }) {
       .filter(Boolean)
       .join(' · ');
     return (
-      <Pressable
+      <View
         key={`row-${item.id}`}
-        style={({ pressed }) => [styles.productRow, bestMatch && styles.productRowBest, pressed && styles.pressed]}
+        style={[styles.productRow, bestMatch && styles.productRowBest]}
+      >
+      <Pressable
+        style={({ pressed }) => [styles.productRowMain, pressed && styles.pressed]}
         onPress={() => openProduct(item)}
       >
         <View style={styles.thumb}>
           {item.photo ? (
             <Image source={{ uri: item.photo }} style={styles.thumbImg} />
           ) : (
-            <Ionicons name={item.icon || 'cube-outline'} size={28} color={colors.textTertiary} />
+            <Icon name={item.icon || 'cube-outline'} size={28} color={colors.textTertiary} />
           )}
           {item.isFeatured ? (
             <View style={styles.featuredTag}>
-              <Ionicons name="flash" size={9} color={colors.onPrimary} />
+              <Icon name="flash" size={9} color={colors.onPrimary} />
             </View>
           ) : null}
         </View>
         <View style={styles.productBody}>
           {bestMatch ? (
             <View style={styles.bestTag}>
-              <Ionicons name="sparkles" size={10} color={colors.primary} />
+              <Icon name="sparkles" size={10} color={colors.primary} />
               <Text style={styles.bestTagText}>Best match</Text>
             </View>
           ) : null}
@@ -607,22 +648,22 @@ export default function SearchResultsScreen({ navigation, route }) {
             highlightStyle={highlight}
             numberOfLines={2}
           />
-          <Text style={styles.productPrice}>{item.price}</Text>
+          <Text style={styles.productPrice}>{cardPrice(item)}</Text>
           {place ? (
             <View style={styles.metaItem}>
-              <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+              <Icon name="location-outline" size={12} color={colors.textMuted} />
               <Text style={styles.metaText} numberOfLines={1}>{place}</Text>
             </View>
           ) : null}
           <View style={styles.metaItem}>
-            <Ionicons
+            <Icon
               name={isShop ? 'storefront-outline' : 'person-outline'}
               size={12}
               color={colors.textMuted}
             />
             <Text style={styles.metaText} numberOfLines={1}>{item.sellerName}</Text>
             {item.verificationKind ? (
-              <Ionicons
+              <Icon
                 name={item.verificationKind === 'business' ? 'shield-checkmark' : 'checkmark-circle'}
                 size={12}
                 color={item.verificationKind === 'business' ? colors.success : colors.info}
@@ -630,14 +671,15 @@ export default function SearchResultsScreen({ navigation, route }) {
             ) : null}
           </View>
         </View>
+      </Pressable>
         <Pressable hitSlop={10} style={styles.heartBtn} onPress={() => toggleFavorite(item.id)}>
-          <Ionicons
+          <Icon
             name={saved ? 'heart' : 'heart-outline'}
             size={18}
             color={saved ? colors.favorite : colors.textTertiary}
           />
         </Pressable>
-      </Pressable>
+      </View>
     );
   };
 
@@ -655,6 +697,7 @@ export default function SearchResultsScreen({ navigation, route }) {
             width={cardWidth}
             sharedId={item.id}
             onPress={() => openProduct(item)}
+            onToggleSave={() => toggleFavorite(item.id)}
           />
         ))}
       </View>
@@ -701,10 +744,10 @@ export default function SearchResultsScreen({ navigation, route }) {
           <View style={styles.recentWrap}>
             {recent.map((text) => (
               <Pressable key={text} style={styles.recentChip} onPress={() => submitSearch(text)}>
-                <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                <Icon name="time-outline" size={14} color={colors.textMuted} />
                 <Text style={styles.recentText} numberOfLines={1}>{text}</Text>
                 <Pressable hitSlop={8} onPress={() => setRecent(forgetSearch(text))}>
-                  <Ionicons name="close" size={14} color={colors.textTertiary} />
+                  <Icon name="close" size={14} color={colors.textTertiary} />
                 </Pressable>
               </Pressable>
             ))}
@@ -730,7 +773,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                     {cat.imageUrl ? (
                       <Image source={{ uri: cat.imageUrl }} style={styles.categoryImg} />
                     ) : (
-                      <Ionicons name={cat.icon || 'pricetag-outline'} size={22} color={tint} />
+                      <Icon name={cat.icon || 'pricetag-outline'} size={22} color={tint} />
                     )}
                   </View>
                   <Text style={styles.categoryLabel} numberOfLines={2}>{cat.label}</Text>
@@ -745,7 +788,7 @@ export default function SearchResultsScreen({ navigation, route }) {
         <View style={styles.block}>
           <View style={styles.blockHeader}>
             <View style={styles.blockTitleRow}>
-              <Ionicons name="flame" size={16} color={colors.favorite} />
+              <Icon name="flame" size={16} color={colors.favorite} />
               <Text style={styles.blockTitle}>Trending near you</Text>
             </View>
           </View>
@@ -761,14 +804,14 @@ export default function SearchResultsScreen({ navigation, route }) {
                   {item.photo ? (
                     <Image source={{ uri: item.photo }} style={styles.thumbImg} />
                   ) : (
-                    <Ionicons name={item.icon || 'cube-outline'} size={18} color={colors.textTertiary} />
+                    <Icon name={item.icon || 'cube-outline'} size={18} color={colors.textTertiary} />
                   )}
                 </View>
                 <View style={styles.flex}>
                   <Text style={styles.trendTitle} numberOfLines={1}>{item.title}</Text>
-                  <Text style={styles.trendPrice}>{item.price}</Text>
+                  <Text style={styles.trendPrice}>{cardPrice(item)}</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+                <Icon name="chevron-forward" size={16} color={colors.textTertiary} />
               </Pressable>
             ))}
           </View>
@@ -785,145 +828,6 @@ export default function SearchResultsScreen({ navigation, route }) {
       ) : null}
     </ScrollView>
   );
-
-  const renderSuggestions = () => {
-    const fresh = suggest.q === trimmedText;
-    const { suggestions, categories, stores } = fresh
-      ? suggest
-      : { suggestions: [], categories: [], stores: [] };
-    const nothing = fresh && !suggestLoading && !suggestions.length && !categories.length && !stores.length;
-    return (
-      <ScrollView
-        style={styles.flex}
-        contentContainerStyle={[styles.suggestPanel, { paddingBottom: insets.bottom + 32 }]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        showsVerticalScrollIndicator={false}
-      >
-        <Pressable
-          style={({ pressed }) => [styles.searchForRow, pressed && styles.pressed]}
-          onPress={() => submitSearch(trimmedText)}
-        >
-          <View style={styles.searchForIcon}>
-            <Ionicons name="search" size={16} color={colors.onPrimary} />
-          </View>
-          <Text style={styles.searchForText} numberOfLines={1}>
-            Search for <Text style={styles.searchForQuery}>“{trimmedText}”</Text>
-          </Text>
-          <Ionicons name="arrow-forward" size={18} color={colors.primary} />
-        </Pressable>
-
-        {stores.length > 0 ? (
-          <View style={styles.suggestGroup}>
-            <Text style={styles.suggestGroupTitle}>Stores</Text>
-            {stores.map((store) => {
-              const logo = resolveMediaUrl(store.logo || '');
-              return (
-                <Pressable
-                  key={`store-${store.id}`}
-                  style={({ pressed }) => [styles.suggestRow, pressed && styles.pressed]}
-                  onPress={() => navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: store.id })}
-                >
-                  <View style={styles.suggestStoreLogo}>
-                    {logo ? (
-                      <Image source={{ uri: logo }} style={styles.sellerAvatarImg} />
-                    ) : (
-                      <Ionicons name="storefront" size={16} color={colors.primary} />
-                    )}
-                  </View>
-                  <View style={styles.flex}>
-                    <View style={styles.sellerNameRow}>
-                      <HighlightText
-                        text={store.name}
-                        query={trimmedText}
-                        style={styles.suggestText}
-                        highlightStyle={styles.suggestHighlight}
-                        numberOfLines={1}
-                      />
-                      {store.isVerified ? (
-                        <Ionicons name="shield-checkmark" size={13} color={colors.success} />
-                      ) : null}
-                    </View>
-                    <Text style={styles.suggestSub} numberOfLines={1}>
-                      Store{store.category ? ` · ${store.category}` : ''}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {categories.length > 0 ? (
-          <View style={styles.suggestGroup}>
-            {categories.map((cat) => (
-              <Pressable
-                key={`cat-${cat.name}`}
-                style={({ pressed }) => [styles.suggestRow, pressed && styles.pressed]}
-                onPress={() => submitSearch(trimmedText, { category: cat.name })}
-              >
-                <View style={styles.suggestIcon}>
-                  <Ionicons name="grid-outline" size={15} color={colors.primary} />
-                </View>
-                <Text style={styles.suggestText} numberOfLines={1}>
-                  {trimmedText} <Text style={styles.suggestIn}>in {cat.name}</Text>
-                </Text>
-                <Text style={styles.suggestCount}>{cat.count}</Text>
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
-
-        {suggestions.length > 0 ? (
-          <View style={styles.suggestGroup}>
-            {suggestions.map((item) => {
-              const photo = item.photo ? resolveMediaUrl(item.photo) : '';
-              return (
-                <Pressable
-                  key={`sg-${item.text}`}
-                  style={({ pressed }) => [styles.suggestRow, pressed && styles.pressed]}
-                  onPress={() => submitSearch(item.text)}
-                >
-                  <View style={styles.suggestIcon}>
-                    {photo ? (
-                      <Image source={{ uri: photo }} style={styles.suggestPhoto} />
-                    ) : (
-                      <Ionicons name="search-outline" size={15} color={colors.textMuted} />
-                    )}
-                  </View>
-                  <HighlightText
-                    text={item.text}
-                    query={trimmedText}
-                    style={[styles.suggestText, styles.flex]}
-                    highlightStyle={styles.suggestHighlight}
-                    numberOfLines={1}
-                  />
-                  <Pressable
-                    hitSlop={10}
-                    style={styles.fillBtn}
-                    onPress={() => setSearchText(`${item.text} `)}
-                  >
-                    <Ionicons name="arrow-up" size={16} color={colors.textTertiary} style={styles.fillIcon} />
-                  </Pressable>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-
-        {!fresh || (suggestLoading && !suggestions.length) ? (
-          <ActivityIndicator style={styles.suggestSpinner} color={colors.primary} />
-        ) : null}
-
-        {nothing ? (
-          <Text style={styles.suggestEmpty}>
-            No quick matches. Tap search to look through everything.
-          </Text>
-        ) : null}
-      </ScrollView>
-    );
-  };
 
   const renderEmptyResults = () => (
     <View style={styles.emptyWrap}>
@@ -947,7 +851,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                 style={styles.recentChip}
                 onPress={() => submitSearch('', { category: cat.label })}
               >
-                <Ionicons name={cat.icon || 'pricetag-outline'} size={14} color={cat.tint || colors.primary} />
+                <Icon name={cat.icon || 'pricetag-outline'} size={14} color={cat.tint || colors.primary} />
                 <Text style={styles.recentText}>{cat.label}</Text>
               </Pressable>
             ))}
@@ -977,7 +881,7 @@ export default function SearchResultsScreen({ navigation, route }) {
               </Text>
             </View>
             <Pressable style={styles.sortPill} onPress={() => setSortOpen(true)}>
-              <Ionicons name="swap-vertical" size={14} color={colors.text} />
+              <Icon name="swap-vertical" size={14} color={colors.text} />
               <Text style={styles.sortPillText} numberOfLines={1}>{sortLabel}</Text>
             </Pressable>
             <Pressable
@@ -988,7 +892,7 @@ export default function SearchResultsScreen({ navigation, route }) {
               }}
               hitSlop={6}
             >
-              <Ionicons
+              <Icon
                 name={layout === 'list' ? 'grid-outline' : 'list-outline'}
                 size={18}
                 color={colors.text}
@@ -1045,27 +949,31 @@ export default function SearchResultsScreen({ navigation, route }) {
           style={styles.flex}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          refreshControl={refreshControl(colors, refreshing, onRefresh)}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
+          refreshControl={refreshControl(colors, refreshing, onRefresh, !inputFocused)}
+          scrollEventThrottle={100}
+          onScroll={(event) => {
+            if (showProducts && hasMore && isNearEnd(event, 900)) loadMore();
+          }}
         >
           {!hasLocationPerm ? (
             <View style={styles.notice}>
-              <Ionicons name="location-outline" size={15} color={colors.primary} />
+              <Icon name="location-outline" size={15} color={colors.primary} />
               <Text style={styles.noticeText}>Turn on location to see the nearest items first.</Text>
             </View>
           ) : null}
 
           {!loading && matchMode === 'partial' && totalResults > 0 ? (
             <View style={[styles.notice, styles.noticeWarn]}>
-              <Ionicons name="information-circle-outline" size={15} color={colors.warning} />
+              <Icon name="information-circle-outline" size={15} color={colors.warning} />
               <Text style={styles.noticeText}>
                 No exact match for “{query}”. Showing close matches.
               </Text>
             </View>
           ) : null}
 
-          {loading ? renderLoading() : visibleCount === 0 ? renderEmptyResults() : (
+          {loading || (trimmedText.length >= MIN_SEARCH_CHARS && trimmedText !== query) ? renderLoading() : visibleCount === 0 ? renderEmptyResults() : (
             <>
               {showSellers && sellerList.length > 0 ? (
                 <View style={styles.resultBlock}>
@@ -1107,16 +1015,14 @@ export default function SearchResultsScreen({ navigation, route }) {
                 </View>
               ) : null}
 
-              {showProducts && hasMore ? (
-                <Pressable style={styles.loadMoreBtn} onPress={loadMore} disabled={loadingMore}>
-                  {loadingMore ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
-                  ) : (
-                    <>
-                      <Text style={styles.loadMoreText}>Show more results</Text>
-                      <Ionicons name="chevron-down" size={16} color={colors.primary} />
-                    </>
-                  )}
+              {showProducts && loadingMore ? (
+                <View style={styles.loadMoreSpinner}>
+                  <ActivityIndicator size="small" color={colors.primary} />
+                </View>
+              ) : showProducts && hasMore ? (
+                <Pressable style={styles.loadMoreBtn} onPress={loadMore}>
+                  <Text style={styles.loadMoreText}>Show more results</Text>
+                  <Icon name="chevron-down" size={16} color={colors.primary} />
                 </Pressable>
               ) : null}
             </>
@@ -1137,11 +1043,11 @@ export default function SearchResultsScreen({ navigation, route }) {
       >
         <View style={styles.headerRow}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.back}>
-            <Ionicons name="chevron-back" size={22} color={colors.onGradient} />
+            <Icon name="chevron-back" size={22} color={colors.onGradient} />
           </Pressable>
 
-          <View style={[styles.searchBar, inputFocused && styles.searchBarFocused]}>
-            <Ionicons name="search" size={18} color={inputFocused ? colors.primary : colors.textMuted} />
+          <View style={[styles.searchBar, inputFocused && styles.searchBarFocused]} collapsable={false}>
+            <Icon name="search" size={18} color={inputFocused ? colors.primary : colors.textMuted} />
             <TextInput
               ref={inputRef}
               value={searchText}
@@ -1149,22 +1055,41 @@ export default function SearchResultsScreen({ navigation, route }) {
               onFocus={() => setInputFocused(true)}
               onBlur={handleBlur}
               style={styles.searchInput}
-              placeholder="Search items, stores, sellers"
+              placeholder="Search anything"
               placeholderTextColor={colors.textTertiary}
               numberOfLines={1}
               returnKeyType="search"
               autoCorrect={false}
+              spellCheck={false}
+              blurOnSubmit={false}
               onSubmitEditing={() => submitSearch(searchText)}
             />
             {searchText.length > 0 ? (
+              <View style={styles.inputSpinner} pointerEvents="none">
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  animating={searching || (trimmedText.length >= MIN_SEARCH_CHARS && trimmedText !== query)}
+                  style={{ opacity: searching || (trimmedText.length >= MIN_SEARCH_CHARS && trimmedText !== query) ? 1 : 0 }}
+                />
+              </View>
+            ) : null}
+            {searchText.length > 0 ? (
               <Pressable onPress={clearInput} hitSlop={8}>
-                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                <Icon name="close-circle" size={18} color={colors.textMuted} />
               </Pressable>
             ) : null}
+            <VoiceSearchButton
+              color={colors.textMuted}
+              onResult={(text, isFinal) => {
+                setSearchText(text);
+                if (isFinal) submitSearch(text);
+              }}
+            />
           </View>
 
           <Pressable style={styles.filterIconBtn} onPress={() => setFiltersOpen(true)}>
-            <Ionicons name="options-outline" size={20} color={colors.primary} />
+            <Icon name="options-outline" size={20} color={colors.primary} />
             {activeFilterCount > 0 ? (
               <View style={styles.filterBadge}>
                 <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
@@ -1174,7 +1099,7 @@ export default function SearchResultsScreen({ navigation, route }) {
         </View>
       </LinearGradient>
 
-      {showSuggestions ? renderSuggestions() : showDiscovery ? renderDiscovery() : null}
+      {showDiscovery ? renderDiscovery() : null}
       {showResults ? renderResults() : null}
 
       <FilterBottomSheet
@@ -1215,12 +1140,12 @@ export default function SearchResultsScreen({ navigation, route }) {
                   }}
                 >
                   <View style={[styles.sortIcon, active && styles.sortIconActive]}>
-                    <Ionicons name={option.icon} size={16} color={active ? colors.onPrimary : colors.textSecondary} />
+                    <Icon name={option.icon} size={16} color={active ? colors.onPrimary : colors.textSecondary} />
                   </View>
                   <Text style={[styles.sortOptionText, active && styles.sortOptionTextActive]}>
                     {option.label}
                   </Text>
-                  {active ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} /> : null}
+                  {active ? <Icon name="checkmark-circle" size={20} color={colors.primary} /> : null}
                 </Pressable>
               );
             })}
@@ -1278,9 +1203,18 @@ const createStyles = (colors) => ({
   },
   searchInput: {
     flex: 1,
+    alignSelf: 'stretch',
     fontSize: 15,
     color: colors.text,
     paddingVertical: 0,
+    textAlignVertical: 'center',
+    includeFontPadding: false,
+  },
+  inputSpinner: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterIconBtn: {
     width: 46,
@@ -1735,12 +1669,18 @@ const createStyles = (colors) => ({
   },
   productRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
     padding: 10,
     borderRadius: 16,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  productRowMain: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 12,
   },
   productRowBest: {
     borderColor: colors.primary,
@@ -1991,6 +1931,10 @@ const createStyles = (colors) => ({
   visitText: {
     fontSize: 13,
     fontWeight: '800',
+  },
+  loadMoreSpinner: {
+    paddingVertical: 16,
+    alignItems: 'center',
   },
   loadMoreBtn: {
     flexDirection: 'row',

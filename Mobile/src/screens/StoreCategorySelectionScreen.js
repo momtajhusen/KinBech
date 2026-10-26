@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Image,
@@ -142,7 +142,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
     try {
       // Preference-only update — do not mark profile complete yet
       const { data, error } = await api.updateMe({
-        sellerTypePreference: 'shop',
+        sellerTypePreference: route.params?.preference === 'both' ? 'both' : 'shop',
         storeCategory: selectedCategory,
       });
       
@@ -158,7 +158,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, navigation, saveSession, route.params?.fromSettings]);
+  }, [selectedCategory, navigation, saveSession, route.params?.fromSettings, route.params?.preference]);
 
   const handleBack = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -177,7 +177,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
       >
         <View style={styles.headerTop}>
           <Pressable onPress={handleBack} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
+            <Icon name="chevron-back" size={24} color={colors.onGradient} />
           </Pressable>
           <View style={{ flex: 1 }} />
         </View>
@@ -212,7 +212,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
                 {category.imageUrl ? (
                   <Image source={{ uri: category.imageUrl }} style={{ width: 24, height: 24, borderRadius: 6 }} />
                 ) : (
-                  <Ionicons
+                  <Icon
                     name={category.icon}
                     size={24}
                     color={selectedCategory === category.label ? colors.onPrimary : colors.primary}

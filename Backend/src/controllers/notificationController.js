@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
+const { messagingClient } = require('../utils/callPush');
 
 const MEETUP_TITLE = /meetup/i;
 
@@ -142,63 +143,171 @@ async function markAllAsRead(req, res, next) {
   }
 }
 
-async function createBroadcastNotification(req, res, next) {
-  try {
-    const { title, message, audience, deliveryMethod } = req.body;
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
-    if (!title || !message) {
-      return res.status(400).json({ message: 'Title and message are required' });
+function broadcastPayload(doc, status) {
+  return {
+    id: doc._id,
+    title: doc.title,
+    message: doc.message || doc.body,
+    audience: doc.audience,
+    city: doc.city || '',
+    deliveryMethod: doc.deliveryMethod,
+    sentAt: doc.createdAt,
+    status: status || doc.broadcastStatus || 'sent',
+    sender: doc.sender ? { name: doc.sender.name } : null,
+  };
+}
+
+async function audienceFilter(audience, city) {
+  const userFilter = { role: 'user', status: { $ne: 'suspended' } };
+  if (audience === 'individual_sellers') {
+    userFilter.sellerTypePreference = { $in: ['individual', 'both'] };
+  } else if (audience === 'shop_sellers') {
+    userFilter.sellerTypePreference = { $in: ['shop', 'both'] };
+  } else if (audience === 'buyers') {
+    userFilter.sellerTypePreference = 'individual';
+    userFilter.soldCount = 0;
+  } else if (audience === 'specific_city') {
+    const place = String(city || '').trim();
+    if (!place) {
+      const error = new Error('City is required for a city audience');
+      error.status = 400;
+      throw error;
     }
+    userFilter.location = new RegExp(escapeRegex(place), 'i');
+  }
+  return userFilter;
+}
 
-    // Create a broadcast notification record (for admin tracking)
-    const broadcast = await Notification.create({
-      type: 'broadcast',
-      title,
-      body: message, // Store in body field
-      message: message, // Also store in message for compatibility
-      audience: audience || 'all',
-      deliveryMethod: deliveryMethod || 'both',
-      sender: req.user._id,
-      createdAt: new Date(),
-    });
+async function pushBroadcast(users, title, message) {
+  const messaging = messagingClient();
+  if (!messaging) return 0;
+  const tokens = users
+    .filter((user) => user.fcmToken && user.preferences?.notifications !== false)
+    .map((user) => user.fcmToken);
+  let sent = 0;
+  for (let i = 0; i < tokens.length; i += 500) {
+    const chunk = tokens.slice(i, i + 500);
+    const result = await messaging.sendEachForMulticast({
+      tokens: chunk,
+      notification: { title, body: message },
+      data: { type: 'broadcast', title, body: message },
+    }).catch(() => null);
+    sent += result?.successCount || 0;
+  }
+  return sent;
+}
 
-    const targetAudience = audience || 'all';
-    const userFilter = { role: 'user', status: { $ne: 'suspended' } };
-    if (targetAudience === 'individual_sellers') {
-      userFilter.sellerTypePreference = { $in: ['individual', 'both'] };
-    } else if (targetAudience === 'shop_sellers') {
-      userFilter.sellerTypePreference = { $in: ['shop', 'both'] };
-    }
-
-    const users = await User.find(userFilter).select('_id').limit(2000).lean();
+async function deliverBroadcast(master, users) {
+  const method = master.deliveryMethod || 'both';
+  const title = master.title;
+  const message = master.message || master.body;
+  if (method === 'banner' || method === 'both') {
     if (users.length) {
       await Notification.insertMany(
-        users.map((u) => ({
-          user: u._id,
+        users.map((user) => ({
+          user: user._id,
           type: 'broadcast',
           title,
           body: message,
           message,
           icon: 'megaphone-outline',
           unread: true,
-          audience: targetAudience,
-          deliveryMethod: deliveryMethod || 'both',
-          sender: req.user._id,
+          audience: master.audience,
+          deliveryMethod: method,
+          broadcastStatus: 'sent',
+          city: master.city || '',
+          sender: master.sender,
         }))
       );
     }
+  }
+  if (method === 'push' || method === 'both') {
+    await pushBroadcast(users, title, message);
+  }
+}
 
-    res.status(201).json({ 
-      message: 'Broadcast notification created successfully',
-      broadcast: {
-        id: broadcast._id,
-        title: broadcast.title,
-        message: broadcast.message || broadcast.body,
-        audience: broadcast.audience,
-        deliveryMethod: broadcast.deliveryMethod,
-        createdAt: broadcast.createdAt,
-      }
+async function createBroadcastNotification(req, res, next) {
+  try {
+    const { title, message, audience, deliveryMethod, city, id } = req.body;
+    const saveAsDraft = Boolean(req.body.saveAsDraft);
+
+    if (!title || !message) {
+      return res.status(400).json({ message: 'Title and message are required' });
+    }
+
+    const targetAudience = audience || 'all';
+    const allowedAudiences = ['all', 'buyers', 'individual_sellers', 'shop_sellers', 'specific_city'];
+    if (!allowedAudiences.includes(targetAudience)) {
+      return res.status(400).json({ message: 'Invalid audience' });
+    }
+    if (targetAudience === 'specific_city' && !String(city || '').trim() && !saveAsDraft) {
+      return res.status(400).json({ message: 'City is required for a city audience' });
+    }
+
+    const fields = {
+      type: 'broadcast',
+      title: String(title).trim(),
+      body: message,
+      message,
+      audience: targetAudience,
+      city: String(city || '').trim(),
+      deliveryMethod: deliveryMethod || 'both',
+      sender: req.user._id,
+      user: null,
+      broadcastStatus: saveAsDraft ? 'draft' : 'sent',
+    };
+
+    let broadcast;
+    if (id) {
+      broadcast = await Notification.findOne({ _id: id, type: 'broadcast', user: null });
+      if (!broadcast) return res.status(404).json({ message: 'Broadcast not found' });
+      Object.assign(broadcast, fields);
+      await broadcast.save();
+    } else {
+      broadcast = await Notification.create(fields);
+    }
+
+    if (!saveAsDraft) {
+      const users = await User.find(await audienceFilter(targetAudience, fields.city))
+        .select('_id fcmToken preferences')
+        .limit(2000)
+        .lean();
+      await deliverBroadcast(broadcast, users);
+    }
+
+    res.status(id ? 200 : 201).json({
+      message: saveAsDraft ? 'Draft saved' : 'Broadcast notification sent',
+      broadcast: broadcastPayload(broadcast, broadcast.broadcastStatus),
     });
+  } catch (error) {
+    if (error.status === 400) return res.status(400).json({ message: error.message });
+    next(error);
+  }
+}
+
+async function deleteBroadcastNotification(req, res, next) {
+  try {
+    const doc = await Notification.findOne({
+      _id: req.params.id,
+      type: 'broadcast',
+      user: null,
+    });
+    if (!doc) return res.status(404).json({ message: 'Broadcast not found' });
+    await Notification.deleteMany({
+      type: 'broadcast',
+      sender: doc.sender,
+      title: doc.title,
+      message: doc.message,
+      createdAt: {
+        $gte: new Date(doc.createdAt.getTime() - 2000),
+        $lte: new Date(doc.createdAt.getTime() + 120000),
+      },
+    });
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -210,7 +319,9 @@ async function getBroadcastNotifications(req, res, next) {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     const skip = (page - 1) * limit;
 
-    const filter = { type: 'broadcast' };
+    const filter = { type: 'broadcast', user: null };
+    if (req.query.status === 'draft') filter.broadcastStatus = 'draft';
+    else filter.broadcastStatus = { $ne: 'draft' };
 
     const [total, docs] = await Promise.all([
       Notification.countDocuments(filter),
@@ -223,16 +334,7 @@ async function getBroadcastNotifications(req, res, next) {
     ]);
 
     res.json({
-      broadcasts: docs.map(b => ({
-        id: b._id,
-        title: b.title,
-        message: b.message || b.body,
-        audience: b.audience,
-        deliveryMethod: b.deliveryMethod,
-        sentAt: b.createdAt,
-        status: 'sent',
-        sender: b.sender ? { name: b.sender.name } : null
-      })),
+      broadcasts: docs.map((b) => broadcastPayload(b)),
       total,
       page,
       totalPages: Math.ceil(total / limit)
@@ -249,5 +351,6 @@ module.exports = {
   deleteNotification,
   clearNotifications,
   createBroadcastNotification,
+  deleteBroadcastNotification,
   getBroadcastNotifications,
 };

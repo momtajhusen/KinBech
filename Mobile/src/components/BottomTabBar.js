@@ -1,8 +1,12 @@
-import { useEffect, useRef } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { Animated, BackHandler, Pressable, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import Icon from './Icon';
+import { Animated, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme, useThemedStyles } from '../theme';
+
+/** Mounted in the background after Home settles, so the first tap shows the screen at once.
+ *  Post is left out: its form may ask for location permission when it mounts. */
+const PRELOAD_TABS = ['Explore', 'Chats', 'Profile'];
 
 const ICONS = {
   Home: { outline: 'home-outline', filled: 'home' },
@@ -79,7 +83,7 @@ function TabItem({ isFocused, isPost, icon, label, colors, styles, onPress, show
             },
           ]}
         >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
+          <Icon name="add" size={28} color="#FFFFFF" />
         </Animated.View>
         <Text style={[styles.label, isFocused && styles.labelActive]}>{label}</Text>
       </Pressable>
@@ -90,7 +94,7 @@ function TabItem({ isFocused, isPost, icon, label, colors, styles, onPress, show
     <Pressable onPress={handlePress} onPressIn={pressIn} onPressOut={pressOut} style={styles.item}>
       <Animated.View style={[styles.iconWrap, { transform: [{ scale: pressScale }] }]}>
         <Animated.View style={{ transform: [{ scale: iconScale }] }}>
-          <Ionicons
+          <Icon
             name={isFocused ? icon.filled : icon.outline}
             size={22}
             color={isFocused ? colors.link : colors.tabBarInactive}
@@ -182,25 +186,34 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const [pendingIndex, setPendingIndex] = useState(null);
 
   useEffect(() => {
-    const onBack = () => {
-      const parentState = navigation.getParent()?.getState?.();
-      if (parentState && parentState.index > 0) return false;
+    setPendingIndex(null);
+  }, [state?.index]);
 
-      const homeIndex = state?.routes?.findIndex((route) => route.name === 'Home') ?? -1;
-      if (homeIndex >= 0 && state.index !== homeIndex) {
-        navigation.navigate('Home');
-      }
-      return true;
+  useEffect(() => {
+    if (typeof navigation?.preload !== 'function') return undefined;
+    const timers = [];
+    const idleIds = [];
+    PRELOAD_TABS.forEach((name, i) => {
+      timers.push(
+        setTimeout(() => {
+          idleIds.push(requestIdleCallback(() => navigation.preload(name), { timeout: 1500 }));
+        }, 800 + i * 700)
+      );
+    });
+    return () => {
+      timers.forEach(clearTimeout);
+      idleIds.forEach((id) => cancelIdleCallback(id));
     };
-    const subscription = BackHandler.addEventListener('hardwareBackPress', onBack);
-    return () => subscription.remove();
-  }, [navigation, state.index, state.routes]);
+  }, [navigation]);
 
   if (!state?.routes) {
     return null;
   }
+
+  const shownIndex = pendingIndex ?? state.index;
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
@@ -218,14 +231,15 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
           });
 
           if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(route.name);
+            setPendingIndex(index);
+            requestAnimationFrame(() => navigation.navigate(route.name));
           }
         };
 
         return (
           <TabItem
             key={route.key}
-            isFocused={isFocused}
+            isFocused={shownIndex === index}
             isPost={route.name === 'Post'}
             icon={icon}
             label={label}

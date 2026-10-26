@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { createReview, getShopReviews, getUserReviews, getMyReviews, getAllReviews, updateReviewStatus } = require('../controllers/reviewController');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireScope } = require('../middleware/auth');
+const { auditRoute } = require('../utils/audit');
 
 const router = Router();
 
@@ -11,7 +12,7 @@ router.get('/shop/:shopId', getShopReviews);
 router.get('/user/:userId', getUserReviews);
 
 // Admin routes
-router.get('/admin/all', requireAdmin, getAllReviews);
-router.patch('/admin/:reviewId/status', requireAdmin, updateReviewStatus);
+router.get('/admin/all', requireScope('reviews'), getAllReviews);
+router.patch('/admin/:reviewId/status', requireScope('reviews'), auditRoute('reviews.status.update', { targetType: 'review', param: 'reviewId' }), updateReviewStatus);
 
 module.exports = router;

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Icon from '../components/Icon';
+import * as Location from 'expo-location';
 import { useFocusEffect } from '@react-navigation/native';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -16,13 +17,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
-import ScreenLoader from '../components/ScreenLoader';
-import { INDIVIDUAL_GRADIENT } from '../components/SellerProfileCard';
-import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import ProductCard from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/SkeletonLoader';
+import { isNearEnd } from '../utils/scroll';
+import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
+import { haversineKm } from '../utils/locations';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
-import { useWishlist } from '../context/WishlistContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import pinnedStoresUtils from '../utils/pinnedStores';
 
 const STATUS_TABS = [
   { key: 'active', label: 'Active' },
@@ -35,6 +38,24 @@ const SORTS = [
   { key: 'price_low', label: 'Price ↑' },
   { key: 'price_high', label: 'Price ↓' },
 ];
+
+const SELLER_PAGE = 30;
+
+function fetchSellerListings(sellerId, page) {
+  return api.getListings({
+    status: 'all',
+    page,
+    limit: SELLER_PAGE,
+    seller: sellerId,
+    sellerType: 'individual',
+  });
+}
+
+function mergeById(prev, incoming) {
+  const byId = new Map(prev.map((item) => [String(item._id || item.id), item]));
+  incoming.forEach((item) => byId.set(String(item._id || item.id), item));
+  return [...byId.values()];
+}
 
 export default function SellerProfileScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
@@ -51,8 +72,38 @@ export default function SellerProfileScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('active');
   const [sortKey, setSortKey] = useState('newest');
-  const { isSaved, toggle } = useWishlist();
   const [chatBusy, setChatBusy] = useState(false);
+  const [userCoords, setUserCoords] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pagingRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          const asked = await Location.requestForegroundPermissionsAsync();
+          status = asked.status;
+        }
+        if (status !== 'granted' || !active) return;
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords && active) {
+          setUserCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
+        }
+        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (current?.coords && active) {
+          setUserCoords({ lat: current.coords.latitude, lng: current.coords.longitude });
+        }
+      } catch {
+        // Distance stays hidden when location is unavailable.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadSeller = useCallback(
     async ({ silent } = {}) => {
@@ -61,31 +112,55 @@ export default function SellerProfileScreen({ navigation, route }) {
         return;
       }
       if (!silent) setLoading(true);
-      const sellerRes = await api.getSeller(sellerId);
+      const guessId = String(initialSeller?.userId || sellerId);
+      const wantsListings = initialSeller?.sellerType !== 'shop' && !initialSeller?.shopId;
+      const [sellerRes, guessRes] = await Promise.all([
+        api.getSeller(sellerId),
+        wantsListings ? fetchSellerListings(guessId, 1) : Promise.resolve(null),
+      ]);
       const sellerData = sellerRes.data?.seller;
       if (sellerData) setSeller(sellerData);
 
       if (sellerData?.sellerType !== 'shop') {
-        const res = await api.getListings({
-          status: 'all',
-          page: 1,
-          limit: 50,
-          seller: String(sellerData?.userId || sellerId),
-          sellerType: 'individual',
-        });
-        setListings(Array.isArray(res.data?.listings) ? res.data.listings : []);
+        const ownerId = String(sellerData?.userId || sellerId);
+        const res = guessRes && ownerId === guessId ? guessRes : await fetchSellerListings(ownerId, 1);
+        const incoming = Array.isArray(res.data?.listings) ? res.data.listings : [];
+        const paging = pagingRef.current;
+        if (paging?.ownerId === ownerId && paging.page > 1) {
+          setListings((prev) => mergeById(prev, incoming));
+        } else {
+          setListings(incoming);
+          pagingRef.current = { ownerId, page: 1, hasMore: Boolean(res.data?.hasMore) };
+        }
       }
       setLoading(false);
     },
-    [sellerId]
+    [sellerId, initialSeller]
   );
+
+  const loadMoreListings = useCallback(async () => {
+    const paging = pagingRef.current;
+    if (loadingMoreRef.current || !paging?.hasMore) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const res = await fetchSellerListings(paging.ownerId, paging.page + 1);
+    if (!res.error && Array.isArray(res.data?.listings)) {
+      pagingRef.current = { ...paging, page: paging.page + 1, hasMore: Boolean(res.data.hasMore) };
+      setListings((prev) => mergeById(prev, res.data.listings));
+    }
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+  }, []);
 
   const { refreshing, onRefresh } = usePullRefresh(() => loadSeller({ silent: true }));
 
   useFocusEffect(
     useCallback(() => {
       loadSeller();
-    }, [loadSeller])
+      if (sellerId && initialSeller?.sellerType !== 'shop' && !initialSeller?.shopId) {
+        pinnedStoresUtils.incrementUsage(sellerId).catch(() => {});
+      }
+    }, [loadSeller, sellerId, initialSeller])
   );
 
   useEffect(() => {
@@ -108,7 +183,7 @@ export default function SellerProfileScreen({ navigation, route }) {
         <ThemeStatusBar variant="header" />
         <View style={[styles.header, { paddingTop: insets.top + 8, paddingBottom: 16 }]}>
           <Pressable style={styles.headerBtn} onPress={() => navigation.goBack()}>
-            <Ionicons name="chevron-back" size={20} color="#fff" />
+            <Icon name="chevron-back" size={22} color={colors.text} />
           </Pressable>
         </View>
         <EmptyState compact icon="person-outline" title="Seller not found" body="This profile is unavailable right now." />
@@ -122,7 +197,13 @@ export default function SellerProfileScreen({ navigation, route }) {
   const activeCount = seller?.activeCount ?? listings.filter((l) => l.status === 'active').length;
   const soldCount = seller?.soldCount ?? listings.filter((l) => l.status === 'sold').length;
   const sinceYear = seller?.memberSince ? new Date(seller.memberSince).getFullYear() : null;
-  const cardWidth = (width - 32 - 8) / 2;
+  const cardWidth = Math.floor((width - 28 - 8) / 2);
+  const placeText = String(seller?.location || '').trim();
+  const sellerPoint = seller?.coordinates || {};
+  const hasCoords = Number.isFinite(Number(sellerPoint.lat)) && Number.isFinite(Number(sellerPoint.lng));
+  const distanceLabel = hasCoords && userCoords
+    ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, Number(sellerPoint.lat), Number(sellerPoint.lng)))
+    : null;
 
   const startChat = async () => {
     if (chatBusy || !userId) return;
@@ -140,11 +221,6 @@ export default function SellerProfileScreen({ navigation, route }) {
     });
   };
 
-  const toggleWish = (listing) => {
-    const id = String(listing._id || listing.id || '');
-    if (id) toggle(id);
-  };
-
   const stats = [
     { label: 'Active', value: activeCount, icon: 'grid-outline' },
     { label: 'Sold', value: soldCount, icon: 'bag-check-outline' },
@@ -154,77 +230,100 @@ export default function SellerProfileScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+        <View style={styles.headerBar}>
+          <Pressable style={styles.headerBtn} onPress={() => navigation.goBack()} hitSlop={10}>
+            <Icon name="chevron-back" size={22} color={colors.text} />
+          </Pressable>
+          <View style={styles.flex1} />
+          {!isMe ? (
+            <Pressable
+              style={styles.headerBtn}
+              hitSlop={10}
+              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId })}
+            >
+              <Icon name="ellipsis-horizontal" size={18} color={colors.text} />
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.profileRow}>
+          <View style={styles.avatar}>
+            {seller?.avatarUrl ? (
+              <Image source={{ uri: resolveMediaUrl(seller.avatarUrl) }} style={styles.fillImage} />
+            ) : (
+              <Icon name="person" size={22} color={colors.primary} />
+            )}
+          </View>
+          <View style={styles.flex1}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {seller?.name || 'Seller'}
+              </Text>
+              {verified ? <Icon name="shield-checkmark" size={16} color={colors.primary} /> : null}
+            </View>
+            <View style={styles.badges}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>INDIVIDUAL</Text>
+              </View>
+              {verified ? <Text style={styles.verifiedText}>Phone verified</Text> : null}
+            </View>
+            {placeText || distanceLabel ? (
+              <View style={styles.locationRow}>
+                <Icon name="location-outline" size={14} color={colors.textMuted} />
+                {placeText ? (
+                  <Text style={styles.locationText} numberOfLines={1}>{placeText}</Text>
+                ) : null}
+                {distanceLabel ? (
+                  <Text style={styles.distanceText}>{placeText ? `· ${distanceLabel}` : distanceLabel}</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </View>
+
+        <View style={styles.actionsRow}>
+          {isMe ? (
+            <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={() => navigation.navigate(ROUTES.EDIT_PROFILE)}>
+              <Icon name="create-outline" size={18} color="#fff" />
+              <Text style={styles.actionPrimaryText}>Edit profile</Text>
+            </Pressable>
+          ) : (
+            <>
+              <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={startChat}>
+                <Icon name="chatbubble-ellipses-outline" size={18} color="#fff" />
+                <Text style={styles.actionPrimaryText}>{chatBusy ? 'Opening…' : 'Chat'}</Text>
+              </Pressable>
+              {seller?.phone ? (
+                <Pressable
+                  style={[styles.actionBtn, styles.actionCall]}
+                  onPress={() => Linking.openURL(`tel:${seller.phone}`).catch(() => {})}
+                >
+                  <Icon name="call-outline" size={18} color="#fff" />
+                  <Text style={styles.actionPrimaryText}>Call</Text>
+                </Pressable>
+              ) : null}
+            </>
+          )}
+        </View>
+      </View>
+
       <ScrollView
+        style={styles.flex1}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        scrollEventThrottle={100}
+        onScroll={(event) => {
+          if (isNearEnd(event, 800)) loadMoreListings();
+        }}
       >
-        <LinearGradient
-          colors={INDIVIDUAL_GRADIENT}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.header, { paddingTop: insets.top + 8 }]}
-        >
-          <Ionicons name="person" size={120} color="rgba(255,255,255,0.07)" style={styles.watermark} />
-          <View style={styles.headerBar}>
-            <Pressable style={styles.headerBtn} onPress={() => navigation.goBack()} hitSlop={10}>
-              <Ionicons name="chevron-back" size={20} color="#fff" />
-            </Pressable>
-            {!isMe ? (
-              <Pressable
-                style={styles.headerBtn}
-                hitSlop={10}
-                onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId })}
-              >
-                <Ionicons name="ellipsis-horizontal" size={18} color="#fff" />
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View style={styles.profileRow}>
-            <View style={styles.avatar}>
-              {seller?.avatarUrl ? (
-                <Image source={{ uri: resolveMediaUrl(seller.avatarUrl) }} style={styles.fillImage} />
-              ) : (
-                <Ionicons name="person" size={26} color={colors.menuBlue} />
-              )}
-            </View>
-            <View style={styles.flex1}>
-              <View style={styles.nameRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {seller?.name || 'Seller'}
-                </Text>
-                {verified ? <Ionicons name="checkmark-circle" size={14} color="#fff" /> : null}
-              </View>
-              <View style={styles.badges}>
-                <View style={styles.badge}>
-                  <Ionicons name="person" size={10} color="#fff" />
-                  <Text style={styles.badgeText}>INDIVIDUAL</Text>
-                </View>
-                {verified ? (
-                  <View style={styles.badge}>
-                    <Ionicons name="call" size={9} color="#fff" />
-                    <Text style={styles.badgeText}>Phone verified</Text>
-                  </View>
-                ) : null}
-              </View>
-              {seller?.location ? (
-                <View style={styles.locationRow}>
-                  <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.85)" />
-                  <Text style={styles.locationText} numberOfLines={1}>
-                    {seller.location}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        </LinearGradient>
 
         <View style={styles.statsCard}>
           {stats.map((s, i) => (
             <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
               <View style={styles.statTop}>
-                <Ionicons name={s.icon} size={13} color={colors.menuBlue} />
+                <Icon name={s.icon} size={13} color={colors.menuBlue} />
                 <Text style={styles.statValue}>{s.value}</Text>
               </View>
               <Text style={styles.statLabel}>{s.label}</Text>
@@ -233,29 +332,6 @@ export default function SellerProfileScreen({ navigation, route }) {
         </View>
 
         <View style={styles.body}>
-          {isMe ? (
-            <Pressable style={[styles.actionBtn, styles.actionPrimary]} onPress={() => navigation.navigate(ROUTES.EDIT_PROFILE)}>
-              <Ionicons name="create-outline" size={16} color="#fff" />
-              <Text style={styles.actionPrimaryText}>Edit profile</Text>
-            </Pressable>
-          ) : (
-            <View style={styles.actionsRow}>
-              <Pressable style={[styles.actionBtn, styles.actionPrimary, styles.flex1]} onPress={startChat}>
-                <Ionicons name="chatbubble-ellipses-outline" size={16} color="#fff" />
-                <Text style={styles.actionPrimaryText}>{chatBusy ? 'Opening…' : 'Chat with seller'}</Text>
-              </Pressable>
-              {seller?.phone ? (
-                <Pressable
-                  style={[styles.actionBtn, styles.actionSecondary]}
-                  onPress={() => Linking.openURL(`tel:${seller.phone}`).catch(() => {})}
-                >
-                  <Ionicons name="call-outline" size={16} color={colors.menuBlue} />
-                  <Text style={styles.actionSecondaryText}>Call</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          )}
-
           {seller?.description?.trim() ? (
             <View style={styles.aboutCard}>
               <Text style={styles.aboutText} numberOfLines={4}>
@@ -285,16 +361,20 @@ export default function SellerProfileScreen({ navigation, route }) {
                 setSortKey(SORTS[(i + 1) % SORTS.length].key);
               }}
             >
-              <Ionicons name="swap-vertical" size={14} color={colors.menuBlue} />
+              <Icon name="swap-vertical" size={14} color={colors.menuBlue} />
               <Text style={styles.sortText}>{SORTS.find((s) => s.key === sortKey)?.label}</Text>
             </Pressable>
           </View>
 
           {loading && listings.length === 0 ? (
-            <ScreenLoader compact label="Loading items" />
+            <View style={styles.grid}>
+              {[0, 1, 2, 3].map((i) => (
+                <ProductCardSkeleton key={i} width={cardWidth} compact />
+              ))}
+            </View>
           ) : visibleListings.length === 0 ? (
             <View style={styles.emptyBox}>
-              <Ionicons name="cube-outline" size={22} color={colors.textMuted} />
+              <Icon name="cube-outline" size={22} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No {status === 'all' ? '' : `${status} `}items</Text>
               <Text style={styles.emptyBody}>Try another tab.</Text>
             </View>
@@ -302,58 +382,29 @@ export default function SellerProfileScreen({ navigation, route }) {
             <View style={styles.grid}>
               {visibleListings.map((listing) => {
                 const id = listing._id || listing.id;
-                const wished = isSaved(id);
-                const isSold = listing.status === 'sold';
+                const card = toCardItem({ ...listing, id });
+                if (!card) return null;
                 return (
-                  <Pressable
-                    key={id}
-                    style={[styles.card, { width: cardWidth }]}
-                    onPress={() => openItemDetail(navigation, { listingId: id, item: listing, sharedId: id })}
-                  >
-                    <View style={styles.cardImage}>
-                      {listing.photos?.[0] ? (
-                        <Image
-                          source={{ uri: resolveMediaUrl(listing.photos[0]) }}
-                          style={styles.fillImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <Ionicons name="image-outline" size={24} color={colors.textMuted} />
-                      )}
-                      {isSold ? (
-                        <View style={styles.soldTag}>
-                          <Text style={styles.soldTagText}>SOLD</Text>
-                        </View>
-                      ) : null}
-                      {!isMe ? (
-                        <Pressable style={styles.heartBtn} hitSlop={6} onPress={() => toggleWish(listing)}>
-                          <Ionicons
-                            name={wished ? 'heart' : 'heart-outline'}
-                            size={15}
-                            color={wished ? colors.danger : colors.text}
-                          />
-                        </Pressable>
-                      ) : null}
-                    </View>
-                    <View style={styles.cardInfo}>
-                      <Text style={styles.cardTitle} numberOfLines={1}>
-                        {listing.title}
-                      </Text>
-                      <Text style={styles.cardPrice}>{formatPrice(listing.price)}</Text>
-                      {listing.condition || listing.category ? (
-                        <Text style={styles.cardMeta} numberOfLines={1}>
-                          {[listing.condition, listing.category].filter(Boolean).join(' · ')}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </Pressable>
+                  <ProductCard
+                    key={String(id)}
+                    {...card}
+                    condition={listing.condition}
+                    postedAt={listing.createdAt}
+                    compact
+                    width={cardWidth}
+                    onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+                  />
                 );
               })}
             </View>
           )}
+          {loadingMore ? (
+            <View style={styles.loadMoreRow}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          ) : null}
         </View>
       </ScrollView>
-      {loading && !seller ? <ScreenLoader overlay label="Loading seller" /> : null}
     </View>
   );
 }
@@ -373,39 +424,42 @@ const createStyles = (colors) => ({
   header: {
     paddingHorizontal: 14,
     paddingBottom: 14,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    overflow: 'hidden',
-  },
-  watermark: {
-    position: 'absolute',
-    right: -18,
-    bottom: -18,
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   headerBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 2,
+    alignItems: 'center',
+    gap: 8,
   },
   headerBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   profileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 12,
   },
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: colors.border,
     backgroundColor: colors.pastelBlue,
     overflow: 'hidden',
     alignItems: 'center',
@@ -414,63 +468,65 @@ const createStyles = (colors) => ({
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
   },
   name: {
-    flex: 1,
-    fontSize: 14.5,
+    flexShrink: 1,
+    fontSize: 18,
     fontWeight: '800',
-    color: '#fff',
-    minWidth: 0,
+    color: colors.text,
   },
   badges: {
     flexDirection: 'row',
+    alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 3,
-    marginTop: 2,
+    gap: 6,
+    marginTop: 3,
   },
   badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 0.5,
-    borderRadius: 4,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: colors.primarySoft || `${colors.primary}18`,
   },
   badgeText: {
-    fontSize: 8.5,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.2,
-    color: '#fff',
-    minWidth: 0,
+    letterSpacing: 0.3,
+    color: colors.primary,
+  },
+  verifiedText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    marginTop: 2,
+    gap: 3,
+    marginTop: 3,
   },
   locationText: {
-    flex: 1,
-    fontSize: 9.5,
-    color: 'rgba(255,255,255,0.85)',
-    minWidth: 0,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textMuted,
+  },
+  distanceText: {
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
   },
   statsCard: {
     flexDirection: 'row',
     marginHorizontal: 14,
-    marginTop: -12,
-    paddingVertical: 5,
-    borderRadius: 9,
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1.5,
   },
   stat: {
     flex: 1,
@@ -487,179 +543,113 @@ const createStyles = (colors) => ({
     gap: 2,
   },
   statValue: {
-    fontSize: 12.5,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.text,
-    minWidth: 0,
   },
   statLabel: {
-    fontSize: 8.5,
+    fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
   body: {
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    gap: 6,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    gap: 10,
   },
   actionsRow: {
     flexDirection: 'row',
-    gap: 4,
+    gap: 8,
   },
   actionBtn: {
-    height: 30,
+    flex: 1,
+    height: 42,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 21,
   },
   actionPrimary: {
-    backgroundColor: colors.menuBlue,
+    backgroundColor: colors.primary,
+  },
+  actionCall: {
+    backgroundColor: '#059669',
   },
   actionPrimaryText: {
-    fontSize: 10.5,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#fff',
-    minWidth: 0,
-  },
-  actionSecondary: {
-    borderWidth: 1.5,
-    borderColor: colors.menuBlue,
-    backgroundColor: colors.pastelBlue,
-  },
-  actionSecondaryText: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: colors.menuBlue,
-    minWidth: 0,
   },
   aboutCard: {
-    padding: 6,
-    borderRadius: 9,
+    padding: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   aboutText: {
-    fontSize: 10.5,
-    lineHeight: 14,
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
-    minWidth: 0,
   },
   listHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
   },
   segment: {
+    flex: 1,
     flexDirection: 'row',
-    padding: 2,
-    borderRadius: 7,
+    padding: 3,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.iconBackground,
   },
   segmentBtn: {
-    height: 22,
+    flex: 1,
+    height: 32,
     paddingHorizontal: 8,
-    borderRadius: 5,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
   segmentBtnActive: {
-    backgroundColor: colors.menuBlue,
+    backgroundColor: colors.primary,
   },
   segmentText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.textMuted,
-    minWidth: 0,
   },
   segmentTextActive: {
-    color: '#fff',
-    minWidth: 0,
+    color: colors.onPrimary,
   },
   sortBtn: {
-    height: 26,
+    height: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 7,
-    borderRadius: 7,
+    gap: 4,
+    paddingHorizontal: 12,
+    borderRadius: 17,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   sortText: {
-    fontSize: 10.5,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    minWidth: 0,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 5,
+    gap: 8,
   },
-  card: {
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  cardImage: {
-    aspectRatio: 1,
+  loadMoreRow: {
+    paddingVertical: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
-  },
-  soldTag: {
-    position: 'absolute',
-    top: 3,
-    left: 3,
-    paddingHorizontal: 3,
-    paddingVertical: 0.5,
-    borderRadius: 3,
-    backgroundColor: colors.statusSold,
-  },
-  soldTagText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  heartBtn: {
-    position: 'absolute',
-    top: 3,
-    right: 3,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-  },
-  cardInfo: {
-    paddingHorizontal: 5,
-    paddingVertical: 4,
-    gap: 0,
-  },
-  cardTitle: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: colors.text,
-    minWidth: 0,
-  },
-  cardPrice: {
-    fontSize: 11.5,
-    fontWeight: '800',
-    color: colors.price,
-  },
-  cardMeta: {
-    fontSize: 8.5,
-    color: colors.textMuted,
   },
   emptyBox: {
     alignItems: 'center',

@@ -104,6 +104,7 @@ function fold(value) {
   return String(value || '')
     .toLowerCase()
     .normalize('NFKD')
+    .replace(/['’]/g, '')
     .replace(/[^\w\s&]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -143,7 +144,13 @@ function levenshtein(a, b) {
 }
 
 function toDisplayName(raw) {
-  const words = fold(raw)
+  const words = String(raw || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/’/g, "'")
+    .replace(/[^\w\s&']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
     .split(' ')
     .filter((w) => w && !JUNK.has(w))
     .slice(0, 4);
@@ -205,8 +212,9 @@ function scoreCategory(doc, { suggested, title, description }) {
     if (overlap > 0) score += overlap * 18;
   }
 
-  if (suggestedFold && nameFold.includes(suggestedFold) && suggestedFold.length >= 4) score += 55;
-  if (suggestedFold && suggestedFold.includes(nameFold) && nameFold.length >= 4) score += 75;
+  const hasWords = (text, part) => ` ${text} `.includes(` ${part} `);
+  if (suggestedFold && hasWords(nameFold, suggestedFold) && suggestedFold.length >= 4) score += 55;
+  if (suggestedFold && hasWords(suggestedFold, nameFold) && nameFold.length >= 4) score += 75;
 
   if (suggestedFold && nameFold) {
     const dist = levenshtein(suggestedSing, nameSing);

@@ -1,9 +1,10 @@
 import { useState, memo, useCallback, useRef } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { Dimensions, Image, Pressable, Text, View, useWindowDimensions, Animated, Platform } from 'react-native';
-import { useSharedTransition } from '../context/SharedTransitionContext';
+import Icon from './Icon';
+import { Dimensions, Image, Pressable, Text, View, useWindowDimensions, Animated } from 'react-native';
 import { useWishlist } from '../context/WishlistContext';
 import { useTheme, useThemedStyles } from '../theme';
+import { cardPrice } from '../utils/listing';
+import { useDisplayCurrency } from '../utils/currency';
 
 export const CARD_ROW_PADDING = 16;
 export const CARD_GAP = 10;
@@ -75,7 +76,8 @@ const createStyles = (colors) => ({
     position: 'absolute',
     top: 6,
     right: 6,
-    zIndex: 6,
+    zIndex: 8,
+    elevation: 8,
   },
   heart: {
     width: 26,
@@ -305,11 +307,13 @@ const ProductCard = memo(function ProductCard({
   isFeatured,
   condition,
   postedAt,
+  listing,
 }) {
+  useDisplayCurrency();
+  const priceText = cardPrice({ listing, price });
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { width: screenWidth } = useWindowDimensions();
-  const { tryBeginNavigation } = useSharedTransition();
   const { isSaved, toggle } = useWishlist();
   const listingId = String(id || sharedId || '');
   const [savedLocal, setSavedLocal] = useState(false);
@@ -322,17 +326,12 @@ const ProductCard = memo(function ProductCard({
   const iconSize = compact ? 28 : 42;
 
   // Micro-animations
-  const scaleAnim = useRef(new Animated.Value(1)).current;
   const heartScaleAnim = useRef(new Animated.Value(1)).current;
-
-  const photoTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.photo` : undefined;
-  const titleTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.title` : undefined;
-  const priceTag = Platform.OS === 'ios' && sharedId ? `item.${sharedId}.price` : undefined;
+  const cardScale = useRef(new Animated.Value(1)).current;
 
   const handlePress = useCallback(() => {
-    if (!onPress) return;
-    tryBeginNavigation(sharedId, onPress);
-  }, [onPress, sharedId, tryBeginNavigation]);
+    if (onPress) onPress();
+  }, [onPress]);
 
   const handleToggleSave = useCallback(() => {
     Animated.sequence([
@@ -359,40 +358,25 @@ const ProductCard = memo(function ProductCard({
     setSavedLocal((value) => !value);
   }, [listingId, toggle, onToggleSave, heartScaleAnim]);
 
-  const handlePressIn = useCallback(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.97,
-      useNativeDriver: true,
-      tension: 300,
-      friction: 10,
-    }).start();
-  }, [scaleAnim]);
-
-  const handlePressOut = useCallback(() => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      tension: 300,
-      friction: 10,
-    }).start();
-  }, [scaleAnim]);
-
   const conditionTone = colors[CONDITION_TONES[condition]] || colors.primary;
 
   return (
-    <Animated.View
+    <View
       style={[
         styles.cardWrapper,
         cardWidth ? { width: cardWidth } : null,
         layout ? { height: layout.height } : null,
-        { transform: [{ scale: scaleAnim }] },
       ]}
     >
+      <Animated.View style={[layout ? { flex: 1 } : null, { transform: [{ scale: cardScale }] }]}>
       <Pressable
         onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        unstable_pressDelay={90}
+        onPressIn={() => {
+          Animated.spring(cardScale, { toValue: 0.97, useNativeDriver: true, speed: 48, bounciness: 4 }).start();
+        }}
+        onPressOut={() => {
+          Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, speed: 48, bounciness: 4 }).start();
+        }}
         style={[styles.card, layout ? { flex: 1 } : null]}
       >
         <View style={[styles.image, { backgroundColor: bgColor, height: imageHeight }]}>
@@ -401,51 +385,31 @@ const ProductCard = memo(function ProductCard({
               source={{ uri: photo }}
               style={styles.imageFill}
               resizeMode="cover"
-              resizeMethod="resize"
-              sharedTransitionTag={photoTag}
             />
           ) : (
-            <Ionicons
+            <Icon
               name={icon}
               size={iconSize}
               color={colors.link}
-              sharedTransitionTag={photoTag}
             />
           )}
 
           {isFeatured ? (
             <View style={styles.featuredBadge}>
-              <Ionicons name="sparkles" size={10} color="#fff" />
+              <Icon name="sparkles" size={10} color="#fff" />
               <Text style={styles.featuredBadgeText}>Featured</Text>
             </View>
           ) : null}
-
-          <Animated.View
-            pointerEvents="box-none"
-            style={[styles.heartWrap, { transform: [{ scale: heartScaleAnim }] }]}
-          >
-            <Pressable
-              onPress={handleToggleSave}
-              style={styles.heart}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={saved ? 'heart' : 'heart-outline'}
-                size={15}
-                color={saved ? colors.favorite : colors.textMuted}
-              />
-            </Pressable>
-          </Animated.View>
         </View>
         <View style={[styles.body, layout ? { height: layout.bodyHeight } : null]}>
-          <Text numberOfLines={1} style={styles.title} sharedTransitionTag={titleTag}>
+          <Text numberOfLines={1} style={styles.title}>
             {title}
           </Text>
           <View style={styles.priceRow}>
-            <Text numberOfLines={1} style={styles.price} sharedTransitionTag={priceTag}>{price}</Text>
+            <Text numberOfLines={1} style={styles.price}>{priceText}</Text>
             {distanceLabel ? (
               <View style={styles.awayRow}>
-                <Ionicons name="location-outline" size={12} color={colors.textMuted} />
+                <Icon name="location-outline" size={12} color={colors.textMuted} />
                 <Text style={styles.away} numberOfLines={1}>{distanceLabel}</Text>
               </View>
             ) : null}
@@ -462,7 +426,7 @@ const ProductCard = memo(function ProductCard({
               ) : <View />}
               {postedAt ? (
                 <View style={styles.agoRow}>
-                  <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+                  <Icon name="time-outline" size={12} color={colors.textMuted} />
                   <Text style={styles.agoText} numberOfLines={1}>{shortAgo(postedAt)}</Text>
                 </View>
               ) : null}
@@ -471,25 +435,39 @@ const ProductCard = memo(function ProductCard({
 
           {location ? (
             <View style={styles.metaRow}>
-              <Ionicons name="location-outline" size={13} color={colors.textMuted} />
+              <Icon name="location-outline" size={13} color={colors.textMuted} />
               <Text style={styles.metaText} numberOfLines={1}>{cityOnly(location)}</Text>
             </View>
           ) : null}
 
           {sellerName ? (
             <View style={styles.metaRow}>
-              <Ionicons
+              <Icon
                 name={sellerType === 'shop' ? 'storefront-outline' : 'person-outline'}
                 size={13}
                 color={colors.textMuted}
               />
               <Text style={styles.metaText} numberOfLines={1}>{sellerName}</Text>
-              <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+              <Icon name="chevron-forward" size={14} color={colors.textMuted} />
             </View>
           ) : null}
         </View>
       </Pressable>
-    </Animated.View>
+      </Animated.View>
+      <Animated.View style={[styles.heartWrap, { transform: [{ scale: heartScaleAnim }] }]}>
+        <Pressable
+          onPress={handleToggleSave}
+          style={styles.heart}
+          hitSlop={12}
+        >
+          <Icon
+            name={saved ? 'heart' : 'heart-outline'}
+            size={15}
+            color={saved ? colors.favorite : colors.textMuted}
+          />
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 });
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal, View, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme, useThemedStyles } from '../theme';
 
@@ -148,7 +148,7 @@ export function AlertModal({
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" size={32} />
               ) : (
-                <Ionicons name={getIconName()} size={36} color={iconColors.icon} />
+                <Icon name={getIconName()} size={36} color={iconColors.icon} />
               )}
             </View>
           </View>
@@ -277,6 +277,20 @@ export function getImageSafetyCopy(code, fallbackMessage = '', issues = []) {
       title: 'Weapons cannot be listed',
       message:
         'Guns, firearms, and weapons are not allowed on KinBech.\n\nThis photo was blocked. Do not list weapons or ammunition.',
+      button: 'Got it',
+    },
+    VIOLENT_IMAGE: {
+      type: 'error',
+      title: 'Violent photo not accepted',
+      message:
+        'This image shows violence or gore and cannot be used on KinBech.\n\nPlease upload a clear photo of the item only.',
+      button: 'Choose another photo',
+    },
+    DRUG_IMAGE: {
+      type: 'error',
+      title: 'Drug content not accepted',
+      message:
+        'Drugs and drug items are not allowed on KinBech.\n\nThis photo cannot be used for a listing.',
       button: 'Got it',
     },
     STOCK_OR_WATERMARK: {

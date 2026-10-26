@@ -1,5 +1,26 @@
 const mongoose = require('mongoose');
 
+const modelBlockSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true, trim: true },
+    blockedUntil: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const aiAccountSchema = new mongoose.Schema(
+  {
+    id: { type: String, required: true },
+    label: { type: String, required: true, trim: true },
+    apiKey: { type: String, required: true },
+    enabled: { type: Boolean, default: true },
+    blockedUntil: { type: Date, default: null },
+    lastError: { type: String, default: '' },
+    modelBlocks: { type: [modelBlockSchema], default: [] },
+  },
+  { _id: false }
+);
+
 const aiModelSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -18,6 +39,10 @@ const aiSettingsSchema = new mongoose.Schema(
     // Off: only the first enabled model is ever used.
     autoSwitch: { type: Boolean, default: true },
     models: { type: [aiModelSchema], default: [] },
+    accounts: { type: [aiAccountSchema], default: [] },
+    // Cost caps: AI photo fills per user per day, and for the whole app per day.
+    userDailyLimit: { type: Number, default: 15, min: 0 },
+    globalDailyCap: { type: Number, default: 500, min: 0 },
   },
   { timestamps: true }
 );

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as Clipboard from 'expo-clipboard';
 import ListingShareCard from '../components/ListingShareCard';
 import { ROUTES } from '../navigation/helpers';
@@ -37,6 +37,7 @@ export default function ListingSuccessScreen({ navigation, route }) {
 
   const shareListing = normalizeListingForShare(route.params?.listing);
   const shareMode = route.params?.mode === 'share';
+  const inReview = route.params?.listing?.status === 'pending';
 
   const goHome = useCallback(() => {
     navigation.reset({
@@ -83,17 +84,25 @@ export default function ListingSuccessScreen({ navigation, route }) {
     const { data, error } = await api.featureListing(shareListing.id);
     setFeaturing(false);
     if (error) {
-      Alert.alert('Could not feature', error);
+      if (data?.code === 'NO_FEATURED_CREDITS') setFeaturedCredits(0);
+      if (data?.code === 'ALREADY_FEATURED') setIsFeatured(true);
+      Alert.alert('Could not boost', error);
       return;
     }
     setIsFeatured(true);
     setFeaturedCredits(data?.featuredCredits ?? Math.max(0, featuredCredits - 1));
     await refreshUser();
-    Alert.alert('Featured for 24 hours', 'Your listing will rank higher in search today.');
+    Alert.alert('Boosted for 24 hours', 'Your listing is now Featured and shown higher to nearby buyers.');
   };
 
   const handleViewListing = () => {
-    navigation.replace(ROUTES.ITEM_DETAIL, { listingId: shareListing?.id });
+    navigation.reset({
+      index: 1,
+      routes: [
+        { name: ROUTES.MAIN_TABS, params: { screen: ROUTES.HOME } },
+        { name: ROUTES.ITEM_DETAIL, params: { listingId: shareListing?.id } },
+      ],
+    });
   };
 
   return (
@@ -109,34 +118,47 @@ export default function ListingSuccessScreen({ navigation, route }) {
           end={{ x: 1, y: 1 }}
           style={styles.heroBadge}
         >
-          <Ionicons name="checkmark-circle" size={42} color={colors.onPrimary} />
+          <Icon name="checkmark-circle" size={42} color={colors.onPrimary} />
         </LinearGradient>
 
-        <Text style={styles.title}>{shareMode ? 'Share your listing' : 'Listing is live!'}</Text>
+        <Text style={styles.title}>
+          {shareMode ? 'Share your listing' : inReview ? 'Sent for review' : 'Listing is live!'}
+        </Text>
         <Text style={styles.subtitle}>
           {shareMode
-            ? 'Download or share this card on WhatsApp, Facebook, Instagram, or TikTok.'
-            : 'Share your card on WhatsApp, Facebook, Instagram, or TikTok.'}
+            ? 'Send the card. WhatsApp and Facebook open with your listing.'
+            : inReview
+              ? 'It goes live after a quick check. You can get the share card ready now.'
+              : 'Your listing is ready to share. Tap an app to post it.'}
         </Text>
 
-        {!shareMode && featuredCredits > 0 && !isFeatured ? (
+        {!shareMode && !inReview && featuredCredits > 0 && !isFeatured ? (
           <Pressable style={styles.featureCard} onPress={handleFeature} disabled={featuring}>
-            <Ionicons name="sparkles" size={20} color={colors.primary} />
+            <Icon name="flash" size={20} color={colors.primary} />
             <View style={{ flex: 1 }}>
               <Text style={styles.featureTitle}>
-                {featuring ? 'Featuring…' : 'Use 1 free featured day'}
+                {featuring ? 'Boosting…' : 'Boost for 24 hours, free'}
               </Text>
               <Text style={styles.featureHint}>
-                You have {featuredCredits} credit(s) from inviting friends.
+                Uses 1 of your {featuredCredits} {featuredCredits === 1 ? 'credit' : 'credits'}. Shown higher to nearby buyers.
               </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+            <Icon name="chevron-forward" size={18} color={colors.primary} />
           </Pressable>
+        ) : null}
+
+        {!shareMode && inReview && featuredCredits > 0 ? (
+          <View style={styles.featureCardDone}>
+            <Icon name="flash-outline" size={18} color={colors.primary} />
+            <Text style={[styles.featureDoneText, { flex: 1 }]}>
+              You can boost it from My Listings once it is approved.
+            </Text>
+          </View>
         ) : null}
 
         {isFeatured ? (
           <View style={styles.featureCardDone}>
-            <Ionicons name="checkmark-circle" size={18} color={colors.success || colors.primary} />
+            <Icon name="checkmark-circle" size={18} color={colors.success || colors.primary} />
             <Text style={styles.featureDoneText}>Featured for 24 hours</Text>
           </View>
         ) : null}
@@ -146,9 +168,9 @@ export default function ListingSuccessScreen({ navigation, route }) {
             style={styles.inviteLink}
             onPress={() => navigation.navigate(ROUTES.INVITE_FRIENDS)}
           >
-            <Ionicons name="gift-outline" size={16} color={colors.primary} />
+            <Icon name="gift-outline" size={16} color={colors.primary} />
             <Text style={styles.inviteLinkText}>
-              Invite a friend → earn another free featured day
+              Invite a friend → earn a free boost
             </Text>
           </Pressable>
         ) : null}
@@ -161,118 +183,51 @@ export default function ListingSuccessScreen({ navigation, route }) {
           <Text style={styles.cardHint}>Portrait card · optimized for Status & groups</Text>
         </View>
 
-        <View style={styles.shareGrid}>
-          <Pressable
-            style={[styles.shareTile, styles.shareTileWhatsApp]}
-            onPress={() => runShare('whatsapp', () => shareListingToWhatsApp(cardRef, shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'whatsapp' ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="logo-whatsapp" size={22} color="#fff" />
-                <Text style={styles.shareTileTitle}>WhatsApp</Text>
-                <Text style={styles.shareTileHint}>Status or chat</Text>
-              </>
-            )}
-          </Pressable>
+        <View style={styles.shareRow}>
+          {[
+            { key: 'whatsapp', label: 'WhatsApp', icon: 'logo-whatsapp', color: '#25D366', action: () => shareListingToWhatsApp(cardRef, shareListing) },
+            { key: 'facebook', label: 'Facebook', icon: 'logo-facebook', color: '#1877F2', action: () => redirectListingPost('facebook', shareListing, cardRef) },
+            { key: 'instagram', label: 'Instagram', icon: 'logo-instagram', color: '#E1306C', action: () => redirectListingPost('instagram', shareListing, cardRef) },
+            { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok', color: '#111111', action: () => redirectListingPost('tiktok', shareListing, cardRef) },
+          ].map((item) => (
+            <Pressable
+              key={item.key}
+              style={styles.shareIcon}
+              onPress={() => runShare(item.key, item.action)}
+              disabled={Boolean(sharing)}
+            >
+              <View style={[styles.shareCircle, { backgroundColor: item.color }]}>
+                {sharing === item.key ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Icon name={item.icon} size={22} color="#fff" />
+                )}
+              </View>
+              <Text style={styles.shareLabel}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </View>
 
-          <Pressable
-            style={[styles.shareTile, { backgroundColor: '#1877F2', borderColor: '#1877F2' }]}
-            onPress={() => runShare('facebook', () => redirectListingPost('facebook', shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'facebook' ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="logo-facebook" size={22} color="#fff" />
-                <Text style={styles.shareTileTitle}>Facebook</Text>
-                <Text style={styles.shareTileHint}>Post the listing</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable
-            style={[styles.shareTile, { backgroundColor: '#E1306C', borderColor: '#E1306C' }]}
-            onPress={() => runShare('instagram', () => redirectListingPost('instagram', shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'instagram' ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="logo-instagram" size={22} color="#fff" />
-                <Text style={styles.shareTileTitle}>Instagram</Text>
-                <Text style={styles.shareTileHint}>Open to post</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable
-            style={[styles.shareTile, { backgroundColor: '#111111', borderColor: '#111111' }]}
-            onPress={() => runShare('tiktok', () => redirectListingPost('tiktok', shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'tiktok' ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="logo-tiktok" size={22} color="#fff" />
-                <Text style={styles.shareTileTitle}>TikTok</Text>
-                <Text style={styles.shareTileHint}>Open to post</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable
-            style={styles.shareTile}
-            onPress={() => runShare('image', () => shareListingImage(cardRef, shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'image' ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <>
-                <Ionicons name="share-social-outline" size={22} color={colors.primary} />
-                <Text style={styles.shareTileTitleDark}>Share image</Text>
-                <Text style={styles.shareTileHintDark}>Any other app</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable
-            style={styles.shareTile}
-            onPress={() => runShare('save', () => saveListingShareCard(cardRef))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'save' ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <>
-                <Ionicons name="download-outline" size={22} color={colors.primary} />
-                <Text style={styles.shareTileTitleDark}>Export card</Text>
-                <Text style={styles.shareTileHintDark}>Save to Photos</Text>
-              </>
-            )}
-          </Pressable>
-
-          <Pressable
-            style={styles.shareTile}
-            onPress={() => runShare('link', () => shareListingLink(shareListing))}
-            disabled={Boolean(sharing)}
-          >
-            {sharing === 'link' ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <>
-                <Ionicons name="link-outline" size={22} color={colors.primary} />
-                <Text style={styles.shareTileTitleDark}>Share link</Text>
-                <Text style={styles.shareTileHintDark}>Text only</Text>
-              </>
-            )}
-          </Pressable>
+        <View style={styles.toolRow}>
+          {[
+            { key: 'image', label: 'Share', icon: 'share-social-outline', action: () => shareListingImage(cardRef, shareListing) },
+            { key: 'save', label: 'Save', icon: 'download-outline', action: () => saveListingShareCard(cardRef) },
+            { key: 'link', label: 'Link', icon: 'link-outline', action: () => shareListingLink(shareListing) },
+          ].map((item) => (
+            <Pressable
+              key={item.key}
+              style={styles.toolIcon}
+              onPress={() => runShare(item.key, item.action)}
+              disabled={Boolean(sharing)}
+            >
+              {sharing === item.key ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <Icon name={item.icon} size={18} color={colors.text} />
+              )}
+              <Text style={styles.toolLabel}>{item.label}</Text>
+            </Pressable>
+          ))}
         </View>
 
         <Pressable
@@ -282,7 +237,7 @@ export default function ListingSuccessScreen({ navigation, route }) {
             Alert.alert('Copied', 'Listing message copied to clipboard.');
           }}
         >
-          <Ionicons name="copy-outline" size={16} color={colors.textSecondary} />
+          <Icon name="copy-outline" size={16} color={colors.textSecondary} />
           <Text style={styles.copyBtnText}>Copy share message</Text>
         </Pressable>
 
@@ -293,7 +248,7 @@ export default function ListingSuccessScreen({ navigation, route }) {
             end={{ x: 1, y: 0 }}
             style={styles.viewButton}
           >
-            <Ionicons name="eye-outline" size={18} color={colors.onPrimary} />
+            <Icon name="eye-outline" size={18} color={colors.onPrimary} />
             <Text style={styles.viewLabel}>View listing</Text>
           </LinearGradient>
         </Pressable>
@@ -402,46 +357,55 @@ const createStyles = (colors) => ({
     fontSize: 12,
     color: colors.textTertiary,
   },
-  shareGrid: {
+  shareRow: {
     width: '100%',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    paddingHorizontal: 4,
   },
-  shareTile: {
-    width: '48%',
-    flexGrow: 1,
-    minHeight: 92,
-    borderRadius: 16,
+  shareIcon: {
+    width: 72,
+    alignItems: 'center',
+    gap: 6,
+  },
+  shareCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shareLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  toolRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  toolIcon: {
+    minWidth: 88,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    padding: 12,
-    gap: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
   },
-  shareTileWhatsApp: {
-    backgroundColor: '#25D366',
-    borderColor: '#25D366',
-  },
-  shareTileTitle: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  shareTileHint: {
-    color: 'rgba(255,255,255,0.88)',
-    fontSize: 11,
-  },
-  shareTileTitleDark: {
+  toolLabel: {
+    fontSize: 13,
+    fontWeight: '700',
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  shareTileHintDark: {
-    color: colors.textSecondary,
-    fontSize: 11,
   },
   copyBtn: {
     flexDirection: 'row',

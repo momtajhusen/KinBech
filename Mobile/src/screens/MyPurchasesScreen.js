@@ -1,11 +1,11 @@
 import { useCallback, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { useFocusEffect } from '@react-navigation/native';
 import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import ScreenLoader from '../components/ScreenLoader';
+import { Skeleton } from '../components/SkeletonLoader';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -43,7 +43,7 @@ export default function MyPurchasesScreen({ navigation }) {
       <ThemeStatusBar variant="header" />
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={colors.white} />
+          <Icon name="chevron-back" size={22} color={colors.white} />
         </Pressable>
         <View style={styles.headerCopy}>
           <Text style={styles.headerTitle}>My Purchases</Text>
@@ -59,10 +59,12 @@ export default function MyPurchasesScreen({ navigation }) {
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
-        {loaded && items.length === 0 ? (
+        {!loaded && items.length === 0 ? (
+          [0, 1, 2, 3].map((i) => <Skeleton key={i} width="100%" height={84} borderRadius={14} marginBottom={10} />)
+        ) : loaded && items.length === 0 ? (
           <View style={styles.emptyBox}>
             <View style={styles.emptyIcon}>
-              <Ionicons name="cart-outline" size={22} color={colors.primary} />
+              <Icon name="cart-outline" size={22} color={colors.primary} />
             </View>
             <Text style={styles.emptyTitle}>No purchases yet</Text>
             <Text style={styles.emptySubtitle}>
@@ -89,7 +91,7 @@ export default function MyPurchasesScreen({ navigation }) {
                       resizeMode="cover"
                     />
                   ) : (
-                    <Ionicons name="cube-outline" size={20} color={colors.textMuted} />
+                    <Icon name="cube-outline" size={20} color={colors.textMuted} />
                   )}
                 </View>
                 <View style={styles.rowBody}>
@@ -126,7 +128,6 @@ export default function MyPurchasesScreen({ navigation }) {
           })
         )}
       </ScrollView>
-      {!loaded ? <ScreenLoader overlay label="Loading purchases" /> : null}
     </View>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronDown, Filter, MapPin, Package, Search, Star, User, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
@@ -6,13 +7,36 @@ import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
+import RecordModal from '../components/RecordModal';
 
 const Shops = () => {
   const { colors } = useTheme();
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [params] = useSearchParams();
+  const queryQ = params.get('q') || '';
+  const [searchTerm, setSearchTerm] = useState(queryQ);
+  const [selected, setSelected] = useState(null);
+  const [taxIds, setTaxIds] = useState(null);
+  const [revealing, setRevealing] = useState(false);
   const [filter, setFilter] = useState('all');
+
+  useEffect(() => {
+    setTaxIds(null);
+  }, [selected]);
+
+  const revealTaxIds = async () => {
+    if (!selected?.id) return;
+    setRevealing(true);
+    try {
+      const { data } = await api.get(`/shops/admin/${selected.id}/tax-ids`);
+      setTaxIds(data);
+    } catch (error) {
+      alert(error.response?.data?.message || 'Could not load tax IDs');
+    } finally {
+      setRevealing(false);
+    }
+  };
   const [view, setView] = useViewMode('shops', 'card');
   const debouncedSearch = useDebounce(searchTerm);
 
@@ -54,8 +78,8 @@ const Shops = () => {
         listingsCount: shop.listingsCount || 0,
         rating: shop.ratingAverage,
         reviewCount: shop.reviewCount,
-        panNumber: shop.panNumber || '',
-        vatNumber: shop.vatNumber || '',
+        panMasked: shop.panMasked || '',
+        vatMasked: shop.vatMasked || '',
         businessDocuments: Array.isArray(shop.businessDocuments) ? shop.businessDocuments : [],
         verificationStatus: shop.verificationStatus || 'none',
         status: shop.isVerified ? 'verified' : (shop.status === 'suspended' ? 'rejected' : 'pending'),
@@ -70,6 +94,10 @@ const Shops = () => {
       setLoading(false);
     }
   }, [filter, debouncedSearch, page, limit]);
+
+  useEffect(() => {
+    setSearchTerm(queryQ);
+  }, [queryQ]);
 
   useEffect(() => {
     fetchShops();
@@ -128,7 +156,7 @@ const Shops = () => {
 
   const renderActions = (shop) => (
     <div className="action-buttons">
-      <button className="action-btn view">View</button>
+      <button type="button" className="action-btn view" onClick={() => setSelected(shop)}>View</button>
       {shop.status === 'pending' && (
         <>
           <button className="action-btn approve" onClick={() => handleShopAction(shop.id, 'approve')}>Approve</button>
@@ -224,9 +252,9 @@ const Shops = () => {
                       </span>
                     </div>
                     <div className="data-card-sub">
-                      {shop.panNumber ? `PAN: ${shop.panNumber}` : 'PAN: —'}
+                      {shop.panMasked ? `PAN: ${shop.panMasked}` : 'PAN: —'}
                       {' · '}
-                      {shop.vatNumber ? `VAT: ${shop.vatNumber}` : 'VAT: —'}
+                      {shop.vatMasked ? `VAT: ${shop.vatMasked}` : 'VAT: —'}
                     </div>
                     {shop.businessDocuments?.length ? (
                       <div className="data-card-sub">{shop.businessDocuments.length} doc(s)</div>
@@ -278,8 +306,8 @@ const Shops = () => {
                       <td>{shop.owner?.name || 'N/A'}</td>
                       <td>
                         <div className="tax-cell">
-                          <div>{shop.panNumber ? `PAN: ${shop.panNumber}` : 'PAN: —'}</div>
-                          <div>{shop.vatNumber ? `VAT: ${shop.vatNumber}` : 'VAT: —'}</div>
+                          <div>{shop.panMasked ? `PAN: ${shop.panMasked}` : 'PAN: —'}</div>
+                          <div>{shop.vatMasked ? `VAT: ${shop.vatMasked}` : 'VAT: —'}</div>
                           {shop.businessDocuments?.length ? (
                             <div className="doc-count">{shop.businessDocuments.length} doc(s)</div>
                           ) : null}
@@ -316,6 +344,42 @@ const Shops = () => {
           />
         </>
       )}
+      <RecordModal
+        title={selected?.name}
+        onClose={() => setSelected(null)}
+        rows={selected ? [
+          ['Owner', selected.owner?.name || selected.owner],
+          ['Phone', selected.owner?.phone],
+          ['Category', selected.category],
+          ['Location', selected.location],
+          ['PAN', taxIds ? taxIds.panNumber || '—' : selected.panMasked || '—'],
+          ['VAT', taxIds ? taxIds.vatNumber || '—' : selected.vatMasked || '—'],
+          ...(!taxIds && (selected.panMasked || selected.vatMasked) ? [[
+            'Tax IDs',
+            <button type="button" className="action-btn small" onClick={revealTaxIds} disabled={revealing}>
+              {revealing ? 'Loading…' : 'Reveal PAN/VAT (logged)'}
+            </button>,
+          ]] : []),
+          ['Verification', selected.verificationStatus],
+          ['Documents', selected.businessDocuments?.length ? (
+            <span className="doc-links">
+              {selected.businessDocuments.map((doc, index) => (
+                <a
+                  key={`${doc.url}-${index}`}
+                  href={mediaUrl(doc.viewUrl || doc.url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="action-btn small"
+                >
+                  {doc.label || `Document ${index + 1}`}
+                </a>
+              ))}
+            </span>
+          ) : ''],
+          ['Listings', String(selected.listingsCount || 0)],
+          ['Rating', selected.rating != null ? `${Number(selected.rating).toFixed(1)} (${selected.reviewCount || 0})` : ''],
+        ] : null}
+      />
     </div>
   );
 };

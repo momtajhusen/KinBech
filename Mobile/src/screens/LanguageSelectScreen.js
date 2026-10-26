@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Pressable,
@@ -183,7 +183,7 @@ export default function LanguageSelectScreen({ navigation }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
+          <Icon name="arrow-back" size={24} color={colors.white} />
         </Pressable>
         <Text style={styles.headerTitle}>Language</Text>
         <View style={{ width: 24 }} />
@@ -228,7 +228,7 @@ export default function LanguageSelectScreen({ navigation }) {
         </View>
 
         <View style={styles.hintCard}>
-          <Ionicons name="information-circle-outline" size={20} color={colors.textTertiary} />
+          <Icon name="information-circle-outline" size={20} color={colors.textTertiary} />
           <Text style={styles.hintText}>
             Your preferred language is used for SMS notifications and support communications. Full in-app translations are coming soon.
           </Text>

@@ -1,5 +1,5 @@
 import { Children } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { useTheme, useThemedStyles, FORM_ERROR_COLOR } from '../theme';
 
@@ -11,7 +11,7 @@ export function EditSection({ icon, title, subtitle, tint, children, right }) {
     <View style={styles.section}>
       <View style={styles.sectionHead}>
         <View style={[styles.sectionIcon, { backgroundColor: `${color}1A` }]}>
-          <Ionicons name={icon} size={15} color={color} />
+          <Icon name={icon} size={15} color={color} />
         </View>
         <View style={styles.flex1}>
           <Text style={styles.sectionTitle}>{title}</Text>
@@ -62,7 +62,7 @@ export function EditField({
         ]}
       >
         {icon ? (
-          <Ionicons
+          <Icon
             name={icon}
             size={16}
             color={colors.textMuted}
@@ -102,9 +102,9 @@ export function ChipSelect({ options, selected, onToggle, icons }) {
             style={[styles.chip, active && styles.chipActive]}
           >
             {active ? (
-              <Ionicons name="checkmark" size={12} color={colors.onPrimary} />
+              <Icon name="checkmark" size={12} color={colors.onPrimary} />
             ) : icons?.[option] ? (
-              <Ionicons name={icons[option]} size={12} color={colors.textSecondary} />
+              <Icon name={icons[option]} size={12} color={colors.textSecondary} />
             ) : null}
             <Text style={[styles.chipText, active && styles.chipTextActive]}>{option}</Text>
           </Pressable>

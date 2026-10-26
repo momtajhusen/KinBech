@@ -1,7 +1,11 @@
 const Report = require('../models/Report');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
+const Chat = require('../models/Chat');
+const { evaluateListingNow } = require('../utils/listingTrust');
 const { maybeAutoRestrictFromReports } = require('../utils/userRestriction');
+const listingQueryCache = require('../utils/listingQueryCache');
+const { statusChange } = require('../utils/listing');
 const { emitActivity } = require('../utils/realtime');
 const { reportActivityEvent } = require('../utils/activityEvents');
 
@@ -22,15 +26,45 @@ async function createReport(req, res, next) {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    let listingId = null;
+    if (req.body.listingId) {
+      const listing = await Listing.findById(req.body.listingId).select('seller').lean();
+      if (!listing || String(listing.seller) !== String(reportedUserId)) {
+        return res.status(400).json({ message: 'That listing does not belong to this user' });
+      }
+      listingId = listing._id;
+    }
+
+    // "Not available" / "No-show" can hide listings, so only a buyer who chatted about it counts.
+    if (reason === 'not-available' || reason === 'no-show') {
+      if (!listingId) {
+        return res.status(400).json({ message: 'Choose the listing you are reporting' });
+      }
+      const chatted = await Chat.exists({ listing: listingId, participants: req.user._id });
+      if (!chatted) {
+        return res.status(403).json({ message: 'Chat with the seller about this item before reporting it', code: 'CHAT_REQUIRED' });
+      }
+      const recent = await Report.exists({
+        reporter: req.user._id,
+        reportedListing: listingId,
+        reason,
+        createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+      });
+      if (recent) {
+        return res.json({ message: 'You already reported this item', duplicate: true });
+      }
+    }
+
     // Create report
     const report = await Report.create({
       reporter: req.user._id,
       reportedUser: reportedUserId,
-      reportedListing: req.body.listingId || null,
+      reportedListing: listingId,
       reason,
       details: details || '',
     });
     emitActivity(reportActivityEvent(report));
+    if (reason === 'not-available') evaluateListingNow(listingId);
 
     // Block user if requested
     if (blockUser) {
@@ -183,6 +217,11 @@ async function updateReportStatus(req, res, next) {
     const { reportId } = req.params;
     const { status, notes } = req.body;
 
+    const allowed = ['pending', 'reviewed', 'resolved', 'dismissed'];
+    if (status && !allowed.includes(status)) {
+      return res.status(400).json({ message: 'Invalid report status' });
+    }
+
     const report = await Report.findById(reportId);
     if (!report) {
       return res.status(404).json({ message: 'Report not found' });
@@ -194,6 +233,18 @@ async function updateReportStatus(req, res, next) {
     report.resolvedAt = new Date();
 
     await report.save();
+
+    if (report.status === 'reviewed' && report.reportedListing) {
+      const listing = await Listing.findById(report.reportedListing);
+      if (listing && listing.status === 'active') {
+        listing.status = 'pending';
+        listing.statusChange = statusChange('pending', 'admin', 'reported');
+        listing.heldAt = listing.heldAt || new Date();
+        listing.moderationReason = listing.moderationReason || `Reported: ${report.reason}`;
+        await listing.save();
+        listingQueryCache.invalidateAll();
+      }
+    }
 
     res.json({ 
       message: 'Report status updated successfully',

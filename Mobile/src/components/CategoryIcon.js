@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { Pressable, Text, View, Animated, Image } from 'react-native';
 import { useRef } from 'react';
 import { useTheme, useThemedStyles } from '../theme';
@@ -78,7 +78,7 @@ export default function CategoryIcon({
           {imageUrl ? (
             <Image source={{ uri: imageUrl }} style={styles.image} />
           ) : icon ? (
-            <Ionicons name={icon} size={22} color={onPrimaryColor} />
+            <Icon name={icon} size={22} color={onPrimaryColor} />
           ) : (
             <Text style={styles.emoji}>{emoji}</Text>
           )}

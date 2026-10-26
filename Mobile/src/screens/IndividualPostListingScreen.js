@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import {
   ActivityIndicator,
-  Dimensions,
   Image,
   Alert,
   Keyboard,
@@ -17,18 +16,24 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FormScroll, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
+import { FormScroll, revealFocusedInput, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar, formFieldStyles, FORM_ERROR_COLOR } from '../theme';
-import { useCategories } from '../utils/categories';
+import {
+  noteUserListedCategory,
+  refreshUserCategoryRank,
+  useCategories,
+  withCategoryFirst,
+} from '../utils/categories';
+import { getHomePlace, loadHomeListingsCache } from '../utils/homeListingsCache';
 import { formatCityDistrict } from '../utils/locations';
 import { coordinatesForPlace, resolveMediaUrl } from '../utils/listing';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import SearchWordsField from '../components/SearchWordsField';
-import { useListingAiFill } from '../hooks/useListingAiFill';
+import { priceWarning, useListingAiFill } from '../hooks/useListingAiFill';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import {
   EXTRA_PHOTO_SLOTS,
@@ -125,7 +130,7 @@ function CompactHeader({ insets, onBack, colors, styles, title }) {
     >
       <View style={styles.headerRow}>
         <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={22} color={colors.onGradient} />
+          <Icon name="chevron-back" size={22} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>{title}</Text>
         <View style={styles.backBtn} />
@@ -140,6 +145,12 @@ function pinFromListing(listing) {
   return { lat: Number(point.lat), lng: Number(point.lng) };
 }
 
+function pinFromPlace(place) {
+  const point = place?.coords;
+  if (point?.lat == null || point?.lng == null) return null;
+  return { lat: Number(point.lat), lng: Number(point.lng) };
+}
+
 /** Pass `editListing` (a loaded listing) to reuse this form for editing. */
 export default function IndividualPostListingScreen({ navigation, editListing = null }) {
   const listingId = editListing?.id || editListing?._id || null;
@@ -147,7 +158,13 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const categories = useCategories('product');
+  const allCategories = useCategories('product');
+  const [aiCategory, setAiCategory] = useState(null);
+  const categories = useMemo(
+    () => withCategoryFirst(allCategories, aiCategory?.label, aiCategory),
+    [allCategories, aiCategory]
+  );
+  const chipScrollRef = useRef(null);
   const scrollRef = useRef(null);
   const photoAnchorRef = useRef(null);
   const titleAnchorRef = useRef(null);
@@ -175,10 +192,15 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     Array.isArray(editListing?.searchWords) ? editListing.searchWords : []
   );
   const [category, setCategory] = useState(editListing?.category || 'Mobiles');
+  const categoryTouchedRef = useRef(isEdit);
   const [condition, setCondition] = useState(editListing?.condition || 'Good');
   const [price, setPrice] = useState(editListing?.price != null ? String(editListing.price) : '');
-  const [location, setLocation] = useState(editListing?.location || '');
-  const [pin, setPin] = useState(() => pinFromListing(editListing));
+  const priceTextRef = useRef(price);
+  priceTextRef.current = price;
+  const [location, setLocation] = useState(
+    () => editListing?.location || (isEdit ? '' : getHomePlace()?.location || '')
+  );
+  const [pin, setPin] = useState(() => pinFromListing(editListing) || (isEdit ? null : pinFromPlace(getHomePlace())));
   const [negotiable, setNegotiable] = useState(true);
   const [meetup, setMeetup] = useState(editListing?.meetupOption || 'Public place');
   const [markSold, setMarkSold] = useState(editListing?.status === 'sold');
@@ -250,13 +272,38 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     }
   }, []);
 
+  useEffect(() => {
+    if (categoryTouchedRef.current) return;
+    const first = categories[0]?.label;
+    if (first) setCategory(first);
+  }, [categories]);
+
   const autoLocationRef = useRef(false);
   useEffect(() => {
     if (autoLocationRef.current) return;
     autoLocationRef.current = true;
     if (isEdit && editListing?.location) return;
-    getCurrentLocation({ silent: true });
-  }, [getCurrentLocation]);
+
+    const applyPlace = (place) => {
+      if (!place?.location) return false;
+      setLocation(place.location);
+      const nextPin = pinFromPlace(place);
+      if (nextPin) setPin(nextPin);
+      return true;
+    };
+
+    if (applyPlace(getHomePlace())) return;
+
+    let cancelled = false;
+    loadHomeListingsCache().then((cache) => {
+      if (cancelled) return;
+      if (applyPlace(cache)) return;
+      getCurrentLocation({ silent: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getCurrentLocation, isEdit, editListing?.location]);
 
   const mainPhoto = photos[0]?.type !== 'video' ? photos[0]?.uri ?? null : null;
   const extraPhotos = photos.slice(1);
@@ -326,11 +373,20 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       setPickingIndex(null);
     }
     if (index === 0 && pickedUri && !isEdit) {
-      // The picker activity needs a moment to close before the input can take focus.
-      if (!price.trim()) setTimeout(() => revealField(priceAnchorRef, priceRef), 350);
-      if (!ai.limitReached) aiFillDetails({ silent: true, photoUri: pickedUri, onlyEmpty: true });
+      // Open the keyboard for price only once AI is done, so it does not jump while the photo is read.
+      const focusPrice = () => {
+        if (priceTextRef.current.trim() || TextInput.State?.currentlyFocusedInput?.()) return;
+        revealField(priceAnchorRef, priceRef);
+      };
+      if (ai.limitReached) {
+        setTimeout(focusPrice, 350);
+      } else {
+        aiFillDetails({ silent: true, photoUri: pickedUri, onlyEmpty: true }).then((result) => {
+          if (result !== 'blocked') setTimeout(focusPrice, 250);
+        });
+      }
     }
-  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, price, ai, aiFillDetails, isEdit]);
+  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, aiFillDetails, isEdit]);
 
   const pickVideo = async (index) => {
     setPickingIndex(index);
@@ -362,10 +418,32 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const ai = useListingAiFill({
     categories,
     conditions: CONDITIONS,
-    fields: { setTitle, setDescription, setSearchWords, setCategory, setCondition },
+    fields: {
+      setTitle,
+      setDescription,
+      setSearchWords,
+      setCategory: (value, item) => {
+        categoryTouchedRef.current = true;
+        setCategory(value);
+        setAiCategory(item || { label: value, icon: 'pricetag-outline', color: colors.primary });
+        chipScrollRef.current?.scrollTo({ x: 0, animated: true });
+      },
+      setCondition,
+      setPrice,
+    },
     onTitleFilled: () => clearFieldError('title'),
+    onRemoveFlaggedPhoto: (flaggedUri) => {
+      if (previewIndex != null) setPreviewIndex(null);
+      setPhotos((prev) => (prev || []).map((item) => (item?.uri === flaggedUri ? null : item)));
+      setFieldErrors((current) => ({ ...current, photo: 'Choose another photo' }));
+    },
     setAlertConfig,
   });
+  const priceNotice = priceWarning(price, ai.aiPrice);
+  const imageFlag =
+    ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
+      ? { issue: ai.imageFlag.issue, reason: ai.imageFlag.reason }
+      : null;
 
   const aiFillDetails = (options = {}) =>
     ai.fill({
@@ -386,6 +464,10 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     setTimeout(run, 50);
     setTimeout(run, 280);
     if (inputRef) setTimeout(() => inputRef.current?.focus?.(), 40);
+  };
+
+  const focusField = () => {
+    setTimeout(() => revealFocusedInput(scrollRef), 120);
   };
 
   const publish = async () => {
@@ -447,10 +529,12 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       location: location.trim(),
       coordinates: coordinatesForPlace(pin, location),
       meetupOption: meetup,
+      ...(ai.aiPrice ? { priceEstimate: ai.aiPrice } : {}),
+      ...(imageFlag ? { imageFlag } : {}),
     };
 
     if (isEdit) {
-      const { error } = await api.updateListing(listingId, { ...payload, markSold });
+      const { data: saved, error } = await api.updateListing(listingId, { ...payload, markSold });
       setSubmitting(false);
       if (error) {
         setAlertConfig(
@@ -460,6 +544,12 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
             onConfirm: () => setAlertConfig(null),
           })
         );
+        return;
+      }
+      noteUserListedCategory(category);
+      refreshUserCategoryRank({ force: true }).catch(() => {});
+      if (saved?.moderation?.status === 'pending') {
+        setAlertConfig(manualReviewAlert(saved.moderation.reason, () => navigation.goBack()));
         return;
       }
       navigation.goBack();
@@ -482,18 +572,40 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       );
       return;
     }
-    navigation.replace(ROUTES.LISTING_SUCCESS, {
-      listing: {
-        id: data.listing.id,
-        title: data.listing.title,
-        price: String(data.listing.price),
-        location: data.listing.location,
-        imageUrl: data.listing.photos?.[0] || mainPhoto,
-        condition: data.listing.condition,
-        category: data.listing.category,
-      },
-    });
+    noteUserListedCategory(category);
+    refreshUserCategoryRank({ force: true }).catch(() => {});
+    const openSuccess = () =>
+      navigation.navigate(ROUTES.LISTING_SUCCESS, {
+        listing: {
+          id: data.listing.id,
+          title: data.listing.title,
+          price: String(data.listing.price),
+          location: data.listing.location,
+          imageUrl: data.listing.photos?.[0] || mainPhoto,
+          condition: data.listing.condition,
+          category: data.listing.category,
+          status: data.listing.status,
+        },
+      });
+    if (data.moderation?.status === 'pending') {
+      setAlertConfig(manualReviewAlert(data.moderation.reason, openSuccess));
+      return;
+    }
+    openSuccess();
   };
+
+  const manualReviewAlert = (reason, onDone) => ({
+    type: 'warning',
+    title: 'Sent for manual review',
+    message: `${String(reason || '').replace(/\s*Held for manual review\.?\s*$/i, '').trim()}\n\nYour listing will go live after our team checks it.`.trim(),
+    primaryButton: {
+      text: 'OK',
+      onPress: () => {
+        setAlertConfig(null);
+        onDone();
+      },
+    },
+  });
 
   const handleDelete = () => {
     if (!listingId) return;
@@ -530,29 +642,19 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       <View style={styles.flex}>
         <FormScroll
           ref={scrollRef}
-          lift={false}
-          autoScroll={false}
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingBottom:
-                keyboardHeight > 0
-                  ? Math.max(240, Math.round(Dimensions.get('window').height * 0.46))
-                  : insets.bottom + 12,
-            },
-          ]}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 }]}
         >
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Photos</Text>
             <View style={styles.mediaCountRow}>
               <View style={styles.countChip}>
-                <Ionicons name="image" size={11} color={colors.primary} />
+                <Icon name="image" size={11} color={colors.primary} />
                 <Text style={styles.countChipText}>
                   {photoCount}/{MAX_LISTING_PHOTOS}
                 </Text>
               </View>
               <View style={[styles.countChip, styles.countChipVideo]}>
-                <Ionicons name="videocam" size={11} color="#E53935" />
+                <Icon name="videocam" size={11} color="#E53935" />
                 <Text style={[styles.countChipText, { color: '#E53935' }]}>
                   {videoCount}/{MAX_LISTING_VIDEOS}
                 </Text>
@@ -584,14 +686,14 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                     <Text style={styles.coverBadgeText}>Cover</Text>
                   </View>
                   <Pressable style={styles.removeBadge} onPress={() => removePhoto(0)} hitSlop={6}>
-                    <Ionicons name="close" size={12} color="#fff" />
+                    <Icon name="close" size={12} color="#fff" />
                   </Pressable>
                 </>
               ) : pickingIndex === 0 ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
                 <>
-                  <Ionicons name="camera" size={20} color={colors.primary} />
+                  <Icon name="camera" size={20} color={colors.primary} />
                   <Text style={styles.slotLabel}>Cover</Text>
                 </>
               )}
@@ -613,7 +715,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                       <Pressable style={styles.slotFill} onPress={() => openMediaPreview(slotIndex)}>
                         {photo.type === 'video' ? (
                           <View style={styles.videoFill}>
-                            <Ionicons name="play" size={16} color="#fff" />
+                            <Icon name="play" size={16} color="#fff" />
                           </View>
                         ) : (
                           <Image source={{ uri: resolveMediaUrl(photo.uri) }} style={styles.slotImage} />
@@ -624,7 +726,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                         onPress={() => removePhoto(slotIndex)}
                         hitSlop={6}
                       >
-                        <Ionicons name="close" size={11} color="#fff" />
+                        <Icon name="close" size={11} color="#fff" />
                       </Pressable>
                     </>
                   ) : loading ? (
@@ -647,12 +749,12 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                         pickVideo(slotIndex);
                       }}
                     >
-                      <Ionicons name="videocam" size={16} color="#E53935" />
+                      <Icon name="videocam" size={16} color="#E53935" />
                       <Text style={styles.videoLabel}>{MAX_VIDEO_DURATION_SEC}s</Text>
                     </Pressable>
                   ) : (
                     <Pressable style={styles.slotFill} onPress={() => pickPhoto(slotIndex)}>
-                      <Ionicons name="add" size={18} color={colors.primary} />
+                      <Icon name="add" size={18} color={colors.primary} />
                     </Pressable>
                   )}
                 </View>
@@ -677,7 +779,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                 inputRef={titleRef}
                 anchorRef={titleAnchorRef}
                 error={fieldErrors.title}
-                onFocus={() => revealField(titleAnchorRef)}
+                onFocus={focusField}
               />
             </View>
             <View style={styles.pairPrice}>
@@ -695,10 +797,15 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                 inputRef={priceRef}
                 anchorRef={priceAnchorRef}
                 error={fieldErrors.price}
-                onFocus={() => revealField(priceAnchorRef)}
+                onFocus={focusField}
               />
             </View>
           </View>
+          {priceNotice ? (
+            <Text style={styles.priceWarn}>{priceNotice}</Text>
+          ) : ai.aiPrice && price.trim() === String(ai.aiPrice) ? (
+            <Text style={styles.aiHint}>AI suggested, editable</Text>
+          ) : null}
 
           <FloatingField
             label="Description"
@@ -710,19 +817,20 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
             styles={styles}
             inputRef={descRef}
             anchorRef={descAnchorRef}
-            onFocus={() => revealField(descAnchorRef)}
+            onFocus={focusField}
           />
 
           <View ref={searchAnchorRef} collapsable={false}>
             <SearchWordsField
               words={searchWords}
               onChange={setSearchWords}
-              onFocus={() => revealField(searchAnchorRef)}
+              onFocus={focusField}
             />
           </View>
 
           <Text style={styles.fieldLabel}>Category</Text>
           <ScrollView
+            ref={chipScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
@@ -740,12 +848,15 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                     active && styles.categoryChipActive,
                     active && { backgroundColor: categoryColor, borderColor: categoryColor },
                   ]}
-                  onPress={() => setCategory(cat.label)}
+                  onPress={() => {
+                    categoryTouchedRef.current = true;
+                    setCategory(cat.label);
+                  }}
                 >
                   {cat.imageUrl ? (
                     <Image source={{ uri: cat.imageUrl }} style={styles.catIcon} />
                   ) : (
-                    <Ionicons
+                    <Icon
                       name={cat.icon}
                       size={13}
                       color={active ? colors.onPrimary : colors.textSecondary}
@@ -776,6 +887,9 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                   );
                 })}
               </View>
+              {ai.aiCondition && condition === ai.aiCondition ? (
+                <Text style={[styles.aiHint, styles.aiHintLeft]}>AI suggested, editable</Text>
+              ) : null}
             </View>
             <View style={styles.negotiableCol}>
               <Text style={styles.fieldLabel}>Negotiable</Text>
@@ -805,7 +919,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                 {locating ? (
                   <ActivityIndicator size="small" color={colors.primary} />
                 ) : (
-                  <Ionicons name="locate" size={18} color={colors.primary} />
+                  <Icon name="locate" size={18} color={colors.primary} />
                 )}
               </Pressable>
             }
@@ -814,7 +928,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
             inputRef={locationRef}
             anchorRef={locationAnchorRef}
             error={fieldErrors.location}
-            onFocus={() => revealField(locationAnchorRef)}
+            onFocus={focusField}
           />
 
           <Text style={styles.fieldLabel}>Meetup</Text>
@@ -847,7 +961,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
                 />
               </View>
               <Pressable style={styles.deleteBtn} onPress={handleDelete} hitSlop={6}>
-                <Ionicons name="trash-outline" size={15} color={FORM_ERROR_COLOR} />
+                <Icon name="trash-outline" size={15} color={FORM_ERROR_COLOR} />
                 <Text style={styles.deleteText}>Delete</Text>
               </Pressable>
             </View>
@@ -1042,6 +1156,26 @@ const createStyles = (colors) => ({
     fontWeight: '700',
     color: colors.textSecondary,
     marginBottom: 6,
+  },
+  aiHint: {
+    marginTop: -6,
+    marginBottom: 10,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textAlign: 'right',
+  },
+  aiHintLeft: {
+    marginTop: 4,
+    marginBottom: 0,
+    textAlign: 'left',
+  },
+  priceWarn: {
+    marginTop: -6,
+    marginBottom: 10,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.warning || '#D97706',
   },
   chipWrap: {
     flexDirection: 'row',

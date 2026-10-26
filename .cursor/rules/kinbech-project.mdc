@@ -1,0 +1,32 @@
+---
+description: KinBech map so prompts skip repo-wide exploration and open the right files
+alwaysApply: true
+---
+
+# KinBech
+
+Nepal local marketplace: nearby buy/sell, chat, meetup. Not a shipping store. Phone OTP (+977) → JWT. Sellers: individual, shop, or both. Listing status: active | pending | sold. Currency NPR. eSewa/Khalti/IME/bank/cash are saved methods, not a payment gateway. Purchases come from chat/meetup, not orders.
+
+This file is the map. Do not read README, PROJECT_REPORT, or Project Documentation, and do not glob the repo, just to orient. Those docs are stale or roadmaps. Open only files for the task. User often writes Hindi/Hinglish; answer in that language unless they switch.
+
+## Where code lives
+
+- `Mobile/` — Expo SDK 57, RN 0.86, JS. `App.js`, `src/screens/`, `src/navigation/AppNavigator.js`, `src/services/api.js`, `src/config/apiUrl.js`.
+- `Backend/` — Express 5, MongoDB, Socket.io, port 5001. `src/server.js`, `src/app.js`, `src/routes/`, `src/controllers/`, `src/models/`.
+- `Website/` — Vite + React, port 5180. Public: `src/App.jsx`, `src/pages/`. Admin is `Website/src/admin/` at `/admin/*`. There is no separate Admin app.
+
+API mounts in `Backend/src/app.js`: `/auth` `/listings` `/chats` `/wishlist` `/notifications` `/reports` `/reviews` `/shops` `/sellers` `/categories` `/moderation` `/map` `/media` `/ai` `/errors`.
+
+## Open this, not the whole tree
+
+| Task | Files |
+|---|---|
+| Auth, profile, wallet, referral | `Backend/src/routes/auth.js`, `controllers/authController.js`, `models/User.js` |
+| Listings, search, rank | `routes/listings.js`, `controllers/listingController.js`, `models/Listing.js`, `utils/listing.js` |
+| Chat, calls, realtime | `routes/chats.js`, `controllers/chatController.js`, `utils/realtime.js`; Mobile `CallScreen`, `src/services/call*` |
+| Shops | `routes/shops.js`, `models/Shop.js`, Mobile `Shop*` screens |
+| Moderation, AI fill | `routes/moderation.js`, `routes/ai.js`, `utils/listingModeration.js` |
+| Admin UI | `Website/src/admin/AdminApp.jsx`, `src/admin/pages/` |
+| Public site | `Website/src/App.jsx`, `src/pages/` |
+
+Match existing JS. Do not add roadmap features unless asked. Before writing Expo code, read only the v57 page for the API you touch: https://docs.expo.dev/versions/v57.0.0/

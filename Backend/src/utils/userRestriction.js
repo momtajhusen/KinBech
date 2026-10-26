@@ -86,6 +86,8 @@ async function maybeAutoRestrictFromReports(reportedUserId) {
         reportedUser: oid,
         createdAt: { $gte: since },
         status: { $in: ['pending', 'reviewed', 'resolved'] },
+        // "Item not available" is a listing freshness signal, not misconduct.
+        reason: { $ne: 'not-available' },
       },
     },
     { $group: { _id: '$reporter' } },

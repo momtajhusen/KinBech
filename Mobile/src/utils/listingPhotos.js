@@ -1,7 +1,8 @@
 import { Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { requestPhotoSource } from '../components/PhotoSourceSheet';
-import { cropCenterToAspect, imagePickerOptions } from './pickImage';
+import { requestListingCapture } from '../components/ListingCamera';
+import { requestImageCrop } from '../components/ImageCropSheet';
 
 export const MAX_LISTING_PHOTOS = 4;
 export const EXTRA_PHOTO_SLOTS = 3;
@@ -113,20 +114,32 @@ export async function pickListingPhoto(slotType = 'main') {
   const spec = SPECS[slotType] || SPECS.extra;
 
   try {
-    const options = imagePickerOptions({ aspect: spec.aspect, quality: 1 });
-    const result =
-      source === 'camera'
-        ? await ImagePicker.launchCameraAsync({
-            ...options,
-            cameraType: ImagePicker.CameraType.back,
-          })
-        : await ImagePicker.launchImageLibraryAsync(options);
+    const result = source === 'camera'
+      ? null
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 1,
+        });
 
-    if (result.canceled || !result.assets?.[0]?.uri) {
+    if (source === 'camera') {
+      const captured = await requestListingCapture({
+        aspect: spec.aspect,
+        maxWidth: spec.width,
+      });
+      if (!captured) return null;
+      return requestImageCrop({ uri: captured, aspect: spec.aspect, maxWidth: spec.width });
+    }
+
+    if (!result || result.canceled || !result.assets?.[0]?.uri) {
       return null;
     }
 
-    return cropCenterToAspect(result.assets[0].uri, spec.aspect, spec.width);
+    return requestImageCrop({
+      uri: result.assets[0].uri,
+      aspect: spec.aspect,
+      maxWidth: spec.width,
+    });
   } catch {
     return null;
   }

@@ -9,7 +9,7 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import BrandLogo from '../components/BrandLogo';
@@ -314,7 +314,7 @@ export default function LoginScreen({ navigation }) {
               <TouchableOpacity style={styles.countryPicker} activeOpacity={0.7}>
                 <Text style={styles.flag}>🇳🇵</Text>
                 <Text style={styles.countryCode}>+977</Text>
-                <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                <Icon name="chevron-down" size={16} color={colors.textMuted} />
               </TouchableOpacity>
 
               <TextInput
@@ -340,7 +340,7 @@ export default function LoginScreen({ navigation }) {
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
             <View style={styles.hintRow}>
-              <Ionicons name="shield-checkmark" size={16} color={colors.primary} />
+              <Icon name="shield-checkmark" size={16} color={colors.primary} />
               <Text style={styles.hintText}>We'll send you a verification code</Text>
             </View>
 
@@ -356,7 +356,7 @@ export default function LoginScreen({ navigation }) {
                 ) : (
                   <>
                     <Text style={styles.continueText}>Continue</Text>
-                    <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+                    <Icon name="arrow-forward" size={20} color="#FFFFFF" />
                   </>
                 )}
               </LinearGradient>
@@ -371,21 +371,21 @@ export default function LoginScreen({ navigation }) {
             <View style={styles.socialRow}>
               <View style={styles.socialItem}>
                 <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Ionicons name="logo-google" size={26} color={colors.socialGoogle} />
+                  <Icon name="logo-google" size={26} color={colors.socialGoogle} />
                 </TouchableOpacity>
                 <Text style={styles.socialLabel}>Google</Text>
               </View>
 
               <View style={styles.socialItem}>
                 <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Ionicons name="logo-apple" size={28} color={colors.socialApple} />
+                  <Icon name="logo-apple" size={28} color={colors.socialApple} />
                 </TouchableOpacity>
                 <Text style={styles.socialLabel}>Apple</Text>
               </View>
 
               <View style={styles.socialItem}>
                 <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Ionicons name="logo-facebook" size={26} color={colors.socialFacebook} />
+                  <Icon name="logo-facebook" size={26} color={colors.socialFacebook} />
                 </TouchableOpacity>
                 <Text style={styles.socialLabel}>Facebook</Text>
               </View>

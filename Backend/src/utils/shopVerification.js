@@ -1,3 +1,6 @@
+const { isPrivateRef, refOwnerId, withViewUrls } = require('./privateMedia');
+const { openField } = require('./fieldCrypto');
+
 function normalizeTaxId(value) {
   return String(value || '')
     .trim()
@@ -5,21 +8,23 @@ function normalizeTaxId(value) {
     .replace(/\s+/g, '');
 }
 
-function parseBusinessDocuments(raw) {
+/**
+ * Only private document refs uploaded by this owner are accepted. Older public URLs
+ * are kept only if the shop already had them.
+ */
+function parseBusinessDocuments(raw, { ownerId = '', existing = [] } = {}) {
   if (!Array.isArray(raw)) return null;
+  const known = new Set((existing || []).map((doc) => String(doc?.url || '')));
+  const allowed = (url) =>
+    (isPrivateRef(url) && refOwnerId(url) === String(ownerId)) || known.has(url);
   return raw
     .map((doc) => {
       if (!doc) return null;
-      if (typeof doc === 'string') {
-        const url = doc.trim();
-        if (!url) return null;
-        return { url, label: 'Business document', uploadedAt: new Date() };
-      }
-      const url = String(doc.url || '').trim();
-      if (!url) return null;
+      const url = String(typeof doc === 'string' ? doc : doc.url || '').trim();
+      if (!url || !allowed(url)) return null;
       return {
         url,
-        label: String(doc.label || 'Business document').trim() || 'Business document',
+        label: String(doc.label || 'Business document').trim().slice(0, 60) || 'Business document',
         uploadedAt: doc.uploadedAt ? new Date(doc.uploadedAt) : new Date(),
       };
     })
@@ -50,6 +55,9 @@ function markVerificationPending(shop) {
     // Already verified — keep badge; admin can re-check on edit if needed
     return;
   }
+  if (shop.verificationStatus !== 'pending' && Array.isArray(shop.verificationHistory)) {
+    shop.verificationHistory.push({ action: 'submitted', by: shop.owner?._id || shop.owner || null, byName: 'Shop owner' });
+  }
   shop.verificationStatus = 'pending';
   shop.verificationSubmittedAt = new Date();
 }
@@ -59,6 +67,7 @@ function shopPublicFields(shop) {
   return {
     id: obj._id,
     _id: obj._id,
+    owner: obj.owner?._id ? String(obj.owner._id) : obj.owner ? String(obj.owner) : null,
     name: obj.name,
     category: obj.category,
     description: obj.description,
@@ -81,12 +90,7 @@ function shopPublicFields(shop) {
     establishedYear: obj.establishedYear || null,
     coordinates: obj.coordinates,
     isVerified: Boolean(obj.isVerified),
-    panNumber: obj.panNumber || '',
-    vatNumber: obj.vatNumber || '',
-    businessDocuments: Array.isArray(obj.businessDocuments) ? obj.businessDocuments : [],
     verificationStatus: obj.verificationStatus || 'none',
-    verificationNotes: obj.verificationNotes || '',
-    verificationSubmittedAt: obj.verificationSubmittedAt || null,
     ratingAverage: obj.ratingAverage,
     reviewCount: obj.reviewCount,
     followersCount: obj.followersCount,
@@ -97,7 +101,22 @@ function shopPublicFields(shop) {
   };
 }
 
+/** Owner/admin view: public fields plus tax IDs, documents and review notes. */
+function shopOwnerFields(shop) {
+  if (!shop) return null;
+  const obj = shop.toObject ? shop.toObject() : shop;
+  return {
+    ...shopPublicFields(obj),
+    panNumber: openField(obj.panNumber),
+    vatNumber: openField(obj.vatNumber),
+    businessDocuments: withViewUrls(obj.businessDocuments),
+    verificationNotes: obj.verificationNotes || '',
+    verificationSubmittedAt: obj.verificationSubmittedAt || null,
+  };
+}
+
 module.exports = {
+  shopOwnerFields,
   normalizeTaxId,
   parseBusinessDocuments,
   hasVerificationMaterial,

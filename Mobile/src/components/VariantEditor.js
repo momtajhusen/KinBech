@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import {
   Pressable,
   Switch,
@@ -22,10 +22,11 @@ function OptionValueInput({ value, onChangeText, onAdd, colors, styles }) {
         placeholderTextColor={colors.textTertiary}
         style={styles.optionInput}
         onSubmitEditing={onAdd}
+        submitBehavior="submit"
         returnKeyType="done"
       />
       <Pressable style={styles.optionAddBtn} onPress={onAdd}>
-        <Ionicons name="add" size={18} color={colors.onPrimary} />
+        <Icon name="add" size={18} color={colors.onPrimary} />
       </Pressable>
     </View>
   );
@@ -127,7 +128,7 @@ export default function VariantEditor({
                     onPress={() => removeOptionValue(optionIndex, value)}
                   >
                     <Text style={styles.variantValueChipText}>{value}</Text>
-                    <Ionicons name="close" size={12} color={colors.textSecondary} />
+                    <Icon name="close" size={12} color={colors.textSecondary} />
                   </Pressable>
                 ))}
               </View>
@@ -177,7 +178,7 @@ export default function VariantEditor({
           ))}
 
           <Pressable style={styles.generateBtn} onPress={regenerateVariants}>
-            <Ionicons name="git-branch-outline" size={16} color={colors.primary} />
+            <Icon name="git-branch-outline" size={16} color={colors.primary} />
             <Text style={styles.generateBtnText}>Generate all combinations</Text>
           </Pressable>
 

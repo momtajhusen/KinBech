@@ -1,5 +1,6 @@
 const { Router } = require('express');
 const {
+  getSellerCategoryCounts,
   getSellers,
   searchSellers,
   getFeaturedSellers,
@@ -12,6 +13,7 @@ const router = Router();
 
 router.get('/', getSellers);
 router.get('/search', searchSellers);
+router.get('/category-counts', getSellerCategoryCounts);
 router.get('/featured', getFeaturedSellers);
 router.get('/popular', getPopularSellers);
 router.get('/nearby', getNearbySellers);

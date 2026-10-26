@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, Text } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
@@ -42,7 +42,7 @@ export default function GradientButton({ title, onPress, icon, disabled, style }
         style={styles.button}
       >
         <Text style={styles.label}>{title}</Text>
-        {icon ? <Ionicons name={icon} size={18} color={colors.onPrimary} /> : null}
+        {icon ? <Icon name={icon} size={18} color={colors.onPrimary} /> : null}
       </LinearGradient>
     </Pressable>
   );

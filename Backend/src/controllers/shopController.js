@@ -9,10 +9,17 @@ const {
   parseBusinessDocuments,
   markVerificationPending,
   shopPublicFields,
+  shopOwnerFields,
 } = require('../utils/shopVerification');
 const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
+const { withViewUrls } = require('../utils/privateMedia');
+const { openField, maskValue } = require('../utils/fieldCrypto');
+const { recordAudit } = require('../utils/audit');
 const { emitActivity } = require('../utils/realtime');
 const { shopActivityEvent } = require('../utils/activityEvents');
+const { isAdminRole } = require('../utils/adminScopes');
+const { categoriesForShop } = require('../utils/shopProductCategories');
+const { toPublic } = require('./categoryController');
 
 function shopContentBag(shopLike) {
   return {
@@ -115,10 +122,12 @@ async function createShop(req, res, next) {
 
     const panNumber = normalizeTaxId(req.body.panNumber);
     const vatNumber = normalizeTaxId(req.body.vatNumber);
-    const businessDocuments = parseBusinessDocuments(req.body.businessDocuments) || [];
+    const businessDocuments =
+      parseBusinessDocuments(req.body.businessDocuments, { ownerId: req.user._id }) || [];
 
     const shop = new Shop({
       owner: req.user._id,
+      isTest: Boolean(req.user.isTester),
       name: name.trim(),
       category: mapShopCategory(category),
       description: description?.trim() || '',
@@ -148,7 +157,7 @@ async function createShop(req, res, next) {
 
     res.status(201).json({ 
       message: 'Shop created successfully',
-      shop: shopPublicFields(shop),
+      shop: shopOwnerFields(shop),
     });
   } catch (error) {
     next(error);
@@ -169,8 +178,31 @@ async function getMyShop(req, res, next) {
     res.json({
       shop: {
         ...shop.toObject(),
+        panNumber: openField(shop.panNumber),
+        vatNumber: openField(shop.vatNumber),
+        businessDocuments: withViewUrls(shop.businessDocuments),
         storefront: buildStorefrontPayload(shop),
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Product categories for the seller's store; Gemini fills them in the first time. */
+async function getMyShopCategories(req, res, next) {
+  try {
+    const shop = await Shop.findOne({ owner: req.user._id, status: 'active' })
+      .select('name category description')
+      .lean();
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found' });
+    }
+    const { categories, suggested } = await categoriesForShop(shop);
+    res.json({
+      shopCategory: shop.category,
+      categories: categories.map((doc) => toPublic(doc, req)),
+      suggested,
     });
   } catch (error) {
     next(error);
@@ -195,7 +227,7 @@ async function getShopById(req, res, next) {
       recordShopMetric(shop._id, 'profileViews').catch(() => {});
     }
 
-    res.json({ shop });
+    res.json({ shop: isOwner ? shopOwnerFields(shop) : shopPublicFields(shop) });
   } catch (error) {
     next(error);
   }
@@ -242,7 +274,10 @@ async function updateShop(req, res, next) {
       taxOrDocsTouched = true;
     }
     if (req.body.businessDocuments !== undefined) {
-      const docs = parseBusinessDocuments(req.body.businessDocuments);
+      const docs = parseBusinessDocuments(req.body.businessDocuments, {
+        ownerId: shop.owner,
+        existing: shop.businessDocuments,
+      });
       if (docs) {
         shop.businessDocuments = docs;
         taxOrDocsTouched = true;
@@ -269,7 +304,7 @@ async function updateShop(req, res, next) {
 
     res.json({ 
       message: 'Shop updated successfully',
-      shop: shopPublicFields(shop),
+      shop: shopOwnerFields(shop),
     });
   } catch (error) {
     next(error);
@@ -279,22 +314,27 @@ async function updateShop(req, res, next) {
 async function getShopListings(req, res, next) {
   try {
     const { shopId } = req.params;
-    const { status = 'active' } = req.query;
-
     const shop = await Shop.findById(shopId);
     if (!shop) {
       return res.status(404).json({ message: 'Shop not found' });
     }
+    const canSeeAll = req.user && (String(shop.owner) === String(req.user._id) || isAdminRole(req.user.role));
+    const requested = String(req.query.status || 'active');
+    const status = canSeeAll || requested === 'sold' ? requested : 'active';
 
-    const listings = await Listing.find({ 
-      shopId, 
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const rows = await Listing.find({
+      shopId,
       sellerType: 'shop',
-      status 
+      status
     })
     .sort({ createdAt: -1 })
-    .limit(50);
+    .skip((page - 1) * limit)
+    .limit(limit + 1);
+    const hasMore = rows.length > limit;
 
-    res.json({ listings });
+    res.json({ listings: hasMore ? rows.slice(0, limit) : rows, page, hasMore });
   } catch (error) {
     next(error);
   }
@@ -326,8 +366,8 @@ async function getShopReviews(req, res, next) {
 
 async function getAllShops(req, res, next) {
   try {
-    const { category, status = 'active' } = req.query;
-    const filter = { status };
+    const { category } = req.query;
+    const filter = { status: 'active' };
 
     if (category) {
       filter.category = category;
@@ -338,7 +378,7 @@ async function getAllShops(req, res, next) {
       .sort({ ratingAverage: -1, reviewCount: -1 })
       .limit(50);
 
-    res.json({ shops });
+    res.json({ shops: shops.map(shopPublicFields) });
   } catch (error) {
     next(error);
   }
@@ -354,6 +394,7 @@ async function updateShopStatus(req, res, next) {
       return res.status(404).json({ message: 'Shop not found' });
     }
 
+    const previousVerification = shop.verificationStatus;
     if (status !== undefined) {
       shop.status = status;
     }
@@ -376,13 +417,40 @@ async function updateShopStatus(req, res, next) {
         if (next === 'rejected' || next === 'none') shop.isVerified = false;
       }
     }
+    if (shop.verificationStatus !== previousVerification && ['approved', 'rejected'].includes(shop.verificationStatus)) {
+      shop.verificationHistory.push({
+        action: shop.verificationStatus,
+        by: req.user._id,
+        byName: req.user.name || req.user.email || 'Admin',
+        note: 'Changed from the Shops list',
+      });
+      shop.verificationReviewedAt = new Date();
+      shop.verificationReviewedBy = req.user._id;
+    }
 
     await shop.save();
 
     res.json({ 
       message: 'Shop status updated successfully',
-      shop: shopPublicFields(shop),
+      shop: shopOwnerFields(shop),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Decrypt PAN/VAT for one shop on demand; every reveal is audited. */
+async function revealShopTaxIds(req, res, next) {
+  try {
+    const shop = await Shop.findById(req.params.shopId).select('name panNumber vatNumber').lean();
+    if (!shop) return res.status(404).json({ message: 'Shop not found' });
+    recordAudit(req, {
+      action: 'shops.tax_ids.view',
+      targetType: 'shop',
+      targetId: shop._id,
+      summary: `Viewed PAN/VAT of ${shop.name}`,
+    });
+    res.json({ panNumber: openField(shop.panNumber), vatNumber: openField(shop.vatNumber) });
   } catch (error) {
     next(error);
   }
@@ -432,8 +500,12 @@ async function getAllShopsAdmin(req, res, next) {
       listingCountMap[item._id.toString()] = item.count;
     });
 
-    const shopsWithCounts = shops.map(shop => ({
+    const shopsWithCounts = shops.map(({ panNumber, vatNumber, ...shop }) => ({
       ...shop,
+      // Full tax IDs only through the audited reveal endpoint.
+      panMasked: maskValue(panNumber),
+      vatMasked: maskValue(vatNumber),
+      businessDocuments: withViewUrls(shop.businessDocuments),
       listingsCount: listingCountMap[shop._id.toString()] || 0
     }));
 
@@ -452,11 +524,13 @@ async function getAllShopsAdmin(req, res, next) {
 module.exports = {
   createShop,
   getMyShop,
+  getMyShopCategories,
   getShopById,
   updateShop,
   getShopListings,
   getShopReviews,
   getAllShops,
   updateShopStatus,
-  getAllShopsAdmin
+  getAllShopsAdmin,
+  revealShopTaxIds,
 };

@@ -118,7 +118,7 @@ export function setupFCMListeners(callback) {
   const foregroundUnsubscribe = setupForegroundMessageListener();
   const openUnsubscribe = setupNotificationOpenListener(callback);
   const tokenRefreshUnsubscribe = setupTokenRefreshListener((token) => {
-    console.log('New token to send to backend:', token);
+    if (__DEV__) console.log('New FCM token received');
   });
 
   return () => {

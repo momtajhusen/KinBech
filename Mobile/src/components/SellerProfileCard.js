@@ -1,5 +1,5 @@
 import { useState, useEffect, memo, useCallback, useRef } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { Image, Pressable, Text, View, Animated, Dimensions } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
 import { resolveMediaUrl, formatDistanceLabel } from '../utils/listing';
@@ -54,11 +54,9 @@ const createStyles = (colors) => ({
   },
   individualCard: {
     borderColor: 'rgba(37, 99, 235, 0.22)',
-    backgroundColor: 'rgba(37, 99, 235, 0.03)',
   },
   storeCard: {
     borderColor: 'rgba(16, 185, 129, 0.22)',
-    backgroundColor: 'rgba(16, 185, 129, 0.01)',
   },
   typeBadge: {
     flexDirection: 'row',
@@ -384,7 +382,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
   const typeIcon = isShop ? 'storefront' : 'person';
 
   const pinIcon = (size, color) => (
-    <Ionicons name={pinned ? 'bookmark' : 'bookmark-outline'} size={size} color={color} />
+    <Icon name={pinned ? 'bookmark' : 'bookmark-outline'} size={size} color={color} />
   );
 
   if (compact) {
@@ -413,12 +411,12 @@ const SellerProfileCard = memo(function SellerProfileCard({
                   {displayAvatar ? (
                     <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
                   ) : (
-                    <Ionicons name={typeIcon} size={18} color={accent} />
+                    <Icon name={typeIcon} size={18} color={accent} />
                   )}
                 </View>
                 
                 <View style={[styles.compactTag, { backgroundColor: accentSoft }]}>
-                  <Ionicons name={typeIcon} size={8} color={accent} />
+                  <Icon name={typeIcon} size={8} color={accent} />
                   <Text style={[styles.compactTagText, { color: accent }]} numberOfLines={1}>
                     {isShop ? 'STORE' : 'INDIVIDUAL'}
                   </Text>
@@ -433,18 +431,18 @@ const SellerProfileCard = memo(function SellerProfileCard({
             <View style={styles.compactStats}>
               {hasRating ? (
                 <View style={styles.statItem}>
-                  <Ionicons name="star" size={10} color={colors.warning} />
+                  <Icon name="star" size={10} color={colors.warning} />
                   <Text style={styles.statText}>{displayRating}</Text>
                 </View>
               ) : (
                 <View style={styles.statItem}>
-                  <Ionicons name="cube-outline" size={10} color={colors.textSecondary} />
+                  <Icon name="cube-outline" size={10} color={colors.textSecondary} />
                   <Text style={styles.statText}>{displayListings}</Text>
                 </View>
               )}
               {distanceLabel ? (
                 <View style={styles.statItem}>
-                  <Ionicons name="navigate-outline" size={10} color={colors.textSecondary} />
+                  <Icon name="navigate-outline" size={10} color={colors.textSecondary} />
                   <Text style={styles.statText} numberOfLines={1}>
                     {distanceLabel}
                   </Text>
@@ -474,7 +472,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
         <View style={styles.body}>
           <View style={styles.topRightActions}>
             <View style={[styles.typeBadge, { backgroundColor: accentSoft }]}>
-              <Ionicons name={typeIcon} size={9} color={accent} />
+              <Icon name={typeIcon} size={9} color={accent} />
               <Text style={[styles.typeBadgeText, { color: accent }]}>
                 {isShop ? 'STORE' : 'INDIVIDUAL'}
               </Text>
@@ -503,13 +501,13 @@ const SellerProfileCard = memo(function SellerProfileCard({
                   {displayAvatar ? (
                     <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
                   ) : (
-                    <Ionicons name={typeIcon} size={22} color={accent} />
+                    <Icon name={typeIcon} size={22} color={accent} />
                   )}
                 </View>
                 
                 {hasRating ? (
                   <View style={styles.ratingChip}>
-                    <Ionicons name="star" size={10} color={colors.warning} />
+                    <Icon name="star" size={10} color={colors.warning} />
                     <Text style={styles.ratingText}>{displayRating}</Text>
                   </View>
                 ) : null}
@@ -521,7 +519,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
                 {displayName}
               </Text>
               {isVerified ? (
-                <Ionicons
+                <Icon
                   name={isShop ? 'shield-checkmark' : 'checkmark-circle'}
                   size={14}
                   color={colors.primary}
@@ -539,7 +537,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
             <View style={styles.metaStack}>
               <View style={styles.locationRow}>
                 <View style={styles.locationIcon}>
-                  <Ionicons name="location-outline" size={11} color={colors.textSecondary} />
+                  <Icon name="location-outline" size={11} color={colors.textSecondary} />
                 </View>
                 <Text style={styles.locationText} numberOfLines={1}>
                   {displayLocation}
@@ -547,14 +545,14 @@ const SellerProfileCard = memo(function SellerProfileCard({
               </View>
               <View style={styles.statLine}>
                 <View style={styles.statItem}>
-                  <Ionicons name="cube-outline" size={12} color={colors.textSecondary} />
+                  <Icon name="cube-outline" size={12} color={colors.textSecondary} />
                   <Text style={styles.statText} numberOfLines={1}>
                     {itemsLabel}
                   </Text>
                 </View>
                 {distanceLabel ? (
                   <View style={styles.statItem}>
-                    <Ionicons name="navigate-outline" size={12} color={colors.textSecondary} />
+                    <Icon name="navigate-outline" size={12} color={colors.textSecondary} />
                     <Text style={styles.statText} numberOfLines={1}>
                       {distanceLabel}
                     </Text>

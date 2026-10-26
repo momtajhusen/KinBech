@@ -63,10 +63,15 @@ export const pinnedStoresUtils = {
     }
   },
 
-  // Increment usage count (no longer needed with backend sync)
-  incrementUsage: async () => {
-    // Backend automatically tracks pinnedAt timestamp
-    return true;
+  incrementUsage: async (storeId) => {
+    if (!storeId) return false;
+    try {
+      const { error } = await api.recordPinnedView(storeId);
+      return !error;
+    } catch (e) {
+      console.error('Error recording pinned view:', e);
+      return false;
+    }
   },
 
   // Toggle pin status

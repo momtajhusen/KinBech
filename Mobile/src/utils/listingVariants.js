@@ -86,7 +86,7 @@ export function formatListingPrice(listing, formatPrice) {
     const min = Number(listing.priceMin);
     const max = Number(listing.priceMax);
     if (Number.isFinite(min) && Number.isFinite(max) && min !== max) {
-      return `${formatPrice(min)} – ${formatPrice(max)}`;
+      return `${formatPrice(min)} – ${formatPrice(max, { approx: false })}`;
     }
     if (Number.isFinite(min)) return formatPrice(min);
   }

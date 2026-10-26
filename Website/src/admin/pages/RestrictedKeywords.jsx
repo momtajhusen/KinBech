@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ChevronDown, Filter, Search, X } from 'lucide-react';
+import { Ban, ChevronDown, Clock, Filter, Search, ShieldAlert, X } from 'lucide-react';
 import api from '../services/api';
+import Modal, { ModalSwitch, OptionCards } from '../components/Modal';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
@@ -14,6 +15,17 @@ const MATCH_FIELD_OPTIONS = [
   { key: 'category', label: 'Category' },
 ];
 
+const MATCH_MODES = [
+  { value: 'contains', label: 'Contains', hint: '"gun" also matches "shotgun".' },
+  { value: 'word', label: 'Whole word', hint: '"gun" matches "gun" but not "shotgun".' },
+  { value: 'exact', label: 'Exact field', hint: 'The whole field must equal the keyword.' },
+];
+
+const SEVERITY_OPTIONS = [
+  { value: 'hold', label: 'Hold for review', description: 'Listing waits in Pending Review until an admin approves it.', icon: Clock, tone: 'warning' },
+  { value: 'block', label: 'Hard block', description: 'The post is rejected right away. The seller sees why.', icon: Ban, tone: 'danger' },
+];
+
 const emptyForm = {
   keyword: '',
   matchFields: ['title', 'description'],
@@ -23,13 +35,113 @@ const emptyForm = {
   notes: '',
 };
 
+function KeywordModal({ editingId, initial, onClose, onSaved }) {
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const set = (patch) => setForm((prev) => ({ ...prev, ...patch }));
+
+  const toggleField = (field) => {
+    setForm((prev) => {
+      const next = new Set(prev.matchFields);
+      if (next.has(field)) next.delete(field);
+      else next.add(field);
+      return { ...prev, matchFields: next.size ? [...next] : ['title', 'description'] };
+    });
+  };
+
+  const save = async () => {
+    if (!form.keyword.trim()) {
+      setError('Keyword is required');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      if (editingId) await api.patch(`/moderation/keywords/admin/${editingId}`, form);
+      else await api.post('/moderation/keywords/admin', form);
+      onSaved();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message || 'Failed to save keyword');
+      setSaving(false);
+    }
+  };
+
+  const mode = MATCH_MODES.find((item) => item.value === form.matchMode) || MATCH_MODES[0];
+
+  return (
+    <Modal
+      icon={ShieldAlert}
+      tone={form.severity === 'block' ? 'danger' : 'warning'}
+      title={editingId ? 'Edit restricted keyword' : 'New restricted keyword'}
+      subtitle="New and edited listings are checked against this word."
+      size="md"
+      busy={saving}
+      onClose={onClose}
+      onSubmit={save}
+      footer={(
+        <>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" className="btn btn-primary" disabled={saving}>
+            {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add keyword'}
+          </button>
+        </>
+      )}
+    >
+      <div className="form-group">
+        <label htmlFor="kw-keyword">Keyword or phrase *</label>
+        <input id="kw-keyword" className="form-input" value={form.keyword} maxLength={80} onChange={(e) => set({ keyword: e.target.value })} placeholder="e.g. stolen, counterfeit, pistol" required />
+      </div>
+
+      <div className="form-group">
+        <label>What happens on a match</label>
+        <OptionCards value={form.severity} onChange={(severity) => set({ severity })} options={SEVERITY_OPTIONS} />
+      </div>
+
+      <div className="form-group">
+        <label>Match mode</label>
+        <div className="kb-segment">
+          {MATCH_MODES.map((item) => (
+            <button key={item.value} type="button" className={form.matchMode === item.value ? 'on' : ''} onClick={() => set({ matchMode: item.value })}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="form-hint">{mode.hint}</p>
+      </div>
+
+      <div className="form-group">
+        <label>Scan these fields</label>
+        <div className="u360-chips">
+          {MATCH_FIELD_OPTIONS.map((opt) => (
+            <button key={opt.key} type="button" className={`u360-chip ${form.matchFields.includes(opt.key) ? 'on' : ''}`} onClick={() => toggleField(opt.key)}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="kw-notes">Internal note</label>
+        <input id="kw-notes" className="form-input" value={form.notes} maxLength={200} onChange={(e) => set({ notes: e.target.value })} placeholder="Why this keyword is restricted" />
+      </div>
+
+      <ModalSwitch
+        checked={form.isActive}
+        onChange={(isActive) => set({ isActive })}
+        label="Active"
+        hint="Turn off to pause this rule without deleting it."
+      />
+
+      {error ? <div className="u360-error">{error}</div> : null}
+    </Modal>
+  );
+}
+
 export default function RestrictedKeywords() {
   const [keywords, setKeywords] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(emptyForm);
+  const [modal, setModal] = useState(null);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query);
@@ -75,58 +187,21 @@ export default function RestrictedKeywords() {
   }, [filter, debouncedQuery]);
 
   const openCreate = () => {
-    setEditingId(null);
-    setForm({ ...emptyForm });
-    setShowForm(true);
+    setModal({ id: null, form: { ...emptyForm } });
   };
 
   const openEdit = (item) => {
-    setEditingId(item.id);
-    setForm({
-      keyword: item.keyword || '',
-      matchFields: item.matchFields?.length ? item.matchFields : ['title', 'description'],
-      matchMode: item.matchMode || 'contains',
-      severity: item.severity || 'hold',
-      isActive: item.isActive !== false,
-      notes: item.notes || '',
+    setModal({
+      id: item.id,
+      form: {
+        keyword: item.keyword || '',
+        matchFields: item.matchFields?.length ? item.matchFields : ['title', 'description'],
+        matchMode: item.matchMode || 'contains',
+        severity: item.severity || 'hold',
+        isActive: item.isActive !== false,
+        notes: item.notes || '',
+      },
     });
-    setShowForm(true);
-  };
-
-  const toggleField = (field) => {
-    setForm((prev) => {
-      const set = new Set(prev.matchFields);
-      if (set.has(field)) set.delete(field);
-      else set.add(field);
-      const next = [...set];
-      return {
-        ...prev,
-        matchFields: next.length ? next : ['title', 'description'],
-      };
-    });
-  };
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    if (!form.keyword.trim()) return;
-    setSaving(true);
-    try {
-      if (editingId) {
-        await api.patch(`/moderation/keywords/admin/${editingId}`, form);
-      } else {
-        await api.post('/moderation/keywords/admin', form);
-      }
-      setShowForm(false);
-      await fetchKeywords();
-    } catch (error) {
-      const message =
-        error.response?.data?.message ||
-        error.message ||
-        'Failed to save keyword';
-      alert(message);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleDelete = async (id) => {
@@ -196,100 +271,17 @@ export default function RestrictedKeywords() {
         from the Categories page.
       </p>
 
-      {showForm && (
-        <form className="invite-form category-form" onSubmit={handleSave}>
-          <h3>{editingId ? 'Edit restricted keyword' : 'New restricted keyword'}</h3>
-
-          <div className="form-row">
-            <label className="full">
-              Keyword / phrase
-              <input
-                value={form.keyword}
-                onChange={(e) => setForm({ ...form, keyword: e.target.value })}
-                placeholder="e.g. stolen, counterfeit, pistol"
-                required
-              />
-            </label>
-          </div>
-
-          <div className="form-row">
-            <label>
-              Severity
-              <select
-                value={form.severity}
-                onChange={(e) => setForm({ ...form, severity: e.target.value })}
-              >
-                <option value="hold">Hold for review</option>
-                <option value="block">Hard block (reject post)</option>
-              </select>
-            </label>
-            <label>
-              Match mode
-              <select
-                value={form.matchMode}
-                onChange={(e) => setForm({ ...form, matchMode: e.target.value })}
-              >
-                <option value="contains">Contains</option>
-                <option value="word">Whole word</option>
-                <option value="exact">Exact field match</option>
-              </select>
-            </label>
-            <label>
-              Status
-              <select
-                value={form.isActive ? 'active' : 'inactive'}
-                onChange={(e) =>
-                  setForm({ ...form, isActive: e.target.value === 'active' })
-                }
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="form-row">
-            <label className="full">
-              Scan these fields
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
-                {MATCH_FIELD_OPTIONS.map((opt) => {
-                  const on = form.matchFields.includes(opt.key);
-                  return (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      className={`filter-chip ${on ? 'active' : ''}`}
-                      onClick={() => toggleField(opt.key)}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </label>
-          </div>
-
-          <div className="form-row">
-            <label className="full">
-              Notes (internal)
-              <input
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                placeholder="Why this keyword is restricted"
-              />
-            </label>
-          </div>
-
-          <div className="form-actions">
-            <button type="submit" className="action-btn view" disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button type="button" className="action-btn" onClick={() => setShowForm(false)}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
+      {modal ? (
+        <KeywordModal
+          editingId={modal.id}
+          initial={modal.form}
+          onClose={() => setModal(null)}
+          onSaved={() => {
+            setModal(null);
+            fetchKeywords();
+          }}
+        />
+      ) : null}
 
       {loading ? (
         <div className="loading">Loading keywords...</div>

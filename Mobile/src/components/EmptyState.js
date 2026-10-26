@@ -1,7 +1,7 @@
 import { Pressable, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Circle, Defs, LinearGradient as SvgLinearGradient, Stop, Ellipse } from 'react-native-svg';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { useTheme, useThemedStyles } from '../theme';
 
 const createStyles = (colors) => ({
@@ -122,8 +122,8 @@ function BoxIllustration() {
 
   return (
     <View style={styles.illustrationWrap}>
-      <Ionicons name="sparkles" size={20} color={colors.badge} style={styles.sparkleLeft} />
-      <Ionicons name="sparkles" size={16} color={colors.gradientStart} style={styles.sparkleRight} />
+      <Icon name="sparkles" size={20} color={colors.badge} style={styles.sparkleLeft} />
+      <Icon name="sparkles" size={16} color={colors.gradientStart} style={styles.sparkleRight} />
       <View style={[styles.dot, styles.dotTopLeft]} />
       <View style={[styles.dot, styles.dotRight]} />
       <View style={[styles.dot, styles.dotBottomRight]} />
@@ -181,7 +181,7 @@ export default function EmptyState({
           end={{ x: 1, y: 1 }}
           style={styles.iconCircle}
         >
-          <Ionicons name={icon} size={40} color={colors.onPrimary} />
+          <Icon name={icon} size={40} color={colors.onPrimary} />
         </LinearGradient>
       ) : (
         showIllustration && <BoxIllustration />
@@ -199,7 +199,7 @@ export default function EmptyState({
             style={[styles.button, compact && styles.compactButton]}
           >
             <Text style={styles.buttonLabel}>{buttonLabel}</Text>
-            <Ionicons name="arrow-forward" size={20} color={colors.onPrimary} />
+            <Icon name="arrow-forward" size={20} color={colors.onPrimary} />
           </LinearGradient>
         </Pressable>
       ) : null}

@@ -122,7 +122,13 @@ export async function uploadMediaUri(uri, folder = 'misc') {
     if (result.error || !result.data?.url) {
       return uploadFailure(result.error || 'Upload failed', result.data);
     }
-    return { url: result.data.url, error: null, errorCode: null, isSafetyBlock: false };
+    return {
+      url: result.data.url,
+      viewUrl: result.data.viewUrl || result.data.url,
+      error: null,
+      errorCode: null,
+      isSafetyBlock: false,
+    };
   } catch (err) {
     return uploadFailure(err?.message || 'Upload failed');
   }

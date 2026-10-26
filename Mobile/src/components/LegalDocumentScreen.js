@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import Icon from './Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -106,7 +106,7 @@ export default function LegalDocumentScreen({ navigation, route }) {
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={24} color={colors.white} />
+          <Icon name="arrow-back" size={24} color={colors.white} />
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={2}>{document.title}</Text>
         <View style={{ width: 24 }} />

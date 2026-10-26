@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Animated,
@@ -102,7 +102,7 @@ function Illustration({ icon, accent, colors, styles, active }) {
           end={{ x: 1, y: 1 }}
           style={styles.illustrationBadge}
         >
-          <Ionicons name={icon} size={62} color={colors.onGradient} />
+          <Icon name={icon} size={62} color={colors.onGradient} />
         </LinearGradient>
       </Animated.View>
     </View>
@@ -255,7 +255,7 @@ export default function OnboardingScreen({ navigation }) {
             style={styles.nextButton}
           >
             <Text style={styles.nextText}>{isLast ? 'Get Started' : 'Next'}</Text>
-            <Ionicons name={isLast ? 'sparkles' : 'arrow-forward'} size={20} color={colors.onGradient} />
+            <Icon name={isLast ? 'sparkles' : 'arrow-forward'} size={20} color={colors.onGradient} />
           </LinearGradient>
         </Pressable>
       </Animated.View>

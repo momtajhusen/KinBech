@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
+import { ImageCropSheetHost } from './src/components/ImageCropSheet';
+import { ListingCameraHost } from './src/components/ListingCamera';
 import { PhotoSourceSheetHost } from './src/components/PhotoSourceSheet';
 import { AuthProvider } from './src/context/AuthContext';
 import { WishlistProvider } from './src/context/WishlistContext';
-import { SharedTransitionProvider } from './src/context/SharedTransitionContext';
 import { ThemeProvider } from './src/theme';
 import { getAuthToken, getWorkingApiBaseUrl } from './src/services/api';
 import { reportMobileError } from './src/utils/errorReporting';
@@ -95,18 +96,18 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <SharedTransitionProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <WishlistProvider>
-                <GlobalErrorBridge>
-                  <AppNavigator />
-                  <PhotoSourceSheetHost />
-                </GlobalErrorBridge>
-              </WishlistProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </SharedTransitionProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <WishlistProvider>
+              <GlobalErrorBridge>
+                <AppNavigator />
+                <PhotoSourceSheetHost />
+                <ListingCameraHost />
+                <ImageCropSheetHost />
+              </GlobalErrorBridge>
+            </WishlistProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

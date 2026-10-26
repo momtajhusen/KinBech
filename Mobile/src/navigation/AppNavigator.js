@@ -3,12 +3,12 @@ import { navigationRef, flushPendingCallNavigation } from './navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useEffect, useMemo, useRef } from 'react';
-import { AppState } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, BackHandler, Platform, ToastAndroid } from 'react-native';
 
 import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { readToken } from '../services/tokenStorage';
 import { getApiBaseUrl } from '../config/apiUrl';
 import {
   consumeNativePendingCall,
@@ -55,7 +55,6 @@ import CurrencySelectScreen from '../screens/CurrencySelectScreen';
 import EditListingScreen from '../screens/EditListingScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import EditShopScreen from '../screens/EditShopScreen';
-import EmptyStateScreen from '../screens/EmptyStateScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import HelpSupportScreen from '../screens/HelpSupportScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -64,7 +63,6 @@ import InfoScreen from '../screens/InfoScreen';
 import ItemDetailScreen from '../screens/ItemDetailScreen';
 import LanguageSelectScreen from '../screens/LanguageSelectScreen';
 import LoginScreen from '../screens/LoginScreen';
-import MeetupConfirmationScreen from '../screens/MeetupConfirmationScreen';
 import MyListingsScreen from '../screens/MyListingsScreen';
 import MyPurchasesScreen from '../screens/MyPurchasesScreen';
 import RecentlyViewedScreen from '../screens/RecentlyViewedScreen';
@@ -178,7 +176,9 @@ function IncomingCallBridge() {
     requestNotificationPermissions()
       .catch(() => {})
       .finally(async () => {
-        const token = await AsyncStorage.getItem('kinbech_token');
+        // The native watcher can't refresh, so it gets a long-lived calls-only token.
+        const { data } = await api.getCallWatchToken();
+        const token = data?.token || (await readToken());
         if (token) startCallWatch(getApiBaseUrl(), token);
       });
     readInitial();
@@ -337,6 +337,56 @@ function MessageSoundBridge() {
   return null;
 }
 
+const EXIT_WINDOW_MS = 2000;
+
+function AndroidBackHandler() {
+  const lastPress = useRef(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return undefined;
+
+    const onBack = () => {
+      if (!navigationRef.isReady()) return true;
+      const state = navigationRef.getRootState();
+      const route = state?.routes?.[state.index];
+
+      if (state && state.index > 0) {
+        navigationRef.goBack();
+        return true;
+      }
+
+      if (route?.name === 'MainTabs') {
+        const tab = route.state;
+        const tabName = tab?.routes?.[tab.index ?? 0]?.name || 'Home';
+        if (tabName !== 'Home') {
+          navigationRef.navigate('MainTabs', { screen: 'Home' });
+          return true;
+        }
+      } else if (route?.name && route.name !== 'Login' && route.name !== 'Onboarding' && route.name !== 'Splash') {
+        navigationRef.reset({
+          index: 0,
+          routes: [{ name: 'MainTabs', params: { screen: 'Home' } }],
+        });
+        return true;
+      }
+
+      const now = Date.now();
+      if (now - lastPress.current < EXIT_WINDOW_MS) {
+        BackHandler.exitApp();
+        return true;
+      }
+      lastPress.current = now;
+      ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+      return true;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => subscription.remove();
+  }, []);
+
+  return null;
+}
+
 function MainTabs() {
   return (
     <Tab.Navigator
@@ -384,6 +434,7 @@ export default function AppNavigator() {
       theme={navigationTheme}
       onReady={flushPendingCallNavigation}
     >
+      <AndroidBackHandler />
       <IncomingCallBridge />
       <PushAlertBridge />
       <MessageSoundBridge />
@@ -410,35 +461,7 @@ export default function AppNavigator() {
 
         <Stack.Screen name="AllCategories" component={AllCategoriesScreen} />
         <Stack.Screen name="SearchResults" component={SearchResultsScreen} />
-        <Stack.Screen
-          name="ItemDetail"
-          component={ItemDetailScreen}
-          options={({ route: navRoute }) => ({
-            animation: 'default',
-            animationDuration: 380,
-            presentation: 'card',
-            fullScreenGestureEnabled: true,
-            sharedElements: () => {
-              const sharedId = navRoute?.params?.sharedId;
-              if (!sharedId) return [];
-              return [
-                {
-                  id: `item.${sharedId}.photo`,
-                  animation: 'move',
-                  resize: 'cover',
-                },
-                {
-                  id: `item.${sharedId}.title`,
-                  animation: 'fade',
-                },
-                {
-                  id: `item.${sharedId}.price`,
-                  animation: 'fade',
-                },
-              ];
-            },
-          })}
-        />
+        <Stack.Screen name="ItemDetail" component={ItemDetailScreen} />
         <Stack.Screen name="PostListing" component={PostListingScreen} />
         <Stack.Screen name="SellerTypeSelection" component={SellerTypeSelectionScreen} />
         <Stack.Screen name="StoreCategorySelection" component={StoreCategorySelectionScreen} />
@@ -459,9 +482,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Notifications" component={NotificationsScreen} />
         <Stack.Screen name="RateReview" component={RateReviewScreen} />
         <Stack.Screen name="ReportBlockUser" component={ReportBlockUserScreen} />
-        <Stack.Screen name="MeetupConfirmation" component={MeetupConfirmationScreen} />
         <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
-        <Stack.Screen name="EmptyState" component={EmptyStateScreen} />
         <Stack.Screen name="Info" component={InfoScreen} />
         <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
         <Stack.Screen name="ShopProfile" component={ShopProfileScreen} />

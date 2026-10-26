@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Cropper from 'react-easy-crop';
 import { getCroppedBlob } from '../utils/cropImage';
+import { modalRoot } from './Modal';
 import api from '../services/api';
 
 export default function CategoryImageField({ imageUrl, onChange }) {
@@ -65,7 +67,7 @@ export default function CategoryImageField({ imageUrl, onChange }) {
         </div>
       </div>
 
-      {source ? (
+      {source ? createPortal(
         <div className="crop-overlay">
           <div className="crop-modal">
             <h4>Crop image</h4>
@@ -110,7 +112,8 @@ export default function CategoryImageField({ imageUrl, onChange }) {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        modalRoot(),
       ) : null}
     </div>
   );

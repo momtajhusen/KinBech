@@ -1,11 +1,14 @@
+const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
 const Message = require('../models/Message');
 const Notification = require('../models/Notification');
 const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
 const User = require('../models/User');
+const Review = require('../models/Review');
 const { publicUser } = require('../utils/token');
 const { recordShopMetric } = require('../utils/shopAnalytics');
+const { recordInterestSoon } = require('../utils/userInterest');
 const { assertChatTextAllowed } = require('../utils/chatAbuseFilter');
 const {
   isChatRestricted,
@@ -13,6 +16,11 @@ const {
 } = require('../utils/userRestriction');
 const { createRtcToken } = require('../utils/agora');
 const { sendIncomingCallPush, sendUserPush } = require('../utils/callPush');
+const { scheduleDeal, noteChatMessage, recordDealOutcome } = require('../utils/deals');
+const { detectScamRisk } = require('../utils/chatIntent');
+const { sameAudienceUser } = require('../utils/audience');
+
+const MESSAGE_PAGE_MAX = 100;
 
 function deliverPush(note) {
   if (!note?.user) return;
@@ -80,6 +88,7 @@ function presentMessage(message, userId, reply) {
     editedAt: message.editedAt || null,
     viewedAt: message.viewedAt || null,
     deleted,
+    safetyFlag: deleted ? '' : message.safetyFlag || '',
     reply: replyPreview(reply, userId),
     audio:
       !deleted && message.kind === 'voice'
@@ -95,6 +104,30 @@ function presentMessage(message, userId, reply) {
             durationSec: message.call?.durationSec || 0,
           }
         : null,
+  };
+}
+
+/** Deal state for the chat banner; null until a meetup is confirmed. */
+async function presentDeal(chat, userId) {
+  const deal = chat.deal || {};
+  if (!chat.listing || !deal.state || deal.state === 'none') return null;
+  const sellerId = String(chat.listing.seller?._id || chat.listing.seller || '');
+  const role = sellerId === String(userId) ? 'seller' : 'buyer';
+  const reviewed = deal.state === 'completed' && role === 'buyer'
+    ? Boolean(await Review.exists({ reviewer: userId, listing: chat.listing._id }))
+    : false;
+  return {
+    chatId: String(chat._id),
+    state: deal.state,
+    role,
+    reviewed,
+    source: deal.source || '',
+    scheduledAt: deal.scheduledAt || null,
+    completedAt: deal.completedAt || null,
+    noShowBy: deal.noShowBy || '',
+    sellerId,
+    sellerType: chat.listing.sellerType || 'individual',
+    shopId: chat.listing.shopId ? String(chat.listing.shopId) : null,
   };
 }
 
@@ -143,26 +176,78 @@ async function shopIdentities(chats, userId) {
 
 async function getChats(req, res, next) {
   try {
-    const chats = await Chat.find({ participants: req.user._id })
-      .populate('participants', 'name phone avatarUrl rating preferences location')
+    const chats = (await Chat.find({ participants: req.user._id })
+      .populate('participants', 'name phone avatarUrl rating preferences location isTester')
       .populate('listing', 'title photos price shopId')
-      .sort({ lastMessageAt: -1 });
+      .sort({ lastMessageAt: -1 }))
+      .filter((chat) => sameAudienceUser(otherParticipant(chat, req.user._id)));
     const shops = await shopIdentities(chats, req.user._id);
+    const chatIds = chats.map((chat) => chat._id);
+    const [unreadRows, latestRows] = chatIds.length
+      ? await Promise.all([
+          Message.aggregate([
+            {
+              $match: {
+                chat: { $in: chatIds },
+                sender: { $ne: req.user._id },
+                viewedAt: null,
+                deletedForEveryone: { $ne: true },
+                deletedFor: { $ne: req.user._id },
+              },
+            },
+            { $group: { _id: '$chat', count: { $sum: 1 } } },
+          ]),
+          Message.aggregate([
+            {
+              $match: {
+                chat: { $in: chatIds },
+                deletedForEveryone: { $ne: true },
+                deletedFor: { $ne: req.user._id },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            {
+              $group: {
+                _id: '$chat',
+                text: { $first: '$text' },
+                kind: { $first: '$kind' },
+                createdAt: { $first: '$createdAt' },
+                sender: { $first: '$sender' },
+                viewedAt: { $first: '$viewedAt' },
+                callStatus: { $first: '$call.status' },
+              },
+            },
+          ]),
+        ])
+      : [[], []];
+    const unreadById = new Map(unreadRows.map((row) => [String(row._id), row.count]));
+    const latestById = new Map(latestRows.map((row) => [String(row._id), row]));
 
     res.json({
-      chats: chats.map((chat, i) => ({
-        id: chat._id,
-        listing: chat.listing,
-        otherUser: otherParticipant(chat, req.user._id)
-          ? { ...publicUser(otherParticipant(chat, req.user._id)), shop: shops[i] }
-          : null,
-        lastMessage: chat.lastMessage,
-        lastMessageAt: chat.lastMessageAt,
-        lastMessageKind: chat.lastMessageKind || 'text',
-        lastMessageMine: chat.lastMessageSender
-          ? String(chat.lastMessageSender) === String(req.user._id)
-          : null,
-      })),
+      chats: chats.map((chat, i) => {
+        const latest = latestById.get(String(chat._id));
+        const other = otherParticipant(chat, req.user._id);
+        const otherPublic = other ? publicUser(other) : null;
+        // Hidden numbers are shared with the other person once a meetup is confirmed.
+        if (otherPublic && !otherPublic.phone && chat.meetupConfirmed) otherPublic.phone = other.phone || '';
+        const lastMessageMine = latest?.sender
+          ? String(latest.sender) === String(req.user._id)
+          : chat.lastMessageSender
+            ? String(chat.lastMessageSender) === String(req.user._id)
+            : null;
+        return {
+          id: chat._id,
+          listing: chat.listing,
+          otherUser: otherPublic ? { ...otherPublic, shop: shops[i] } : null,
+          lastMessage: latest?.text || chat.lastMessage || '',
+          lastMessageAt: latest?.createdAt || chat.lastMessageAt,
+          lastMessageKind: latest?.kind || chat.lastMessageKind || 'text',
+          lastCallStatus: (latest?.kind || chat.lastMessageKind) === 'call' ? latest?.callStatus || '' : '',
+          lastMessageMine,
+          lastMessageViewed: latest ? Boolean(latest.viewedAt) : true,
+          unreadCount: unreadById.get(String(chat._id)) || 0,
+        };
+      }),
     });
   } catch (error) {
     next(error);
@@ -182,6 +267,14 @@ async function createChat(req, res, next) {
       return res.status(400).json({ message: 'Cannot start a chat with yourself' });
     }
 
+    if (!mongoose.isValidObjectId(userId) || (listingId && !mongoose.isValidObjectId(listingId))) {
+      return res.status(400).json({ message: 'Invalid chat target' });
+    }
+    const peer = await User.findById(userId).select('isTester').lean();
+    if (!peer || !sameAudienceUser(peer) || (listingId && !(await Listing.exists({ _id: listingId })))) {
+      return res.status(404).json({ message: 'This seller is not available' });
+    }
+
     let chat = await Chat.findOne({
       participants: { $all: [req.user._id, userId] },
       ...(listingId ? { listing: listingId } : {}),
@@ -195,9 +288,12 @@ async function createChat(req, res, next) {
 
       if (listingId) {
         Listing.findById(listingId)
-          .select('shopId')
+          .select('shopId seller category title searchWords price')
           .lean()
           .then(async (listing) => {
+            if (listing && String(listing.seller) !== String(req.user._id)) {
+              recordInterestSoon(req.user._id, { kind: 'chat', listing });
+            }
             if (!listing?.shopId) return;
             const shop = await Shop.findById(listing.shopId).select('owner').lean();
             if (shop && String(req.user._id) !== String(shop.owner)) {
@@ -238,9 +334,12 @@ async function getMessages(req, res, next) {
     }
 
     User.updateOne({ _id: req.user._id }, { $set: { lastActiveAt: new Date() } }).catch(() => {});
-    await chat.populate('participants', 'name lastActiveAt avatarUrl');
-    await chat.populate('listing', 'title photos price shopId');
+    await chat.populate('participants', 'name lastActiveAt avatarUrl isTester');
+    await chat.populate('listing', 'title photos price shopId location coordinates seller sellerType');
     const other = otherParticipant(chat, req.user._id);
+    if (!sameAudienceUser(other)) {
+      return res.status(404).json({ message: 'Chat not found' });
+    }
     const [peerShop] = await shopIdentities([chat], req.user._id);
     const lastSeenAt = other?.lastActiveAt || null;
     const online = Boolean(
@@ -252,20 +351,50 @@ async function getMessages(req, res, next) {
         String(chat.typing.user) !== String(req.user._id)
     );
 
-    await Message.updateMany(
-      {
-        chat: chat._id,
-        sender: { $ne: req.user._id },
-        viewedAt: null,
-        deletedForEveryone: { $ne: true },
-        deletedFor: { $ne: req.user._id },
-      },
-      { $set: { viewedAt: new Date() } }
-    );
+    const requestedLimit = parseInt(req.query.limit, 10);
+    const pageLimit = requestedLimit > 0 ? Math.min(MESSAGE_PAGE_MAX, requestedLimit) : 0;
+    const before = req.query.before && mongoose.isValidObjectId(req.query.before)
+      ? await Message.findOne({ _id: req.query.before, chat: chat._id }).select('createdAt').lean()
+      : null;
 
-    const messages = await Message.find({ chat: chat._id }).sort({ createdAt: 1 });
-    const visible = messages.filter((message) => !hiddenFrom(message, req.user._id));
-    const byId = new Map(messages.map((message) => [String(message._id), message]));
+    if (!before) {
+      await Message.updateMany(
+        {
+          chat: chat._id,
+          sender: { $ne: req.user._id },
+          viewedAt: null,
+          deletedForEveryone: { $ne: true },
+          deletedFor: { $ne: req.user._id },
+        },
+        { $set: { viewedAt: new Date() } }
+      );
+    }
+
+    const messageFilter = { chat: chat._id, deletedFor: { $ne: req.user._id } };
+    if (before) {
+      messageFilter.$or = [
+        { createdAt: { $lt: before.createdAt } },
+        { createdAt: before.createdAt, _id: { $lt: before._id } },
+      ];
+    }
+    let messageQuery = Message.find(messageFilter).sort({ createdAt: -1, _id: -1 });
+    if (pageLimit) messageQuery = messageQuery.limit(pageLimit + 1);
+    const rows = await messageQuery.lean();
+    const hasMore = pageLimit > 0 && rows.length > pageLimit;
+    const visible = (hasMore ? rows.slice(0, pageLimit) : rows).reverse();
+    const byId = new Map(visible.map((message) => [String(message._id), message]));
+    const missingReplies = [...new Set(
+      visible.map((message) => message.replyTo && String(message.replyTo)).filter((id) => id && !byId.has(id))
+    )];
+    if (missingReplies.length) {
+      const replies = await Message.find({ _id: { $in: missingReplies } }).lean();
+      replies.forEach((message) => byId.set(String(message._id), message));
+    }
+    const messages = visible.map((message) =>
+      presentMessage(message, req.user._id, byId.get(String(message.replyTo)))
+    );
+    if (before) return res.json({ messages, hasMore });
+
     res.json({
       presence: {
         online,
@@ -286,11 +415,14 @@ async function getMessages(req, res, next) {
             title: chat.listing.title || '',
             photos: chat.listing.photos || [],
             price: chat.listing.price,
+            location: chat.listing.location || '',
+            coordinates: chat.listing.coordinates || null,
           }
         : null,
-      messages: visible.map((message) =>
-        presentMessage(message, req.user._id, byId.get(String(message.replyTo)))
-      ),
+      messages,
+      hasMore,
+      deal: await presentDeal(chat, req.user._id),
+      myRole: chat.listing && String(chat.listing.seller) === String(req.user._id) ? 'seller' : 'buyer',
     });
   } catch (error) {
     next(error);
@@ -364,6 +496,7 @@ async function sendMessage(req, res, next) {
       }
     }
 
+    const scamRisk = !isVoice && detectScamRisk(text);
     const message = await Message.create({
       chat: chat._id,
       sender: req.user._id,
@@ -371,13 +504,18 @@ async function sendMessage(req, res, next) {
       kind: isVoice ? 'voice' : 'text',
       audio: audio || undefined,
       replyTo,
+      safetyFlag: scamRisk ? 'scam_words' : '',
     });
+    if (scamRisk) {
+      Chat.updateOne({ _id: chat._id }, { $inc: { safetyFlags: 1 }, $set: { lastSafetyFlagAt: new Date() } }).catch(() => {});
+    }
 
     chat.lastMessage = text;
     chat.lastMessageAt = new Date();
     chat.lastMessageSender = req.user._id;
     chat.lastMessageKind = isVoice ? 'voice' : 'text';
     await chat.save();
+    if (!isVoice) noteChatMessage(chat, req.user._id, text);
 
     const otherId = (chat.participants || []).find(
       (person) => String(person._id || person) !== String(req.user._id)
@@ -449,6 +587,7 @@ async function editMessage(req, res, next) {
     }
 
     message.text = text;
+    message.safetyFlag = detectScamRisk(text) ? 'scam_words' : '';
     message.editedAt = new Date();
     await message.save();
 
@@ -528,6 +667,7 @@ async function confirmMeetup(req, res, next) {
     chat.meetupPlace = String(req.body.place || chat.meetupPlace || 'Public place');
     chat.meetupAt = new Date();
     await chat.save();
+    await scheduleDeal(chat, chat.listing);
 
     const meetupPartner = otherParticipant(chat, req.user._id);
     const meetupPartnerId = meetupPartner?._id || meetupPartner;
@@ -823,7 +963,7 @@ async function getIncomingCall(req, res, next) {
       participants: req.user._id,
       'ringingCall.startedAt': { $gte: new Date(Date.now() - RING_MS) },
     })
-      .populate('listing', 'title photos price')
+      .populate('listing', 'title photos price location coordinates')
       .sort({ 'ringingCall.startedAt': -1 })
       .limit(5);
 
@@ -843,6 +983,8 @@ async function getIncomingCall(req, res, next) {
               title: chat.listing.title || '',
               photos: chat.listing.photos || [],
               price: chat.listing.price,
+              location: chat.listing.location || '',
+              coordinates: chat.listing.coordinates || null,
             }
           : null,
       },
@@ -941,7 +1083,20 @@ async function endCall(req, res, next) {
   }
 }
 
+/** Optional fallback when automatic detection is unsure: { outcome: 'completed' | 'no_show' }. */
+async function setDealOutcome(req, res, next) {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, participants: req.user._id });
+    if (!chat?.listing) return res.status(404).json({ message: 'Chat not found' });
+    const result = await recordDealOutcome(chat, req.user, String(req.body?.outcome || ''));
+    res.status(result.status).json(result.body);
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
+  setDealOutcome,
   getChats,
   createChat,
   getMessages,

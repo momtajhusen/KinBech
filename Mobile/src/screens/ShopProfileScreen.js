@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Icon from '../components/Icon';
+import * as Location from 'expo-location';
 import { useFocusEffect } from '@react-navigation/native';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -15,23 +16,38 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import ScreenLoader from '../components/ScreenLoader';
+import { ProductCardSkeleton, Skeleton } from '../components/SkeletonLoader';
+import { isNearEnd } from '../utils/scroll';
+import VoiceSearchButton from '../components/VoiceSearchButton';
 import EmptyState from '../components/EmptyState';
+import ProductCard from '../components/ProductCard';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
+import { haversineKm } from '../utils/locations';
+import { useCategories } from '../utils/categories';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-
-const COVER_HEIGHT = 70;
-const LOGO_SIZE = 56;
+import pinnedStoresUtils from '../utils/pinnedStores';
 
 const SORTS = [
   { key: 'newest', label: 'Newest' },
   { key: 'price_low', label: 'Price ↑' },
   { key: 'price_high', label: 'Price ↓' },
 ];
+
+const LOGO_SIZE = 48;
+const SIDEBAR_WIDTH = 62;
+const GRID_GUTTER = 8;
+const GRID_PADDING = 10;
+const SHOP_PAGE = 30;
+
+function mergeById(prev, incoming) {
+  const byId = new Map(prev.map((item) => [String(item._id || item.id), item]));
+  incoming.forEach((item) => byId.set(String(item._id || item.id), item));
+  return [...byId.values()];
+}
 
 function parseClock(text) {
   const m = String(text || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
@@ -108,35 +124,114 @@ export default function ShopProfileScreen({ route, navigation }) {
   const [category, setCategory] = useState('All');
   const [sortKey, setSortKey] = useState('newest');
   const [chatBusy, setChatBusy] = useState(false);
+  const [userCoords, setUserCoords] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pagingRef = useRef({ shopId: null, page: 0, hasMore: false });
+  const loadingMoreRef = useRef(false);
+  const productPresets = useCategories('product');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        let { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          const asked = await Location.requestForegroundPermissionsAsync();
+          status = asked.status;
+        }
+        if (status !== 'granted' || !active) return;
+        const last = await Location.getLastKnownPositionAsync();
+        if (last?.coords && active) {
+          setUserCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
+        }
+        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (current?.coords && active) {
+          setUserCoords({ lat: current.coords.latitude, lng: current.coords.longitude });
+        }
+      } catch {
+        // Distance stays hidden when location is unavailable.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadShopData = useCallback(
     async ({ silent } = {}) => {
       if (!silent) setLoading(true);
       const [shopRes, listingsRes, reviewsRes] = await Promise.all([
         api.getShopById(shopId),
-        api.getShopListings(shopId),
+        api.getShopListings(shopId, { page: 1, limit: SHOP_PAGE }),
         api.getShopReviews(shopId),
       ]);
       if (shopRes.data?.shop) setShop(shopRes.data.shop);
-      setListings(listingsRes.data?.listings || []);
+      const incoming = listingsRes.data?.listings || [];
+      if (pagingRef.current.shopId === shopId && pagingRef.current.page > 1) {
+        setListings((prev) => mergeById(prev, incoming));
+      } else {
+        setListings(incoming);
+        pagingRef.current = { shopId, page: 1, hasMore: Boolean(listingsRes.data?.hasMore) };
+      }
       setReviews(reviewsRes.data?.reviews || []);
       if (!silent) setLoading(false);
     },
     [shopId]
   );
 
+  const loadMoreListings = useCallback(async () => {
+    const paging = pagingRef.current;
+    if (loadingMoreRef.current || !paging.hasMore || paging.shopId !== shopId) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const { data, error } = await api.getShopListings(shopId, { page: paging.page + 1, limit: SHOP_PAGE });
+    if (!error && Array.isArray(data?.listings)) {
+      pagingRef.current = { ...paging, page: paging.page + 1, hasMore: Boolean(data.hasMore) };
+      setListings((prev) => mergeById(prev, data.listings));
+    }
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+  }, [shopId]);
+
   const { refreshing, onRefresh } = usePullRefresh(() => loadShopData({ silent: true }));
 
   useFocusEffect(
     useCallback(() => {
       loadShopData();
-    }, [loadShopData])
+      if (shopId) pinnedStoresUtils.incrementUsage(shopId).catch(() => {});
+    }, [loadShopData, shopId])
   );
 
-  const categories = useMemo(() => {
-    const set = new Set(listings.map((l) => l.category).filter(Boolean));
-    return ['All', ...Array.from(set).sort()];
-  }, [listings]);
+  const sidebarCategories = useMemo(() => {
+    const counts = {};
+    listings.forEach((listing) => {
+      const label = String(listing.category || '').trim();
+      if (!label) return;
+      counts[label] = (counts[label] || 0) + 1;
+    });
+    const items = Object.keys(counts)
+      .map((label) => {
+        const preset = productPresets.find((item) => item.label === label);
+        return {
+          label,
+          icon: preset?.icon || 'pricetag-outline',
+          tint: preset?.tint || preset?.color || '#F59E0B',
+          imageUrl: preset?.imageUrl || '',
+          count: counts[label],
+        };
+      })
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    return [
+      { label: 'All', icon: 'grid-outline', tint: '#047857', imageUrl: '', count: listings.length },
+      ...items,
+    ];
+  }, [listings, productPresets]);
+
+  useEffect(() => {
+    if (category !== 'All' && !sidebarCategories.some((item) => item.label === category)) {
+      setCategory('All');
+    }
+  }, [category, sidebarCategories]);
 
   const visibleListings = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -160,7 +255,30 @@ export default function ShopProfileScreen({ route, navigation }) {
   }, [reviews]);
 
   if (loading && !shop) {
-    return <ScreenLoader label="Loading shop" />;
+    const skeletonCard = Math.floor((width - 36) / 2);
+    return (
+      <View style={styles.root}>
+        <ThemeStatusBar variant="header" />
+        <View style={[styles.skeletonWrap, { paddingTop: insets.top + 8 }]}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.skeletonBack}>
+            <Icon name="chevron-back" size={22} color={colors.text} />
+          </Pressable>
+          <Skeleton width="100%" height={140} borderRadius={18} />
+          <View style={styles.skeletonRow}>
+            <Skeleton width={56} height={56} borderRadius={28} />
+            <View style={styles.skeletonText}>
+              <Skeleton width="60%" height={16} borderRadius={6} />
+              <Skeleton width="40%" height={12} borderRadius={6} />
+            </View>
+          </View>
+          <View style={styles.skeletonGrid}>
+            {[0, 1, 2, 3].map((i) => (
+              <ProductCardSkeleton key={i} width={skeletonCard} compact />
+            ))}
+          </View>
+        </View>
+      </View>
+    );
   }
 
   if (!shop) {
@@ -182,14 +300,16 @@ export default function ShopProfileScreen({ route, navigation }) {
   const rating = Number(shop.ratingAverage) || 0;
   const reviewCount = Number(shop.reviewCount) || reviews.length;
   const isOpen = openStatus(shop.openingHours, shop.openDays);
-  const coverHeight = shop.coverImage ? Math.round((width * 7) / 16) : COVER_HEIGHT;
   const social = shop.socialLinks || {};
   const sinceYear = shop.createdAt ? new Date(shop.createdAt).getFullYear() : null;
   const coords = shop.coordinates || {};
   const hasCoords =
     coords.lat != null && coords.lng != null && Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng));
   const placeText = shop.address || shop.location || '';
-  const cardWidth = (width - 32 - 8) / 2;
+  const distanceLabel = hasCoords && userCoords
+    ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, Number(coords.lat), Number(coords.lng)))
+    : null;
+  const cardWidth = Math.floor((width - SIDEBAR_WIDTH - GRID_PADDING * 2 - GRID_GUTTER) / 2);
 
   const startChat = async () => {
     if (chatBusy || !ownerId) return;
@@ -241,8 +361,6 @@ export default function ShopProfileScreen({ route, navigation }) {
       ]
     : [
         { key: 'chat', icon: 'chatbubble-ellipses-outline', label: chatBusy ? 'Opening…' : 'Chat', primary: true, onPress: startChat },
-        ...(shop.phone ? [{ key: 'call', icon: 'call-outline', label: 'Call', onPress: callShop }] : []),
-        ...(hasCoords || placeText ? [{ key: 'dir', icon: 'navigate-outline', label: 'Directions', onPress: openDirections }] : []),
         { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
       ];
 
@@ -253,111 +371,132 @@ export default function ShopProfileScreen({ route, navigation }) {
   ];
 
   const renderProducts = () => (
-    <View>
-      <View style={styles.searchRow}>
-        <View style={styles.searchBox}>
-          <Ionicons name="search" size={15} color={colors.textMuted} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder={`Search in ${shop.name}`}
-            placeholderTextColor={colors.textMuted}
-            style={styles.searchInput}
-            returnKeyType="search"
-          />
-          {query ? (
-            <Pressable onPress={() => setQuery('')} hitSlop={8}>
-              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-            </Pressable>
-          ) : null}
-        </View>
-        <Pressable
-          style={styles.sortBtn}
-          onPress={() => {
-            const i = SORTS.findIndex((s) => s.key === sortKey);
-            setSortKey(SORTS[(i + 1) % SORTS.length].key);
-          }}
-        >
-          <Ionicons name="swap-vertical" size={14} color={colors.primary} />
-          <Text style={styles.sortText}>{SORTS.find((s) => s.key === sortKey)?.label}</Text>
-        </Pressable>
-      </View>
-
-      {categories.length > 2 ? (
+    <View style={styles.catalog}>
+      <View style={styles.sidebar}>
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
+          style={styles.sidebarList}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.sidebarContent, { paddingBottom: insets.bottom }]}
         >
-          {categories.map((cat) => (
-            <Pressable
-              key={cat}
-              style={[styles.chip, category === cat && styles.chipActive]}
-              onPress={() => setCategory(cat)}
-            >
-              <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>{cat}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      ) : null}
-
-      {visibleListings.length === 0 ? (
-        <View style={[styles.emptyBox, styles.emptyBoxInset]}>
-          <Ionicons name="cube-outline" size={22} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>
-            {listings.length ? 'No products match' : 'No products yet'}
-          </Text>
-          <Text style={styles.emptyBody}>
-            {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.grid}>
-          {visibleListings.map((listing) => {
-            const id = listing._id || listing.id;
+          {sidebarCategories.map((cat) => {
+            const isActive = cat.label === category;
+            const tint = cat.tint || colors.primary;
             return (
               <Pressable
-                key={id}
-                style={[styles.productCard, { width: cardWidth }]}
-                onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+                key={cat.label}
+                style={[styles.sideItem, isActive && styles.sideItemActive]}
+                onPress={() => setCategory(cat.label)}
               >
-                <View style={styles.productImageWrap}>
-                  {listing.photos?.[0] ? (
-                    <Image
-                      source={{ uri: resolveMediaUrl(listing.photos[0]) }}
-                      style={styles.fillImage}
-                      resizeMode="cover"
-                    />
+                {isActive ? <View style={styles.sideIndicator} /> : null}
+                <View
+                  style={[
+                    styles.sideIcon,
+                    { backgroundColor: isActive ? tint : `${tint}22` },
+                    isActive && [styles.sideIconActive, { shadowColor: tint }],
+                  ]}
+                >
+                  {cat.imageUrl ? (
+                    <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
                   ) : (
-                    <Ionicons name="image-outline" size={24} color={colors.textMuted} />
+                    <Icon name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
                   )}
-                  {listing.isOnSale ? (
-                    <View style={styles.saleTag}>
-                      <Text style={styles.saleTagText}>SALE</Text>
-                    </View>
-                  ) : null}
                 </View>
-                <View style={styles.productInfo}>
-                  <Text style={styles.productTitle} numberOfLines={1}>
-                    {listing.title}
-                  </Text>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.productPrice}>{formatPrice(listing.price)}</Text>
-                    {listing.originalPrice && Number(listing.originalPrice) > Number(listing.price) ? (
-                      <Text style={styles.oldPrice}>{formatPrice(listing.originalPrice)}</Text>
-                    ) : null}
-                  </View>
-                  {listing.condition ? (
-                    <Text style={styles.productMeta} numberOfLines={1}>
-                      {listing.condition}
-                    </Text>
-                  ) : null}
-                </View>
+                <Text numberOfLines={2} style={[styles.sideLabel, isActive && styles.sideLabelActive]}>
+                  {cat.label}
+                </Text>
               </Pressable>
             );
           })}
+        </ScrollView>
+      </View>
+
+      <ScrollView
+        style={styles.mainContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        scrollEventThrottle={100}
+        onScroll={(event) => {
+          if (isNearEnd(event, 800)) loadMoreListings();
+        }}
+      >
+        <View style={styles.searchRow}>
+          <View style={styles.searchBox}>
+            <Icon name="search" size={15} color={colors.textMuted} />
+            <TextInput
+              value={query}
+              onChangeText={setQuery}
+              placeholder={`Search in ${shop.name}`}
+              placeholderTextColor={colors.textMuted}
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            {query ? (
+              <Pressable onPress={() => setQuery('')} hitSlop={8}>
+                <Icon name="close-circle" size={16} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+            <VoiceSearchButton color={colors.textMuted} size={18} onResult={(text) => setQuery(text)} />
+          </View>
         </View>
-      )}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.sortScroll}
+          contentContainerStyle={styles.sortRow}
+        >
+          {SORTS.map((option) => {
+            const active = sortKey === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                style={[styles.sortChip, active && styles.sortChipActive]}
+                onPress={() => setSortKey(option.key)}
+              >
+                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {visibleListings.length === 0 ? (
+          <View style={[styles.emptyBox, styles.emptyBoxInset]}>
+            <Icon name="cube-outline" size={22} color={colors.textMuted} />
+            <Text style={styles.emptyTitle}>
+              {listings.length ? 'No products match' : 'No products yet'}
+            </Text>
+            <Text style={styles.emptyBody}>
+              {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.productGrid}>
+            {visibleListings.map((listing) => {
+              const id = listing._id || listing.id;
+              const card = toCardItem({ ...listing, id });
+              if (!card) return null;
+              return (
+                <ProductCard
+                  key={String(id)}
+                  {...card}
+                  condition={listing.condition}
+                  postedAt={listing.createdAt}
+                  compact
+                  width={cardWidth}
+                  onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+                />
+              );
+            })}
+          </View>
+        )}
+        {loadingMore ? (
+          <View style={styles.loadMoreRow}>
+            <ActivityIndicator size="small" color={colors.primary} />
+          </View>
+        ) : null}
+      </ScrollView>
     </View>
   );
 
@@ -368,7 +507,7 @@ export default function ShopProfileScreen({ route, navigation }) {
           <Text style={styles.ratingBigValue}>{reviewCount ? rating.toFixed(1) : '–'}</Text>
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map((i) => (
-              <Ionicons
+              <Icon
                 key={i}
                 name={i <= Math.round(rating) ? 'star' : 'star-outline'}
                 size={12}
@@ -397,7 +536,7 @@ export default function ShopProfileScreen({ route, navigation }) {
 
       {reviews.length === 0 ? (
         <View style={styles.emptyBox}>
-          <Ionicons name="star-outline" size={22} color={colors.textMuted} />
+          <Icon name="star-outline" size={22} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No reviews yet</Text>
           <Text style={styles.emptyBody}>Reviews from buyers will appear here.</Text>
         </View>
@@ -409,7 +548,7 @@ export default function ShopProfileScreen({ route, navigation }) {
                 {review.reviewer?.avatarUrl ? (
                   <Image source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }} style={styles.fillImage} />
                 ) : (
-                  <Ionicons name="person" size={14} color={colors.textMuted} />
+                  <Icon name="person" size={14} color={colors.textMuted} />
                 )}
               </View>
               <View style={styles.flex1}>
@@ -418,7 +557,7 @@ export default function ShopProfileScreen({ route, navigation }) {
                 </Text>
                 <View style={styles.starsRow}>
                   {[1, 2, 3, 4, 5].map((i) => (
-                    <Ionicons
+                    <Icon
                       key={i}
                       name={i <= review.rating ? 'star' : 'star-outline'}
                       size={10}
@@ -479,8 +618,55 @@ export default function ShopProfileScreen({ route, navigation }) {
     },
   ].filter(Boolean);
 
+  const renderStoreSummary = () => (
+    <View style={styles.summary}>
+      {shop.tagline ? (
+        <Text style={styles.tagline} numberOfLines={2}>
+          {shop.tagline}
+        </Text>
+      ) : null}
+      <View style={styles.metaRow}>
+        <View style={styles.storeTag}>
+          <Icon name="storefront" size={10} color={colors.onPrimary} />
+          <Text style={styles.storeTagText}>STORE</Text>
+        </View>
+        {shop.category ? <Text style={styles.metaText}>{shop.category}</Text> : null}
+        {shop.isVerified ? <Text style={styles.verifiedText}>Business verified</Text> : null}
+        {shop.deliveryAvailable ? (
+          <View style={styles.deliveryTag}>
+            <Icon name="bicycle" size={10} color={colors.menuBlue} />
+            <Text style={styles.deliveryTagText}>Delivery</Text>
+          </View>
+        ) : null}
+      </View>
+      {placeText || distanceLabel ? (
+        <View style={styles.locationRow}>
+          <Icon name="location-outline" size={14} color={colors.textMuted} />
+          {placeText ? (
+            <Text style={styles.locationText} numberOfLines={1}>{placeText}</Text>
+          ) : null}
+          {distanceLabel ? (
+            <Text style={styles.distanceText}>{placeText ? `· ${distanceLabel}` : distanceLabel}</Text>
+          ) : null}
+        </View>
+      ) : null}
+      <View style={styles.statsCard}>
+        {stats.map((s, i) => (
+          <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
+            <View style={styles.statTop}>
+              <Icon name={s.icon} size={14} color={s.tint} />
+              <Text style={styles.statValue}>{s.value}</Text>
+            </View>
+            <Text style={styles.statLabel}>{s.label}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+
   const renderAbout = () => (
     <View style={styles.section}>
+      {renderStoreSummary()}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>About</Text>
         <Text style={styles.aboutText}>{shop.description?.trim() || 'No description provided.'}</Text>
@@ -492,7 +678,7 @@ export default function ShopProfileScreen({ route, navigation }) {
                 onPress={() => openLink(toUrl(social[s.key], s.base))}
                 style={[styles.socialBtn, { backgroundColor: `${s.color}14` }]}
               >
-                <Ionicons name={s.icon} size={18} color={s.color} />
+                <Icon name={s.icon} size={18} color={s.color} />
               </Pressable>
             ))}
           </View>
@@ -507,7 +693,7 @@ export default function ShopProfileScreen({ route, navigation }) {
             disabled={!row.onPress}
           >
             <View style={styles.infoIcon}>
-              <Ionicons name={row.icon} size={15} color={colors.primary} />
+              <Icon name={row.icon} size={15} color={colors.primary} />
             </View>
             <View style={styles.flex1}>
               <Text style={styles.infoLabel}>{row.label}</Text>
@@ -516,7 +702,7 @@ export default function ShopProfileScreen({ route, navigation }) {
             {row.extra ? (
               <Text style={[styles.infoExtra, { color: row.extraColor }]}>{row.extra}</Text>
             ) : null}
-            {row.onPress ? <Ionicons name="chevron-forward" size={15} color={colors.textMuted} /> : null}
+            {row.onPress ? <Icon name="chevron-forward" size={15} color={colors.textMuted} /> : null}
           </Pressable>
         ))}
       </View>
@@ -526,157 +712,175 @@ export default function ShopProfileScreen({ route, navigation }) {
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-        refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={[styles.cover, { height: coverHeight + insets.top }]}>
-          {shop.coverImage ? (
-            <>
-              <Image source={{ uri: resolveMediaUrl(shop.coverImage) }} style={styles.fillImage} resizeMode="cover" />
-              <LinearGradient
-                colors={['rgba(0,0,0,0.45)', 'transparent']}
-                style={[styles.coverShade, { height: insets.top + 56 }]}
-                pointerEvents="none"
-              />
-            </>
-          ) : (
-            <LinearGradient
-              colors={colors.gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.fillImage}
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.topBtn}>
+            <Icon name="chevron-back" size={22} color={colors.text} />
+          </Pressable>
+          <View style={styles.topBarSpacer} />
+          <Pressable onPress={shareShop} hitSlop={10} style={styles.topBtn}>
+            <Icon name="share-social-outline" size={18} color={colors.text} />
+          </Pressable>
+          {!isOwner ? (
+            <Pressable
+              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId })}
+              hitSlop={10}
+              style={styles.topBtn}
             >
-              <Ionicons name="storefront" size={150} color="rgba(255,255,255,0.08)" style={styles.coverWatermark} />
-            </LinearGradient>
-          )}
-          <View style={[styles.coverBar, { top: insets.top + 8 }]}>
-            <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.coverBtn}>
-              <Ionicons name="chevron-back" size={20} color="#fff" />
+              <Icon name="ellipsis-horizontal" size={18} color={colors.text} />
             </Pressable>
-            <View style={styles.coverBarRight}>
-              <Pressable onPress={shareShop} hitSlop={10} style={styles.coverBtn}>
-                <Ionicons name="share-social-outline" size={17} color="#fff" />
-              </Pressable>
-              {!isOwner ? (
-                <Pressable
-                  onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId })}
-                  hitSlop={10}
-                  style={styles.coverBtn}
-                >
-                  <Ionicons name="ellipsis-horizontal" size={17} color="#fff" />
-                </Pressable>
+          ) : null}
+        </View>
+        <View style={styles.identityRow}>
+          <View style={styles.logo}>
+            {shop.logo ? (
+              <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fillImage} />
+            ) : (
+              <Icon name="storefront" size={22} color={colors.primary} />
+            )}
+          </View>
+          <View style={styles.headerCopy}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>{shop.name}</Text>
+              {shop.isVerified ? <Icon name="shield-checkmark" size={16} color={colors.primary} /> : null}
+            </View>
+            <View style={styles.detailRow}>
+              <Icon name="star" size={13} color={colors.warning} />
+              <Text style={styles.detailStrong}>{reviewCount ? rating.toFixed(1) : 'New'}</Text>
+              {shop.category ? (
+                <Text style={styles.detailMuted} numberOfLines={1}>· {shop.category}</Text>
+              ) : <View style={styles.flex1} />}
+              {isOpen != null ? (
+                <View style={[styles.openPill, { backgroundColor: isOpen ? colors.pastelGreen : colors.pastelRed }]}>
+                  <View style={[styles.openDot, { backgroundColor: isOpen ? colors.success : colors.danger }]} />
+                  <Text style={[styles.openText, { color: isOpen ? colors.success : colors.danger }]}>
+                    {isOpen ? 'Open' : 'Closed'}
+                  </Text>
+                </View>
               ) : null}
             </View>
+            {placeText || distanceLabel ? (
+              <View style={styles.locationRow}>
+                <Icon name="location-outline" size={14} color={colors.textMuted} />
+                {placeText ? (
+                  <Text style={styles.locationText} numberOfLines={1}>{placeText}</Text>
+                ) : null}
+                {distanceLabel ? (
+            <Text style={styles.distanceText}>{placeText ? `· ${distanceLabel}` : distanceLabel}</Text>
+          ) : null}
+              </View>
+            ) : null}
           </View>
         </View>
-
-        <View style={styles.identity}>
-          <View style={styles.logoRow}>
-            <View style={styles.logo}>
-              {shop.logo ? (
-                <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fillImage} />
-              ) : (
-                <Ionicons name="storefront" size={28} color={colors.primary} />
-              )}
-            </View>
-            {isOpen != null ? (
-              <View style={[styles.openPill, { backgroundColor: isOpen ? colors.pastelGreen : colors.pastelRed }]}>
-                <View style={[styles.openDot, { backgroundColor: isOpen ? colors.success : colors.danger }]} />
-                <Text style={[styles.openText, { color: isOpen ? colors.success : colors.danger }]}>
-                  {isOpen ? 'Open now' : 'Closed'}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>
-              {shop.name}
-            </Text>
-            {shop.isVerified ? <Ionicons name="shield-checkmark" size={14} color={colors.primary} /> : null}
-          </View>
-          {shop.tagline ? (
-            <Text style={styles.tagline} numberOfLines={2}>
-              {shop.tagline}
-            </Text>
-          ) : null}
-          <View style={styles.metaRow}>
-            <View style={styles.storeTag}>
-              <Ionicons name="storefront" size={10} color={colors.onPrimary} />
-              <Text style={styles.storeTagText}>STORE</Text>
-            </View>
-            {shop.category ? <Text style={styles.metaText}>{shop.category}</Text> : null}
-            {shop.isVerified ? <Text style={styles.verifiedText}>· Business verified</Text> : null}
-            {shop.deliveryAvailable ? (
-              <View style={styles.deliveryTag}>
-                <Ionicons name="bicycle" size={10} color={colors.menuBlue} />
-                <Text style={styles.deliveryTagText}>Delivery</Text>
-              </View>
-            ) : null}
-          </View>
-          {placeText ? (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={13} color={colors.textMuted} />
-              <Text style={styles.locationText} numberOfLines={1}>
-                {placeText}
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.statsCard}>
-            {stats.map((s, i) => (
-              <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
-                <View style={styles.statTop}>
-                  <Ionicons name={s.icon} size={12} color={s.tint} />
-                  <Text style={styles.statValue}>{s.value}</Text>
-                </View>
-                <Text style={styles.statLabel}>{s.label}</Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.actionsRow}>
-            {actions.map((a) => (
+        <View style={styles.contactRow}>
+          {(() => {
+            const rowItems = [
+              {
+                key: 'products',
+                icon: 'grid-outline',
+                label: 'Items',
+                onPress: () => setTab('products'),
+              },
+              ...actions
+                .filter((action) => action.key !== 'share')
+                .map((action) => ({
+                  ...action,
+                  label: action.key === 'edit' ? 'Edit' : action.label,
+                })),
+              {
+                key: 'reviews',
+                icon: 'star-outline',
+                label: 'Reviews',
+                onPress: () => setTab('reviews'),
+              },
+              {
+                key: 'about',
+                icon: 'information-circle-outline',
+                label: 'About',
+                onPress: () => setTab('about'),
+              },
+            ];
+            const rowGap = 6;
+            const rowWidth = width - 24;
+            const buttonWidth = Math.floor((rowWidth - rowGap * (rowItems.length - 1)) / rowItems.length);
+            return rowItems.map((action) => {
+            const isCall = action.key === 'call';
+            const selected = action.key === tab;
+            const filled = (action.primary || isCall) && !selected;
+            const iconName = selected && action.key === 'reviews'
+              ? 'star'
+              : selected && action.key === 'products'
+                ? 'grid'
+                : action.icon;
+            return (
               <Pressable
-                key={a.key}
-                style={[styles.actionBtn, a.primary && styles.actionBtnPrimary]}
-                onPress={a.onPress}
+                key={action.key}
+                accessibilityLabel={action.label}
+                style={[
+                  styles.contactBtn,
+                  { width: buttonWidth, height: Math.min(buttonWidth, 40) },
+                  filled && action.primary && styles.contactBtnPrimary,
+                  filled && isCall && styles.contactBtnCall,
+                  selected && styles.contactBtnSelected,
+                ]}
+                onPress={action.onPress}
               >
-                <Ionicons name={a.icon} size={16} color={a.primary ? colors.onPrimary : colors.primary} />
-                <Text style={[styles.actionText, a.primary && styles.actionTextPrimary]} numberOfLines={1}>
-                  {a.label}
-                </Text>
+                <Icon
+                  name={iconName}
+                  size={18}
+                  color={filled ? '#fff' : selected ? colors.primary : colors.text}
+                />
               </Pressable>
-            ))}
-          </View>
+            );
+            });
+          })()}
         </View>
+      </View>
 
-        <View style={styles.tabsTrack}>
-          {[
-            { key: 'products', label: `Products · ${listings.length}` },
-            { key: 'reviews', label: `Reviews · ${reviews.length}` },
-            { key: 'about', label: 'About' },
-          ].map((t) => (
-            <Pressable
-              key={t.key}
-              style={[styles.tabBtn, tab === t.key && styles.tabBtnActive]}
-              onPress={() => setTab(t.key)}
-            >
-              <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {tab === 'products' ? renderProducts() : tab === 'reviews' ? renderReviews() : renderAbout()}
-      </ScrollView>
+        {tab === 'products' ? (
+          renderProducts()
+        ) : (
+          <ScrollView
+            style={styles.mainContent}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+            refreshControl={refreshControl(colors, refreshing, onRefresh)}
+          >
+            {tab === 'reviews' ? renderReviews() : renderAbout()}
+          </ScrollView>
+        )}
     </View>
   );
 }
 
 const createStyles = (colors) => ({
+  skeletonWrap: {
+    paddingHorizontal: 14,
+    gap: 14,
+  },
+  skeletonBack: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  skeletonText: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  loadMoreRow: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
   root: {
     flex: 1,
     backgroundColor: colors.background,
@@ -688,19 +892,106 @@ const createStyles = (colors) => ({
     width: '100%',
     height: '100%',
   },
-  cover: {
-    overflow: 'hidden',
+  header: {
+    paddingHorizontal: 12,
+    paddingBottom: 14,
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
-  coverWatermark: {
-    position: 'absolute',
-    right: -20,
-    bottom: -30,
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  coverShade: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+  topBarSpacer: {
+    flex: 1,
+  },
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 3,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  detailStrong: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  detailMuted: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  topBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  contactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  contactBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  contactBtnPrimary: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  contactBtnCall: {
+    borderColor: '#059669',
+    backgroundColor: '#059669',
+  },
+  contactText: {
+    width: '100%',
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.text,
+    textAlign: 'center',
+  },
+  contactTextFilled: {
+    color: '#fff',
+  },
+  contactBtnSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  contactTextSelected: {
+    color: colors.primary,
   },
   socialRow: {
     flexDirection: 'row',
@@ -714,93 +1005,61 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  coverBar: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  coverBarRight: {
-    flexDirection: 'row',
+  summary: {
     gap: 8,
-  },
-  coverBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.25)',
-  },
-  identity: {
-    paddingHorizontal: 14,
-    marginTop: -LOGO_SIZE / 2,
-  },
-  logoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
   },
   logo: {
     width: LOGO_SIZE,
     height: LOGO_SIZE,
-    borderRadius: 14,
-    borderWidth: 2.5,
-    borderColor: colors.background,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     backgroundColor: colors.pastelGreen,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
   },
   openPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    marginBottom: 2,
-  },
-  openDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
-  openText: {
-    fontSize: 9.5,
-    fontWeight: '800',
-  },
-  nameRow: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  openDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  openText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   name: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     color: colors.text,
     minWidth: 0,
   },
   tagline: {
-    marginTop: 0,
-    fontSize: 11,
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
-    minWidth: 0,
   },
   deliveryTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
     backgroundColor: colors.pastelBlue,
   },
   deliveryTagText: {
-    fontSize: 8.5,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.menuBlue,
   },
@@ -814,48 +1073,50 @@ const createStyles = (colors) => ({
   storeTag: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
     backgroundColor: colors.primary,
   },
   storeTagText: {
-    fontSize: 8.5,
+    fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
     color: colors.onPrimary,
-    minWidth: 0,
   },
   metaText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
-    minWidth: 0,
   },
   verifiedText: {
-    fontSize: 10,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.primary,
-    minWidth: 0,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
-    marginTop: 2,
+    gap: 3,
   },
   locationText: {
-    flex: 1,
-    fontSize: 10,
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '500',
     color: colors.textMuted,
-    minWidth: 0,
+  },
+  distanceText: {
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
   },
   statsCard: {
     flexDirection: 'row',
-    marginTop: 6,
-    paddingVertical: 6,
-    borderRadius: 10,
+    marginTop: 0,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -875,20 +1136,18 @@ const createStyles = (colors) => ({
     gap: 2,
   },
   statValue: {
-    fontSize: 13,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.text,
-    minWidth: 0,
   },
   statLabel: {
-    fontSize: 9,
+    fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
   actionsRow: {
     flexDirection: 'row',
     gap: 5,
-    marginTop: 6,
+    marginTop: 0,
   },
   actionBtn: {
     flex: 1,
@@ -919,18 +1178,19 @@ const createStyles = (colors) => ({
   },
   tabsTrack: {
     flexDirection: 'row',
-    marginHorizontal: 14,
-    marginTop: 8,
-    padding: 2.5,
-    borderRadius: 9,
+    marginHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 8,
+    padding: 3,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.iconBackground,
   },
   tabBtn: {
     flex: 1,
-    height: 28,
-    borderRadius: 7,
+    height: 34,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -938,29 +1198,105 @@ const createStyles = (colors) => ({
     backgroundColor: colors.primary,
   },
   tabText: {
-    fontSize: 10.5,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.textMuted,
-    minWidth: 0,
   },
   tabTextActive: {
     color: colors.onPrimary,
     minWidth: 0,
   },
+  catalog: {
+    flex: 1,
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+  sidebar: {
+    width: SIDEBAR_WIDTH,
+    alignSelf: 'stretch',
+    backgroundColor: colors.surface,
+    borderTopRightRadius: 22,
+    borderRightWidth: 1,
+    borderTopWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  sidebarList: {
+    flex: 1,
+  },
+  sidebarContent: {
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  sideItem: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    gap: 3,
+    borderRadius: 14,
+    marginHorizontal: 3,
+  },
+  sideItemActive: {
+    backgroundColor: colors.background,
+    borderRadius: 14,
+  },
+  sideIndicator: {
+    position: 'absolute',
+    left: 0,
+    top: 6,
+    bottom: 6,
+    width: 3,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  sideIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  sideIconActive: {
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  sideIconImage: {
+    width: '100%',
+    height: '100%',
+  },
+  sideLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 11,
+  },
+  sideLabelActive: {
+    color: colors.text,
+    fontWeight: '800',
+  },
+  mainContent: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   searchRow: {
     flexDirection: 'row',
     gap: 5,
-    paddingHorizontal: 14,
-    marginTop: 8,
+    paddingHorizontal: GRID_PADDING,
+    paddingTop: 0,
   },
   searchBox: {
     flex: 1,
-    height: 30,
+    height: 40,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    borderRadius: 9,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -968,121 +1304,46 @@ const createStyles = (colors) => ({
   searchInput: {
     flex: 1,
     paddingVertical: 0,
-    fontSize: 11,
+    fontSize: 14,
     color: colors.text,
     minWidth: 0,
   },
-  sortBtn: {
-    height: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+  sortScroll: {
+    flexGrow: 0,
   },
-  sortText: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: colors.text,
-    minWidth: 0,
-  },
-  chipRow: {
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingTop: 6,
-  },
-  chip: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  chipActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  chipText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: colors.text,
-    minWidth: 0,
-  },
-  chipTextActive: {
-    color: colors.onPrimary,
-    fontWeight: '700',
-    minWidth: 0,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  sortRow: {
+    paddingHorizontal: GRID_PADDING,
+    paddingVertical: 8,
     gap: 6,
-    paddingHorizontal: 14,
-    paddingTop: 6,
+    alignItems: 'center',
   },
-  productCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  productImageWrap: {
-    aspectRatio: 1,
+  sortChip: {
+    paddingHorizontal: 11,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  saleTag: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    backgroundColor: colors.danger,
+  sortChipActive: {
+    backgroundColor: '#059669',
+    borderColor: '#059669',
   },
-  saleTagText: {
-    fontSize: 8.5,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  productInfo: {
-    paddingHorizontal: 6,
-    paddingVertical: 5,
-    gap: 0,
-  },
-  productTitle: {
-    fontSize: 11,
+  sortChipText: {
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    minWidth: 0,
   },
-  priceRow: {
+  sortChipTextActive: {
+    color: '#fff',
+  },
+  productGrid: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 4,
-  },
-  productPrice: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.price,
-    minWidth: 0,
-  },
-  oldPrice: {
-    fontSize: 9,
-    color: colors.textMuted,
-    textDecorationLine: 'line-through',
-    minWidth: 0,
-  },
-  productMeta: {
-    fontSize: 9,
-    color: colors.textMuted,
-    minWidth: 0,
+    flexWrap: 'wrap',
+    paddingHorizontal: GRID_PADDING,
+    gap: GRID_GUTTER,
   },
   section: {
     paddingHorizontal: 14,
@@ -1110,7 +1371,7 @@ const createStyles = (colors) => ({
     minWidth: 0,
   },
   ratingBigLabel: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
     minWidth: 0,
   },
@@ -1128,8 +1389,8 @@ const createStyles = (colors) => ({
     gap: 5,
   },
   barLabel: {
-    width: 9,
-    fontSize: 10,
+    width: 12,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.textSecondary,
     minWidth: 0,
@@ -1149,9 +1410,8 @@ const createStyles = (colors) => ({
   barCount: {
     width: 16,
     textAlign: 'right',
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
   reviewCard: {
     padding: 10,
@@ -1176,24 +1436,24 @@ const createStyles = (colors) => ({
     backgroundColor: colors.iconBackground,
   },
   reviewName: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.text,
     minWidth: 0,
   },
   reviewDate: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
     minWidth: 0,
   },
   reviewText: {
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 17,
     color: colors.text,
     minWidth: 0,
   },
   reviewItem: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
     minWidth: 0,
   },
@@ -1205,14 +1465,14 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
   },
   cardTitle: {
-    fontSize: 12,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.text,
     marginBottom: 5,
     minWidth: 0,
   },
   aboutText: {
-    fontSize: 12,
+    fontSize: 14,
     lineHeight: 17,
     color: colors.textSecondary,
     minWidth: 0,
@@ -1236,18 +1496,18 @@ const createStyles = (colors) => ({
     backgroundColor: colors.pastelGreen,
   },
   infoLabel: {
-    fontSize: 10,
+    fontSize: 12,
     color: colors.textMuted,
     minWidth: 0,
   },
   infoValue: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.text,
     minWidth: 0,
   },
   infoExtra: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '800',
     minWidth: 0,
   },
@@ -1265,13 +1525,13 @@ const createStyles = (colors) => ({
     marginTop: 10,
   },
   emptyTitle: {
-    fontSize: 12.5,
+    fontSize: 15,
     fontWeight: '700',
     color: colors.text,
     minWidth: 0,
   },
   emptyBody: {
-    fontSize: 11,
+    fontSize: 13,
     color: colors.textMuted,
     minWidth: 0,
   },

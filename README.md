@@ -163,12 +163,12 @@ This project is private and confidential.
 **Last Updated:** September 9, 2026
 
 
-============ admin default login ===============
- Default admin user create ho gaya:
- 
-Email: admin@kinbech.com
-Password: admin123
-Phone: 9800000000
+============ first super admin ===============
+No default admin password exists. Create the first super admin with:
+
+  cd Backend && ADMIN_SEED_EMAIL=you@company.com npm run seed:admin
+
+It prints a one-time password; the panel asks for a new one at first login.
 
 <!-- relese build -->
 <!-- // cd android && ./gradlew assembleRelease -- .apk -->

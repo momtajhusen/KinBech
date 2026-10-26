@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -167,10 +167,10 @@ export default function EditProfileScreen({ navigation }) {
             end={{ x: 1, y: 1 }}
             style={[styles.hero, { paddingTop: insets.top + 8 }]}
           >
-            <Ionicons name="person" size={150} color="rgba(255,255,255,0.07)" style={styles.heroWatermark} />
+            <Icon name="person" size={150} color="rgba(255,255,255,0.07)" style={styles.heroWatermark} />
             <View style={styles.heroBar}>
               <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.heroBtn}>
-                <Ionicons name="chevron-back" size={20} color="#fff" />
+                <Icon name="chevron-back" size={20} color="#fff" />
               </Pressable>
               <Text style={styles.heroTitle}>Edit profile</Text>
               <View style={styles.heroBtnGhost} />
@@ -183,18 +183,18 @@ export default function EditProfileScreen({ navigation }) {
                 {avatarUri ? (
                   <Image source={{ uri: resolveMediaUrl(avatarUri) || avatarUri }} style={styles.fill} />
                 ) : (
-                  <Ionicons name="person" size={40} color={colors.menuBlue} />
+                  <Icon name="person" size={40} color={colors.menuBlue} />
                 )}
               </View>
               <View style={styles.cameraBadge}>
-                <Ionicons name="camera" size={14} color="#fff" />
+                <Icon name="camera" size={14} color="#fff" />
               </View>
             </Pressable>
             <Text style={styles.previewName} numberOfLines={1}>
               {name.trim() || 'Your name'}
             </Text>
             <View style={styles.typePill}>
-              <Ionicons name="person" size={10} color={colors.menuBlue} />
+              <Icon name="person" size={10} color={colors.menuBlue} />
               <Text style={styles.typePillText}>INDIVIDUAL SELLER</Text>
             </View>
             <Pressable onPress={pickImage} hitSlop={6}>
@@ -234,7 +234,7 @@ export default function EditProfileScreen({ navigation }) {
                 editable={false}
                 right={
                   <View style={styles.verifiedTag}>
-                    <Ionicons name="shield-checkmark" size={11} color={colors.success} />
+                    <Icon name="shield-checkmark" size={11} color={colors.success} />
                     <Text style={styles.verifiedText}>Verified</Text>
                   </View>
                 }
@@ -258,7 +258,7 @@ export default function EditProfileScreen({ navigation }) {
                       <ActivityIndicator size="small" color={colors.primary} />
                     ) : (
                       <>
-                        <Ionicons name="locate" size={13} color={colors.primary} />
+                        <Icon name="locate" size={13} color={colors.primary} />
                         <Text style={styles.gpsText}>GPS</Text>
                       </>
                     )}
@@ -268,7 +268,7 @@ export default function EditProfileScreen({ navigation }) {
             </EditSection>
 
             <View style={styles.note}>
-              <Ionicons name="eye-outline" size={14} color={colors.textMuted} />
+              <Icon name="eye-outline" size={14} color={colors.textMuted} />
               <Text style={styles.noteText}>
                 Your name, photo and location are visible to other KinBech users when you buy or sell.
               </Text>
@@ -282,7 +282,7 @@ export default function EditProfileScreen({ navigation }) {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Icon name="checkmark-circle" size={18} color="#fff" />
                 <Text style={styles.saveText}>Save changes</Text>
               </>
             )}

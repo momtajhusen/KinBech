@@ -8,6 +8,15 @@ const supportTicketSchema = new mongoose.Schema(
     subject: { type: String, required: true, trim: true },
     message: { type: String, required: true, trim: true },
     status: { type: String, enum: ['open', 'resolved'], default: 'open', index: true },
+    /** Shown to the user in the app. */
+    reply: { type: String, trim: true, default: '' },
+    repliedAt: { type: Date, default: null },
+    repliedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    repliedByName: { type: String, trim: true, default: '' },
+    /** Admin-only. */
+    adminNote: { type: String, trim: true, default: '' },
+    resolvedAt: { type: Date, default: null },
+    resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   },
   { timestamps: true, collection: 'support_tickets' }
 );

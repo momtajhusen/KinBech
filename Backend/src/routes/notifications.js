@@ -6,9 +6,11 @@ const {
   deleteNotification,
   clearNotifications,
   createBroadcastNotification,
+  deleteBroadcastNotification,
   getBroadcastNotifications,
 } = require('../controllers/notificationController');
-const { requireAuth, requireAdmin } = require('../middleware/auth');
+const { requireAuth, requireScope } = require('../middleware/auth');
+const { auditRoute } = require('../utils/audit');
 
 const router = Router();
 
@@ -20,7 +22,8 @@ router.patch('/:id/read', requireAuth, markAsRead);
 router.delete('/:id', requireAuth, deleteNotification);
 
 // Admin routes
-router.post('/admin/broadcast', requireAdmin, createBroadcastNotification);
-router.get('/admin/broadcasts', requireAdmin, getBroadcastNotifications);
+router.post('/admin/broadcast', requireScope('notifications'), auditRoute('notifications.broadcast.create', { targetType: 'broadcast' }), createBroadcastNotification);
+router.get('/admin/broadcasts', requireScope('notifications'), getBroadcastNotifications);
+router.delete('/admin/broadcasts/:id', requireScope('notifications'), auditRoute('notifications.broadcasts.delete', { targetType: 'broadcast', param: 'id' }), deleteBroadcastNotification);
 
 module.exports = router;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Icon from '../components/Icon';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import ScreenLoader from '../components/ScreenLoader';
@@ -124,7 +124,7 @@ export default function ShopVerificationScreen({ navigation }) {
     if (result.canceled || !result.assets?.[0]?.uri) return;
 
     setSaving(true);
-    const uploaded = await uploadMediaUri(result.assets[0].uri, 'shops');
+    const uploaded = await uploadMediaUri(result.assets[0].uri, 'documents');
     setSaving(false);
     if (uploaded.error) {
       setAlertConfig(
@@ -145,7 +145,12 @@ export default function ShopVerificationScreen({ navigation }) {
     }
     setDocuments((prev) => [
       ...prev,
-      { url: uploaded.url, label: docLabel, uploadedAt: new Date().toISOString() },
+      {
+        url: uploaded.url,
+        viewUrl: uploaded.viewUrl,
+        label: docLabel,
+        uploadedAt: new Date().toISOString(),
+      },
     ]);
   };
 
@@ -219,7 +224,7 @@ export default function ShopVerificationScreen({ navigation }) {
       >
         <View style={styles.headerTop}>
           <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.onGradient} />
+            <Icon name="chevron-back" size={24} color={colors.onGradient} />
           </Pressable>
           <Text style={styles.headerTitle}>Business verification</Text>
           <View style={{ width: 40 }} />
@@ -235,7 +240,7 @@ export default function ShopVerificationScreen({ navigation }) {
         >
             <View style={[styles.statusCard, { borderColor: statusColor }]}>
               <View style={[styles.statusIcon, { backgroundColor: `${statusColor}18` }]}>
-                <Ionicons name={status.icon} size={22} color={statusColor} />
+                <Icon name={status.icon} size={22} color={statusColor} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.statusLabel, { color: statusColor }]}>{status.label}</Text>
@@ -287,7 +292,7 @@ export default function ShopVerificationScreen({ navigation }) {
                     onPress={() => setDocLabel(item.key)}
                     style={[styles.chip, active && styles.chipActive]}
                   >
-                    <Ionicons
+                    <Icon
                       name={item.icon}
                       size={14}
                       color={active ? colors.onPrimary : colors.textSecondary}
@@ -299,7 +304,7 @@ export default function ShopVerificationScreen({ navigation }) {
             </View>
 
             <Pressable style={styles.uploadBtn} onPress={pickDocument} disabled={saving}>
-              <Ionicons name="cloud-upload-outline" size={20} color={colors.primary} />
+              <Icon name="cloud-upload-outline" size={20} color={colors.primary} />
               <Text style={styles.uploadBtnText}>Upload {docLabel}</Text>
             </Pressable>
 
@@ -308,17 +313,19 @@ export default function ShopVerificationScreen({ navigation }) {
                 {documents.map((doc, index) => (
                   <View key={`${doc.url}-${index}`} style={styles.docRow}>
                     <Image
-                      source={{ uri: resolveMediaUrl(doc.url) }}
+                      source={{ uri: resolveMediaUrl(doc.viewUrl || doc.url) }}
                       style={styles.docThumb}
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.docLabel}>{doc.label || 'Document'}</Text>
                       <Text style={styles.docMeta} numberOfLines={1}>
-                        {doc.url}
+                        {doc.uploadedAt
+                          ? `Uploaded ${new Date(doc.uploadedAt).toLocaleDateString()}`
+                          : 'Private · visible to you and KinBech review'}
                       </Text>
                     </View>
                     <Pressable onPress={() => removeDoc(index)} hitSlop={10}>
-                      <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                      <Icon name="trash-outline" size={18} color={colors.danger} />
                     </Pressable>
                   </View>
                 ))}

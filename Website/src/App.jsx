@@ -18,6 +18,8 @@ import FaqPage from './pages/FaqPage';
 import DownloadPage from './pages/DownloadPage';
 import LegalHubPage from './pages/LegalHubPage';
 import LegalDocumentPage from './pages/LegalDocumentPage';
+import HumanCheckPage from './pages/HumanCheckPage';
+import SecurityPolicyPage from './pages/SecurityPolicyPage';
 
 function PublicSite() {
   return (
@@ -39,6 +41,8 @@ function PublicSite() {
         <Route path="/download" element={<DownloadPage />} />
         <Route path="/legal" element={<LegalHubPage />} />
         <Route path="/legal/:docId" element={<LegalDocumentPage />} />
+        <Route path="/human-check" element={<HumanCheckPage />} />
+        <Route path="/security" element={<SecurityPolicyPage />} />
       </Routes>
     </>
   );
