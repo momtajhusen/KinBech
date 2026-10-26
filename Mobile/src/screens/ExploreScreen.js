@@ -16,7 +16,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Easing, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
-import { api } from '../services/api';
+import { api, getAuthToken } from '../services/api';
+import { useRequireLogin } from '../components/LoginPrompt';
 import {
   attachDistanceToCard,
   attachDistanceToSeller,
@@ -551,6 +552,7 @@ function SectionTitle({ styles, icon, tint, title, subtitle, count }) {
 
 export default function ExploreScreen({ navigation, route }) {
   const { colors } = useTheme();
+  const requireLogin = useRequireLogin();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
@@ -822,7 +824,7 @@ export default function ExploreScreen({ navigation, route }) {
       loadLiveCounts();
       fetchSellers({ silent: true });
       // Only on focus, so the sidebar never jumps while the buyer is tapping through it.
-      api.getMyInterests().then(({ data }) => {
+      if (getAuthToken()) api.getMyInterests().then(({ data }) => {
         if (!Array.isArray(data?.categories)) return;
         const names = data.categories.map((c) => c.name);
         setInterestCategories((prev) => (prev.join('|') === names.join('|') ? prev : names));
@@ -961,7 +963,7 @@ export default function ExploreScreen({ navigation, route }) {
     });
   }, [navigation]);
 
-  const handlePinToggle = useCallback(async (sellerId) => {
+  const handlePinToggle = useCallback((sellerId) => requireLogin('pin', async () => {
     const seller = [...featuredSellers, ...popularSellers, ...nearbySellers]
       .find(s => s._id === sellerId);
 
@@ -978,7 +980,7 @@ export default function ExploreScreen({ navigation, route }) {
     // Refresh pinned stores from backend
     const pinned = await pinnedStoresUtils.getPinnedStores({ lat: userCoords.lat, lng: userCoords.lng });
     setPinnedStores(pinned);
-  }, [featuredSellers, popularSellers, nearbySellers, pinnedStores, userCoords]);
+  }), [featuredSellers, popularSellers, nearbySellers, pinnedStores, userCoords, requireLogin]);
 
   const handleProductPress = useCallback((product, index) => {
     // Navigate to product detail
@@ -1373,7 +1375,7 @@ export default function ExploreScreen({ navigation, route }) {
                 </Text>
               </View>
             </View>
-            <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.WISHLIST)}>
+            <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('save', () => navigation.navigate(ROUTES.WISHLIST))}>
               <Icon name="heart-outline" size={19} color={colors.onGradient} />
             </PressableScale>
             <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
@@ -1607,7 +1609,7 @@ export default function ExploreScreen({ navigation, route }) {
                         title={isAll ? 'No products yet' : `No ${activeCategory} yet`}
                         body="Be the first to post an item in this category."
                         buttonLabel="Sell an item"
-                        onButtonPress={() => navigateToTab(navigation, TABS.POST)}
+                        onButtonPress={() => requireLogin('sell', () => navigateToTab(navigation, TABS.POST))}
                       />
                     )}
                   </View>

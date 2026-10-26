@@ -2,11 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import { Animated, Pressable, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
+import { requestLogin } from './LoginPrompt';
 import { useTheme, useThemedStyles } from '../theme';
 
 /** Mounted in the background after Home settles, so the first tap shows the screen at once.
  *  Post is left out: its form may ask for location permission when it mounts. */
 const PRELOAD_TABS = ['Explore', 'Chats', 'Profile'];
+
+/** Tabs a guest must log in for, with the login sheet reason. */
+const GUEST_LOCKED = { Post: 'sell', Chats: 'chats' };
 
 const ICONS = {
   Home: { outline: 'home-outline', filled: 'home' },
@@ -186,6 +191,7 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const { isLoggedIn } = useAuth();
   const [pendingIndex, setPendingIndex] = useState(null);
 
   useEffect(() => {
@@ -196,7 +202,7 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
     if (typeof navigation?.preload !== 'function') return undefined;
     const timers = [];
     const idleIds = [];
-    PRELOAD_TABS.forEach((name, i) => {
+    PRELOAD_TABS.filter((name) => isLoggedIn || !GUEST_LOCKED[name]).forEach((name, i) => {
       timers.push(
         setTimeout(() => {
           idleIds.push(requestIdleCallback(() => navigation.preload(name), { timeout: 1500 }));
@@ -207,7 +213,7 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
       timers.forEach(clearTimeout);
       idleIds.forEach((id) => cancelIdleCallback(id));
     };
-  }, [navigation]);
+  }, [navigation, isLoggedIn]);
 
   if (!state?.routes) {
     return null;
@@ -224,6 +230,11 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
         const icon = ICONS[route.name] || { outline: 'ellipse-outline', filled: 'ellipse' };
 
         const onPress = () => {
+          const lockReason = isLoggedIn ? null : GUEST_LOCKED[route.name];
+          if (lockReason) {
+            requestLogin(lockReason, () => navigation.navigate(route.name));
+            return;
+          }
           const event = navigation.emit({
             type: 'tabPress',
             target: route.key,
@@ -245,7 +256,7 @@ export default function BottomTabBar({ state, descriptors, navigation }) {
             label={label}
             colors={colors}
             styles={styles}
-            showDot={route.name === 'Chats'}
+            showDot={isLoggedIn && route.name === 'Chats'}
             onPress={onPress}
           />
         );

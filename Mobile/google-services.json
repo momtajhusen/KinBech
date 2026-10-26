@@ -12,7 +12,20 @@
           "package_name": "com.codersalpha.kinbech"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "455638709467-f6vsu44crr8ka1bpkk92c6fedg6lhtd0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.codersalpha.kinbech",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "455638709467-b9otimi9bo7fc5srv6m0eetpoon71bi7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAU9VrGWXTHnLTsvTvb5fZiRdJECYpGktk"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "455638709467-b9otimi9bo7fc5srv6m0eetpoon71bi7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

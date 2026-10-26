@@ -184,7 +184,7 @@ export default function SettingsScreen({ navigation }) {
 
   const signOutHere = async () => {
     await logout();
-    navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+    navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
   };
 
   const confirmLogoutAll = () => {

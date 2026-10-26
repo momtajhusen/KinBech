@@ -289,7 +289,15 @@ export default function PrivacyScreen({ navigation }) {
     Alert.alert(
       'Account deletion scheduled',
       data?.message || 'Your account will be deleted in 30 days. Sign in again before then to cancel.',
-      [{ text: 'OK', onPress: () => logout() }],
+      [
+        {
+          text: 'OK',
+          onPress: async () => {
+            await logout();
+            navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
+          },
+        },
+      ],
       { cancelable: false }
     );
   };

@@ -9,8 +9,8 @@ import GradientButton from '../components/GradientButton';
 import { FormScroll } from '../components/FormScroll';
 import { EditField, EditSection, FieldRow } from '../components/ProfileEditKit';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
+import { finishLogin } from '../components/LoginPrompt';
 import { useAuth } from '../context/AuthContext';
-import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { resolveMediaUrl } from '../utils/listing';
@@ -499,7 +499,8 @@ export default function ProfileSetupScreen({ navigation }) {
   const { user, saveSession } = useAuth();
   const shopCategories = useCategories('shop');
   const [name, setName] = useState(user?.name || '');
-  const [phone] = useState(user?.phone || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const accountEmail = user?.email || '';
   const [location, setLocation] = useState('');
   const [coordinates, setCoordinates] = useState(null);
   const [avatarUri, setAvatarUri] = useState(user?.avatarUrl || '');
@@ -625,7 +626,8 @@ export default function ProfileSetupScreen({ navigation }) {
     setLoading(true);
     try {
       let nextAvatarUrl = avatarUri || '';
-      if (nextAvatarUrl) {
+      // Remote URLs (the Google profile photo) are stored as-is; only local picks are uploaded.
+      if (nextAvatarUrl && !/^https?:\/\//i.test(nextAvatarUrl)) {
         const uploaded = await uploadMediaUri(nextAvatarUrl, isShop ? 'shops' : 'avatars');
         if (uploaded.error) {
           setLoading(false);
@@ -696,7 +698,7 @@ export default function ProfileSetupScreen({ navigation }) {
       }
 
       setLoading(false);
-      navigation.replace(ROUTES.MAIN_TABS);
+      finishLogin(navigation);
     } catch {
       setLoading(false);
       showError('Error', 'Failed to complete profile. Please try again.');
@@ -870,19 +872,21 @@ export default function ProfileSetupScreen({ navigation }) {
             error={nameError}
             right={name.trim().length > 1 ? <Icon name="checkmark-circle" size={18} color={colors.success} /> : null}
           />
-          <EditField
-            label="Phone number"
-            icon="call-outline"
-            value={phone}
-            editable={false}
-            hint="Verified by OTP and used to sign in"
-            right={
-              <View style={styles.verifiedTag}>
-                <Icon name="shield-checkmark" size={11} color={colors.success} />
-                <Text style={styles.verifiedTagText}>Verified</Text>
-              </View>
-            }
-          />
+          {accountEmail || user?.phone ? (
+            <EditField
+              label={accountEmail ? 'Email' : 'Phone number'}
+              icon={accountEmail ? 'mail-outline' : 'call-outline'}
+              value={accountEmail || user.phone}
+              editable={false}
+              hint={accountEmail ? 'From your Google account, used to sign in' : 'Verified and used to sign in'}
+              right={
+                <View style={styles.verifiedTag}>
+                  <Icon name="shield-checkmark" size={11} color={colors.success} />
+                  <Text style={styles.verifiedTagText}>Verified</Text>
+                </View>
+              }
+            />
+          ) : null}
           <EditField
             label="Location"
             icon="location-outline"
@@ -966,6 +970,18 @@ export default function ProfileSetupScreen({ navigation }) {
               placeholder={location ? `Street, ${location}` : 'Street, city'}
               hint="Leave empty to use your location"
             />
+
+            {!user?.phone ? (
+              <EditField
+                label="Store phone (optional)"
+                icon="call-outline"
+                value={phone}
+                onChangeText={(value) => setPhone(value.replace(/[^\d+]/g, '').slice(0, 14))}
+                placeholder="98XXXXXXXX"
+                keyboardType="phone-pad"
+                hint="Buyers can call your store from its page"
+              />
+            ) : null}
 
             <View>
               <EditField

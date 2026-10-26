@@ -65,7 +65,7 @@ export default function SplashScreen({ navigation }) {
         navigation.replace(ROUTES.MAIN_TABS);
         return;
       }
-      navigation.replace(onboarded ? ROUTES.LOGIN : ROUTES.ONBOARDING);
+      navigation.replace(onboarded ? ROUTES.MAIN_TABS : ROUTES.ONBOARDING);
     }, 1400);
 
     return () => clearTimeout(timer);

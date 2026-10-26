@@ -488,6 +488,8 @@ export const api = {
     ),
   verifyOtp: (payload) =>
     request('/auth/otp', { method: 'POST', body: JSON.stringify(payload) }),
+  googleLogin: (payload) =>
+    request('/auth/google', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 15000 }),
   completeSignup: (payload) =>
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),

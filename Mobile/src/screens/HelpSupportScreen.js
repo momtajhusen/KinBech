@@ -11,6 +11,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient';
 import Icon from '../components/Icon';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
+import { useRequireLogin } from '../components/LoginPrompt';
 import VoiceSearchButton from '../components/VoiceSearchButton';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
@@ -95,6 +96,7 @@ const POPULAR_ARTICLES = [
 
 export default function HelpSupportScreen({ navigation }) {
   const { colors } = useTheme();
+  const requireLogin = useRequireLogin();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
@@ -285,7 +287,7 @@ export default function HelpSupportScreen({ navigation }) {
             <Text style={styles.supportBody}>
               Send our team a ticket and track whether it is open or resolved.
             </Text>
-            <Pressable onPress={() => navigation.navigate(ROUTES.CONTACT_US)}>
+            <Pressable onPress={() => requireLogin('support', () => navigation.navigate(ROUTES.CONTACT_US))}>
               <LinearGradient
                 colors={[colors.gradientStart, colors.gradientEnd]}
                 start={{ x: 0, y: 0 }}

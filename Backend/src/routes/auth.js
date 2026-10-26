@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
+const { signup, login, verifyOtp, googleLogin, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -64,6 +64,7 @@ router.get('/captcha/config', captchaConfig);
 router.post('/captcha/verify', twoFactorLimiter, verifyTicket);
 router.post('/admin/login/2fa', twoFactorLimiter, adminLoginTwoFactor);
 router.post('/otp', otpVerifyLimiter, verifyOtp);
+router.post('/google', otpVerifyLimiter, googleLogin);
 router.post('/refresh', refreshLimiter, refreshTokens);
 
 // Protected routes

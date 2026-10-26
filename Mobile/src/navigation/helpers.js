@@ -2,7 +2,6 @@ export const ROUTES = {
   SPLASH: 'Splash',
   ONBOARDING: 'Onboarding',
   LOGIN: 'Login',
-  OTP: 'OtpVerification',
   PROFILE_SETUP: 'ProfileSetup',
   MAIN_TABS: 'MainTabs',
   ALL_CATEGORIES: 'AllCategories',

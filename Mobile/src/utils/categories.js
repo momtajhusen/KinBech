@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getApiBaseUrlCandidates } from '../config/apiUrl';
-import { api } from '../services/api';
+import { api, getAuthToken } from '../services/api';
 
 function resolveCategoryImageUrl(url) {
   if (!url || typeof url !== 'string') return '';
@@ -116,6 +116,7 @@ export function noteUserListedCategory(name) {
 }
 
 export function refreshUserCategoryRank({ force = false } = {}) {
+  if (!getAuthToken()) return Promise.resolve(userCategoryRank || []);
   if (!force && userCategoryRank) return Promise.resolve(userCategoryRank);
   if (!force && userCategoryRankPromise) return userCategoryRankPromise;
   userCategoryRankPromise = (async () => {
@@ -150,8 +151,16 @@ export function upsertCategoryMemory(type, category) {
   emitCategories(type);
 }
 
+const categoriesSettled = {};
+
+/** False only until the first category fetch for `type` finishes (success or failure). */
+export function categoriesLoaded(type = 'product') {
+  return Boolean(categoriesMemory[type]?.length || categoriesSettled[type]);
+}
+
 export async function refreshCategories(type = 'product') {
   const { data, error } = await api.getCategories(type);
+  categoriesSettled[type] = true;
   if (error) return [];
   const list = normalizeCategoriesResponse(data, type).map(mapApiCategory);
   if (list.length) {
@@ -172,7 +181,11 @@ export function useCategories(type = 'product') {
     }
     (async () => {
       const list = await refreshCategories(type);
-      if (!active || !list.length) return;
+      if (!active) return;
+      if (!list.length) {
+        setCategories((current) => [...current]);
+        return;
+      }
       setCategories(list);
     })();
     if (type === 'product') refreshUserCategoryRank();

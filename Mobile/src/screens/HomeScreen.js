@@ -17,16 +17,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
 import EmptyState from '../components/EmptyState';
-import { ProductCarouselSkeleton } from '../components/SkeletonLoader';
+import { ProductCarouselSkeleton, Skeleton } from '../components/SkeletonLoader';
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
-import { api } from '../services/api';
+import { api, getAuthToken } from '../services/api';
+import { useRequireLogin } from '../components/LoginPrompt';
+import WelcomeModal from '../components/WelcomeModal';
 import { useAuth } from '../context/AuthContext';
 import { attachDistanceToCard, formatDistanceLabel, formatPrice, resolveMediaUrl, toCardItem } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
 import { loadRecentlyViewed, getRecentlyViewed } from '../utils/recentlyViewed';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
-import { useCategories } from '../utils/categories';
+import { categoriesLoaded, useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
 import {
   catalogFingerprint,
@@ -72,6 +74,7 @@ export default function HomeScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
+  const requireLogin = useRequireLogin();
   useDisplayCurrency();
   const productCategories = useCategories('product');
   const [initialCatalog] = useState(getHomeListingsMemory);
@@ -209,7 +212,7 @@ export default function HomeScreen({ navigation }) {
     const [nearbyRes, featuredRes, pinnedRes] = await Promise.all([
       api.getNearbySellers(params),
       api.getFeaturedSellers(params),
-      api.getPinnedStores(params),
+      getAuthToken() ? api.getPinnedStores(params) : Promise.resolve({ data: null }),
     ]);
 
     const nearbyList = nearbyRes.data?.sellers || [];
@@ -303,10 +306,10 @@ export default function HomeScreen({ navigation }) {
         if (!data?.counts) return;
         setLiveCounts((prev) => (JSON.stringify(prev) === JSON.stringify(data.counts) ? prev : data.counts));
       });
-      api.getMyInterests().then(({ data }) => {
+      if (getAuthToken()) api.getMyInterests().then(({ data }) => {
         if (Array.isArray(data?.categories)) setInterestCategories(data.categories.map((c) => c.name));
       });
-      api.getNotifications().then(({ data }) => {
+      if (getAuthToken()) api.getNotifications().then(({ data }) => {
         if (data) setUnreadCount(data.unreadCount || 0);
       });
     }, [loadListings, loadStores])
@@ -456,8 +459,12 @@ export default function HomeScreen({ navigation }) {
 
   const firstName = String(user?.name || '').trim().split(/\s+/)[0];
 
+  const categoriesReady = categoriesLoaded('product');
+  const countsReady = settled || Boolean(liveCounts);
   const categoryTiles = [
-    ...homeCategories.slice(0, 5),
+    ...(categoriesReady
+      ? homeCategories.slice(0, 5)
+      : Array.from({ length: 5 }, (_, i) => ({ label: `skeleton-${i}`, skeleton: true }))),
     { label: 'All', icon: 'grid', color: colors.warning, isMore: true, count: homeCategories.length },
   ];
   const CATEGORY_COLS = 3;
@@ -586,10 +593,10 @@ export default function HomeScreen({ navigation }) {
               <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
                 <Icon name="map-outline" size={19} color={colors.onGradient} />
               </PressableScale>
-              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.WISHLIST)}>
+              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('save', () => navigation.navigate(ROUTES.WISHLIST))}>
                 <Icon name="heart-outline" size={20} color={colors.onGradient} />
               </PressableScale>
-              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.NOTIFICATIONS)}>
+              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('notifications', () => navigation.navigate(ROUTES.NOTIFICATIONS))}>
                 <Icon name="notifications-outline" size={20} color={colors.onGradient} />
                 {unreadCount > 0 ? (
                   <View style={styles.badge}>
@@ -633,10 +640,25 @@ export default function HomeScreen({ navigation }) {
           </View>
           <View style={styles.categoryRow}>
             {categoryTiles.map((cat, index) => {
+              if (cat.skeleton) {
+                return (
+                  <View
+                    key={cat.label}
+                    style={[styles.categoryCard, styles.categorySkeleton, { width: categoryTileWidth }]}
+                  >
+                    <Skeleton width={28} height={28} borderRadius={9} />
+                    <View style={styles.categoryCopy}>
+                      <Skeleton width="78%" height={10} borderRadius={4} />
+                      <Skeleton width="48%" height={8} borderRadius={4} marginTop={5} />
+                    </View>
+                  </View>
+                );
+              }
               const tint = cat.color || cat.tint || colors.primary;
               const countLabel = cat.isMore
                 ? `${cat.count} categor${cat.count === 1 ? 'y' : 'ies'}`
                 : `${cat.count} item${cat.count === 1 ? '' : 's'}`;
+              const countPending = cat.isMore ? !categoriesReady : !countsReady && !cat.count;
               return (
                 <PressableScale
                   key={cat.label}
@@ -659,7 +681,11 @@ export default function HomeScreen({ navigation }) {
                     </SoftPop>
                     <View style={styles.categoryCopy}>
                       <Text style={styles.categoryLabel} numberOfLines={1}>{cat.label}</Text>
-                      <Text style={[styles.categoryCountLabel, { color: tint }]} numberOfLines={1}>{countLabel}</Text>
+                      {countPending ? (
+                        <Skeleton width="55%" height={8} borderRadius={4} marginTop={4} />
+                      ) : (
+                        <Text style={[styles.categoryCountLabel, { color: tint }]} numberOfLines={1}>{countLabel}</Text>
+                      )}
                     </View>
                   </LinearGradient>
                 </PressableScale>
@@ -676,7 +702,7 @@ export default function HomeScreen({ navigation }) {
               title="No items yet"
               body="Be the first to list something. Your posts will show up here for buyers nearby."
               buttonLabel="Post your first item"
-              onButtonPress={() => navigateToTab(navigation, TABS.POST)}
+              onButtonPress={() => requireLogin('sell', () => navigateToTab(navigation, TABS.POST))}
             />
           ) : (
             <>
@@ -818,7 +844,7 @@ export default function HomeScreen({ navigation }) {
                 <PressableScale
                   scaleTo={0.96}
                   contentStyle={styles.sellButton}
-                  onPress={() => navigateToTab(navigation, TABS.POST)}
+                  onPress={() => requireLogin('sell', () => navigateToTab(navigation, TABS.POST))}
                 >
                   <Icon name="add" size={16} color={colors.primary} />
                   <Text style={styles.sellButtonText}>Post</Text>
@@ -865,6 +891,7 @@ export default function HomeScreen({ navigation }) {
           </>
         )}
       </ScrollView>
+      <WelcomeModal />
     </View>
   );
 }
@@ -1108,6 +1135,10 @@ const createStyles = (colors) => ({
     borderRadius: 12,
     borderWidth: 1,
     backgroundColor: colors.surface,
+  },
+  categorySkeleton: {
+    height: 44,
+    borderColor: colors.border,
   },
   categoryIcon: {
     width: 28,

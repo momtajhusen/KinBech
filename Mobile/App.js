@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ImageCropSheetHost } from './src/components/ImageCropSheet';
 import { ListingCameraHost } from './src/components/ListingCamera';
+import { LoginPromptHost } from './src/components/LoginPrompt';
 import { PhotoSourceSheetHost } from './src/components/PhotoSourceSheet';
 import { AuthProvider } from './src/context/AuthContext';
 import { WishlistProvider } from './src/context/WishlistContext';
@@ -104,6 +105,7 @@ export default function App() {
                 <PhotoSourceSheetHost />
                 <ListingCameraHost />
                 <ImageCropSheetHost />
+                <LoginPromptHost />
               </GlobalErrorBridge>
             </WishlistProvider>
           </AuthProvider>

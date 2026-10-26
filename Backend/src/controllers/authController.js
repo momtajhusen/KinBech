@@ -25,6 +25,7 @@ const { ADMIN_ROLES, scopesForRole } = require('../utils/adminScopes');
 const { SUSPENDED_MESSAGE } = require('../middleware/auth');
 const { cancelDeletion } = require('../utils/accountDeletion');
 const { sendOtpSms, smsConfigured } = require('../utils/sms');
+const { googleAuthConfigured, verifyGoogleIdToken } = require('../utils/googleAuth');
 const {
   startSession,
   revokeAllSessions,
@@ -255,6 +256,89 @@ async function verifyOtp(req, res, next) {
     await ensureReferralCode(user);
 
     // Optional referral on first OTP verify
+    if (isNewUser && req.body.referralCode) {
+      await applyReferralCode(user, req.body.referralCode);
+    }
+
+    const deletionCancelled = user.deletionScheduledFor ? await cancelDeletion(user._id) : false;
+    if (deletionCancelled) {
+      user.deletionRequestedAt = null;
+      user.deletionScheduledFor = null;
+    }
+
+    user.lastActiveAt = new Date();
+    await user.save();
+
+    const { token, refreshToken } = await startSession(req, user, 'app');
+    return res.json({
+      token,
+      ...(refreshToken ? { refreshToken } : {}),
+      user: publicUser(user, { includePrivate: true }),
+      isNewUser,
+      ...(deletionCancelled ? { deletionCancelled: true } : {}),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function googleLogin(req, res, next) {
+  try {
+    const idToken = String(req.body.idToken || '').trim();
+    if (!idToken) {
+      return res.status(400).json({ message: 'Google sign-in token is required' });
+    }
+    if (!googleAuthConfigured()) {
+      return res.status(503).json({ message: 'Google sign-in is not set up yet. Please try again later.' });
+    }
+
+    let profile;
+    try {
+      profile = await verifyGoogleIdToken(idToken);
+    } catch {
+      return res.status(401).json({ message: 'Google sign-in could not be verified. Please try again.' });
+    }
+    if (!profile.sub || !profile.email || !profile.emailVerified) {
+      return res.status(401).json({ message: 'Please use a Google account with a verified email.' });
+    }
+
+    let user = await User.findOne({ googleId: profile.sub });
+    let isNewUser = false;
+
+    if (!user) {
+      // Link an existing app account with the same email; staff accounts are never linked.
+      user = await User.findOne({
+        email: new RegExp(`^${escapeRegex(profile.email)}$`, 'i'),
+        role: 'user',
+        googleId: { $in: [null, ''] },
+      });
+      if (user) {
+        user.googleId = profile.sub;
+        if (!user.name && profile.name) user.name = profile.name;
+        if (!user.avatarUrl && profile.picture) user.avatarUrl = profile.picture;
+      }
+    }
+
+    if (!user) {
+      user = await User.create({
+        googleId: profile.sub,
+        email: profile.email,
+        name: profile.name,
+        avatarUrl: profile.picture,
+        profileComplete: false,
+      });
+      isNewUser = true;
+      emitActivity(userActivityEvent(user));
+    }
+
+    if (user.role !== 'user') {
+      return res.status(403).json({ message: 'Staff accounts sign in from the admin panel.' });
+    }
+    if (user.status === 'suspended') {
+      return res.status(403).json({ message: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' });
+    }
+
+    await ensureReferralCode(user);
     if (isNewUser && req.body.referralCode) {
       await applyReferralCode(user, req.body.referralCode);
     }
@@ -1634,6 +1718,7 @@ module.exports = {
   signup,
   login,
   verifyOtp,
+  googleLogin,
   me,
   updateMe,
   saveDeviceToken,

@@ -21,10 +21,10 @@ export function openInAppCall(call, { autoAnswer = false } = {}) {
   pendingCall = params;
 }
 
-/** Session ended outside a screen (refresh rejected): back to the login screen. */
+/** Session ended outside a screen (refresh rejected): login on top of guest browsing. */
 export function resetToLogin() {
   if (!navigationRef.isReady()) return;
-  navigationRef.reset({ index: 0, routes: [{ name: 'Login' }] });
+  navigationRef.reset({ index: 1, routes: [{ name: 'MainTabs' }, { name: 'Login' }] });
 }
 
 export function flushPendingCallNavigation() {

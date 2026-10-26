@@ -5,6 +5,8 @@ const userSchema = new mongoose.Schema(
     name: { type: String, trim: true, default: '' },
     phone: { type: String, required: false, unique: true, sparse: true, index: true },
     email: { type: String, trim: true, sparse: true },
+    /** Google account `sub`; set on first Google sign-in. */
+    googleId: { type: String, unique: true, sparse: true, index: true },
     password: { type: String, trim: true },
     role: { type: String, enum: ['user', 'admin', 'super_admin', 'moderator', 'support'], default: 'user' },
     status: { type: String, enum: ['active', 'suspended'], default: 'active' },

@@ -17,7 +17,8 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://kinbechapi.codersalpha.com"
+        "EXPO_PUBLIC_API_URL": "https://kinbechapi.codersalpha.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "455638709467-b9otimi9bo7fc5srv6m0eetpoon71bi7.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -25,7 +26,8 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://kinbechapi.codersalpha.com"
+        "EXPO_PUBLIC_API_URL": "https://kinbechapi.codersalpha.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "455638709467-b9otimi9bo7fc5srv6m0eetpoon71bi7.apps.googleusercontent.com"
       }
     }
   },

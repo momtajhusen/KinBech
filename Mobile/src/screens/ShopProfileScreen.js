@@ -28,6 +28,7 @@ import { haversineKm } from '../utils/locations';
 import { useCategories } from '../utils/categories';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useRequireLogin } from '../components/LoginPrompt';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import pinnedStoresUtils from '../utils/pinnedStores';
 
@@ -112,6 +113,7 @@ export default function ShopProfileScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { user } = useAuth();
+  const requireLogin = useRequireLogin();
   const { shopId: rawShopId } = route.params || {};
   const shopId = rawShopId?._id || rawShopId?.id || rawShopId;
 
@@ -311,7 +313,7 @@ export default function ShopProfileScreen({ route, navigation }) {
     : null;
   const cardWidth = Math.floor((width - SIDEBAR_WIDTH - GRID_PADDING * 2 - GRID_GUTTER) / 2);
 
-  const startChat = async () => {
+  const openChat = async () => {
     if (chatBusy || !ownerId) return;
     setChatBusy(true);
     const { data, error } = await api.createChat({ userId: ownerId });
@@ -327,6 +329,8 @@ export default function ShopProfileScreen({ route, navigation }) {
       image: resolveMediaUrl(shop.logo || ''),
     });
   };
+
+  const startChat = () => requireLogin('chat', openChat);
 
   const callShop = () => {
     if (shop.phone) Linking.openURL(`tel:${shop.phone}`).catch(() => {});
@@ -723,7 +727,7 @@ export default function ShopProfileScreen({ route, navigation }) {
           </Pressable>
           {!isOwner ? (
             <Pressable
-              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId })}
+              onPress={() => requireLogin('report', () => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId }))}
               hitSlop={10}
               style={styles.topBtn}
             >

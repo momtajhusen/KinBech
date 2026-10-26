@@ -68,7 +68,6 @@ import MyPurchasesScreen from '../screens/MyPurchasesScreen';
 import RecentlyViewedScreen from '../screens/RecentlyViewedScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
-import OtpVerificationScreen from '../screens/OtpVerificationScreen';
 import PostListingScreen from '../screens/PostListingScreen';
 import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
 import PrivacyScreen from '../screens/PrivacyScreen';
@@ -455,7 +454,6 @@ export default function AppNavigator() {
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="OtpVerification" component={OtpVerificationScreen} />
         <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
         <Stack.Screen name="MainTabs" component={MainTabs} />
 

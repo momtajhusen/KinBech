@@ -24,6 +24,7 @@ import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listi
 import { haversineKm } from '../utils/locations';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useAuth } from '../context/AuthContext';
+import { useRequireLogin } from '../components/LoginPrompt';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import pinnedStoresUtils from '../utils/pinnedStores';
 
@@ -63,6 +64,7 @@ export default function SellerProfileScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
+  const requireLogin = useRequireLogin();
   const initialSeller = route?.params?.seller;
   const sellerId =
     route?.params?.sellerId || initialSeller?._id || initialSeller?.id || initialSeller?.userId;
@@ -205,7 +207,7 @@ export default function SellerProfileScreen({ navigation, route }) {
     ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, Number(sellerPoint.lat), Number(sellerPoint.lng)))
     : null;
 
-  const startChat = async () => {
+  const openChat = async () => {
     if (chatBusy || !userId) return;
     setChatBusy(true);
     const { data, error } = await api.createChat({ userId });
@@ -220,6 +222,8 @@ export default function SellerProfileScreen({ navigation, route }) {
       otherUserId: data.chat.otherUser?.id || userId,
     });
   };
+
+  const startChat = () => requireLogin('chat', openChat);
 
   const stats = [
     { label: 'Active', value: activeCount, icon: 'grid-outline' },
@@ -240,7 +244,7 @@ export default function SellerProfileScreen({ navigation, route }) {
             <Pressable
               style={styles.headerBtn}
               hitSlop={10}
-              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, { userId })}
+              onPress={() => requireLogin('report', () => navigation.navigate(ROUTES.REPORT_BLOCK, { userId }))}
             >
               <Icon name="ellipsis-horizontal" size={18} color={colors.text} />
             </Pressable>

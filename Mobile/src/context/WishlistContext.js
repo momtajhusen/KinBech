@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
+import { requestLogin } from '../components/LoginPrompt';
 
 const WishlistContext = createContext({
   isSaved: () => false,
@@ -17,6 +18,7 @@ function idsFromListings(listings) {
 export function WishlistProvider({ children }) {
   const { isLoggedIn } = useAuth();
   const [savedIds, setSavedIds] = useState(() => new Set());
+  const toggleRef = useRef(null);
 
   const refresh = useCallback(async () => {
     if (!isLoggedIn) {
@@ -36,7 +38,11 @@ export function WishlistProvider({ children }) {
 
   const toggle = useCallback(async (listingId) => {
     const id = String(listingId || '');
-    if (!id || !isLoggedIn) return false;
+    if (!id) return false;
+    if (!isLoggedIn) {
+      requestLogin('save', () => toggleRef.current?.(id));
+      return false;
+    }
 
     setSavedIds((prev) => {
       const next = new Set(prev);
@@ -61,6 +67,7 @@ export function WishlistProvider({ children }) {
     }
     return Boolean(data?.saved);
   }, [isLoggedIn]);
+  toggleRef.current = toggle;
 
   const value = useMemo(
     () => ({ isSaved, toggle, refresh }),

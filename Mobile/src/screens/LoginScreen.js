@@ -1,28 +1,33 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Text,
   View,
-  TextInput,
   TouchableOpacity,
-  Keyboard,
   Dimensions,
-  StyleSheet,
   ActivityIndicator,
 } from 'react-native';
 import Icon from '../components/Icon';
-import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path } from 'react-native-svg';
 import BrandLogo from '../components/BrandLogo';
 import { FormScroll } from '../components/FormScroll';
 import { BRAND_TAGLINE } from '../content/brand';
-import { AlertModal } from '../components/AlertModal';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { clearPendingLogin, finishLogin } from '../components/LoginPrompt';
+import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
-import { fullPhone } from '../utils/listing';
+import { signInWithGoogle } from '../services/googleAuth';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CURVE_HEIGHT = 45;
+
+const PERKS = [
+  { icon: 'location', text: 'Buy and sell with people near you' },
+  { icon: 'chatbubbles', text: 'Chat and plan a safe meetup' },
+  { icon: 'shield-checkmark', text: 'No password, no OTP to remember' },
+];
 
 const createStyles = (colors) => ({
   container: {
@@ -38,7 +43,7 @@ const createStyles = (colors) => ({
   header: {
     alignItems: 'center',
     paddingTop: 50,
-    paddingBottom: CURVE_HEIGHT + 0,
+    paddingBottom: CURVE_HEIGHT,
     paddingHorizontal: 24,
   },
   curveSvg: {
@@ -46,13 +51,25 @@ const createStyles = (colors) => ({
     bottom: -1,
     left: 0,
   },
+  closeBtn: {
+    position: 'absolute',
+    left: 16,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    zIndex: 2,
+  },
   logoCircle: {
     width: 112,
     height: 112,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
-    backgroundColor: 'transparent',
   },
   brand: {
     fontSize: 30,
@@ -83,134 +100,78 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     marginTop: -1,
     paddingHorizontal: 24,
-    paddingTop: 32,
+    paddingTop: 28,
     paddingBottom: 32,
   },
-  label: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 10,
+  perks: {
+    gap: 14,
+    marginBottom: 32,
   },
-  phoneRow: {
+  perkRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  perkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.iconBackground,
+  },
+  perkText: {
+    flex: 1,
+    fontSize: 15,
+    color: colors.text,
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    borderRadius: 16,
+    paddingVertical: 17,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
-    overflow: 'hidden',
+    backgroundColor: colors.surface,
   },
-  countryPicker: {
-    flexDirection: 'row',
+  googleButtonBusy: {
+    opacity: 0.7,
+  },
+  googleBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    backgroundColor: colors.inputBackground,
-    borderRightWidth: 1,
-    borderRightColor: colors.border,
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
-  flag: {
-    fontSize: 18,
-  },
-  countryCode: {
-    fontSize: 16,
-    fontWeight: '600',
+  googleText: {
+    fontSize: 17,
+    fontWeight: '700',
     color: colors.text,
-  },
-  phoneInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-    fontSize: 16,
-    color: colors.text,
-    backgroundColor: colors.inputBackground,
   },
   errorText: {
-    marginTop: 8,
+    marginTop: 12,
     fontSize: 13,
     fontWeight: '600',
     color: colors.error,
+    textAlign: 'center',
   },
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
-    marginTop: 14,
+    marginTop: 16,
   },
   hintText: {
-    fontSize: 14,
-    color: colors.textMuted,
-  },
-  continueButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    borderRadius: 16,
-    paddingVertical: 18,
-    marginTop: 28,
-  },
-  continueText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.onGradient,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 32,
-    gap: 12,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
     fontSize: 13,
     color: colors.textMuted,
-  },
-  socialRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 40,
-    marginTop: 28,
-  },
-  socialItem: {
-    alignItems: 'center',
-    gap: 8,
-  },
-  socialCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  socialLabel: {
-    fontSize: 13,
-    color: colors.text,
-  },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 32,
-  },
-  footerText: {
-    fontSize: 15,
-    color: colors.text,
-  },
-  footerLink: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.primary,
   },
   legalText: {
-    marginTop: 24,
+    marginTop: 28,
     fontSize: 12,
     lineHeight: 18,
     color: colors.textMuted,
@@ -226,47 +187,48 @@ const createStyles = (colors) => ({
 export default function LoginScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const [phone, setPhone] = useState('');
+  const { saveSession } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [alertConfig, setAlertConfig] = useState(null);
+  const busyRef = useRef(false);
+  const insets = useSafeAreaInsets();
+  const canClose = navigation.canGoBack();
 
-  const sendOtp = async () => {
-    const local = phone.replace(/\D/g, '');
-    if (local.length !== 10) {
-      setError('Please enter a valid 10-digit Nepal phone number.');
-      return;
-    }
+  // Leaving login without signing in drops the action that asked for it.
+  useEffect(() => () => clearPendingLogin(), []);
+
+  const continueWithGoogle = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError('');
     setLoading(true);
-    const { data, error: apiError } = await api.login({ phone: fullPhone(local) });
-    setLoading(false);
-    if (apiError) {
-      setError(apiError);
-      return;
-    }
-    if (data?.otp) {
-      setAlertConfig({
-        type: 'info',
-        title: 'Verification Code',
-        message: `Your code is ${data.otp}`,
-        primaryButton: { text: 'OK', onPress: () => {
-          setAlertConfig(null);
-          navigation.navigate(ROUTES.OTP, {
-            phone: fullPhone(local),
-            mode: 'login',
-          });
-        }},
-      });
-    } else {
-      navigation.navigate(ROUTES.OTP, {
-        phone: fullPhone(local),
-        mode: 'login',
-      });
+    try {
+      const account = await signInWithGoogle();
+      if (account.cancelled) return;
+
+      const { data, error: apiError } = await api.googleLogin({ idToken: account.idToken });
+      if (apiError || !data?.token) {
+        setError(apiError || 'Could not sign in. Please try again.');
+        return;
+      }
+
+      await saveSession(data.token, data.user);
+      if (data.isNewUser || !data.user?.profileComplete) {
+        navigation.replace(ROUTES.PROFILE_SETUP);
+        return;
+      }
+      finishLogin(navigation);
+      if (data.deletionCancelled) {
+        Alert.alert('Welcome back', 'Your account deletion was cancelled. Your listings and shop are visible again.');
+      }
+    } catch (signInError) {
+      setError(signInError?.message || 'Could not sign in with Google. Please try again.');
+    } finally {
+      busyRef.current = false;
+      setLoading(false);
     }
   };
 
-  // Guard against undefined colors
   if (!colors) {
     return null;
   }
@@ -275,145 +237,101 @@ export default function LoginScreen({ navigation }) {
     <View style={styles.container}>
       <ThemeStatusBar variant="header" />
       <FormScroll contentContainerStyle={styles.scrollContent} bounces={false}>
-          {/* Header with solid color */}
-          <View style={styles.headerWrapper}>
-            <View style={[styles.header, { backgroundColor: colors.primary }]}>
-              <View style={styles.logoCircle}>
-                <BrandLogo size={112} />
-              </View>
-              <Text style={styles.brand}>KinBech</Text>
-              <Text style={styles.brandTagline}>{BRAND_TAGLINE}</Text>
-
-              <Text style={styles.welcome}>Welcome Back</Text>
-              <Text style={styles.welcomeSub}>Sign in to continue</Text>
-            </View>
-
-            {/* Smooth curve cut into the bottom of the header */}
-            <Svg
-              height={CURVE_HEIGHT}
-              width={SCREEN_WIDTH}
-              viewBox={`0 0 ${SCREEN_WIDTH} ${CURVE_HEIGHT}`}
-              style={styles.curveSvg}
+        <View style={styles.headerWrapper}>
+          {canClose ? (
+            <TouchableOpacity
+              style={[styles.closeBtn, { top: insets.top + 8 }]}
+              onPress={() => navigation.goBack()}
+              activeOpacity={0.7}
+              hitSlop={10}
+              accessibilityLabel="Close"
             >
-              <Path
-                fill={colors.surface}
-                d={`M0,0 
-                    Q${SCREEN_WIDTH / 2},${CURVE_HEIGHT * 1.6} ${SCREEN_WIDTH},0 
-                    L${SCREEN_WIDTH},${CURVE_HEIGHT} 
-                    L0,${CURVE_HEIGHT} 
-                    Z`}
-              />
-            </Svg>
-          </View>
-
-          {/* Form card */}
-          <View style={styles.card}>
-            <Text style={styles.label}>Phone Number</Text>
-
-            <View style={styles.phoneRow}>
-              <TouchableOpacity style={styles.countryPicker} activeOpacity={0.7}>
-                <Text style={styles.flag}>🇳🇵</Text>
-                <Text style={styles.countryCode}>+977</Text>
-                <Icon name="chevron-down" size={16} color={colors.textMuted} />
-              </TouchableOpacity>
-
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="Enter your phone number"
-                placeholderTextColor={colors.textTertiary}
-                keyboardType="phone-pad"
-                value={phone}
-                onChangeText={(value) => {
-                  const digits = value.replace(/\D/g, '').slice(0, 10);
-                  setPhone(digits);
-                  if (error) {
-                    setError('');
-                  }
-                  if (digits.length === 10) {
-                    Keyboard.dismiss();
-                  }
-                }}
-                maxLength={10}
-              />
-            </View>
-
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-            <View style={styles.hintRow}>
-              <Icon name="shield-checkmark" size={16} color={colors.primary} />
-              <Text style={styles.hintText}>We'll send you a verification code</Text>
-            </View>
-
-            <TouchableOpacity activeOpacity={0.85} disabled={loading} onPress={sendOtp}>
-              <LinearGradient
-                colors={colors.gradient || ['#5B39C6', '#7860ED']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.continueButton}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Text style={styles.continueText}>Continue</Text>
-                    <Icon name="arrow-forward" size={20} color="#FFFFFF" />
-                  </>
-                )}
-              </LinearGradient>
+              <Icon name="close" size={22} color={colors.onGradient} />
             </TouchableOpacity>
-
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or continue with</Text>
-              <View style={styles.dividerLine} />
+          ) : null}
+          <View style={[styles.header, { backgroundColor: colors.primary }]}>
+            <View style={styles.logoCircle}>
+              <BrandLogo size={112} />
             </View>
+            <Text style={styles.brand}>KinBech</Text>
+            <Text style={styles.brandTagline}>{BRAND_TAGLINE}</Text>
 
-            <View style={styles.socialRow}>
-              <View style={styles.socialItem}>
-                <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Icon name="logo-google" size={26} color={colors.socialGoogle} />
-                </TouchableOpacity>
-                <Text style={styles.socialLabel}>Google</Text>
-              </View>
-
-              <View style={styles.socialItem}>
-                <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Icon name="logo-apple" size={28} color={colors.socialApple} />
-                </TouchableOpacity>
-                <Text style={styles.socialLabel}>Apple</Text>
-              </View>
-
-              <View style={styles.socialItem}>
-                <TouchableOpacity style={styles.socialCircle} activeOpacity={0.7}>
-                  <Icon name="logo-facebook" size={26} color={colors.socialFacebook} />
-                </TouchableOpacity>
-                <Text style={styles.socialLabel}>Facebook</Text>
-              </View>
-            </View>
-
-            <Text style={styles.legalText}>
-              By continuing you agree to our{' '}
-              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.TERMS)}>
-                Terms & Conditions
-              </Text>
-              ,{' '}
-              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.PRIVACY_POLICY)}>
-                Privacy Policy
-              </Text>
-              , and{' '}
-              <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}>
-                App Permissions
-              </Text>
-              .
-            </Text>
+            <Text style={styles.welcome}>Welcome</Text>
+            <Text style={styles.welcomeSub}>Sign in to continue</Text>
           </View>
-      </FormScroll>
 
-      <AlertModal
-        visible={!!alertConfig}
-        onClose={() => setAlertConfig(null)}
-        {...(alertConfig || {})}
-      />
+          {/* Smooth curve cut into the bottom of the header */}
+          <Svg
+            height={CURVE_HEIGHT}
+            width={SCREEN_WIDTH}
+            viewBox={`0 0 ${SCREEN_WIDTH} ${CURVE_HEIGHT}`}
+            style={styles.curveSvg}
+          >
+            <Path
+              fill={colors.surface}
+              d={`M0,0 
+                  Q${SCREEN_WIDTH / 2},${CURVE_HEIGHT * 1.6} ${SCREEN_WIDTH},0 
+                  L${SCREEN_WIDTH},${CURVE_HEIGHT} 
+                  L0,${CURVE_HEIGHT} 
+                  Z`}
+            />
+          </Svg>
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.perks}>
+            {PERKS.map((perk) => (
+              <View key={perk.icon} style={styles.perkRow}>
+                <View style={styles.perkIcon}>
+                  <Icon name={perk.icon} size={18} color={colors.primary} />
+                </View>
+                <Text style={styles.perkText}>{perk.text}</Text>
+              </View>
+            ))}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.googleButton, loading && styles.googleButtonBusy]}
+            activeOpacity={0.8}
+            disabled={loading}
+            onPress={continueWithGoogle}
+            accessibilityRole="button"
+            accessibilityLabel="Continue with Google"
+          >
+            {loading ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : (
+              <View style={styles.googleBadge}>
+                <Icon name="logo-google" size={22} color={colors.socialGoogle || '#EA4335'} />
+              </View>
+            )}
+            <Text style={styles.googleText}>{loading ? 'Signing in…' : 'Continue with Google'}</Text>
+          </TouchableOpacity>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <View style={styles.hintRow}>
+            <Icon name="lock-closed" size={14} color={colors.textMuted} />
+            <Text style={styles.hintText}>Pick your Google account to sign in or sign up</Text>
+          </View>
+
+          <Text style={styles.legalText}>
+            By continuing you agree to our{' '}
+            <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.TERMS)}>
+              Terms & Conditions
+            </Text>
+            ,{' '}
+            <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.PRIVACY_POLICY)}>
+              Privacy Policy
+            </Text>
+            , and{' '}
+            <Text style={styles.legalLink} onPress={() => navigation.navigate(ROUTES.LEGAL_DOCUMENT, { doc: 'permissions' })}>
+              App Permissions
+            </Text>
+            .
+          </Text>
+        </View>
+      </FormScroll>
     </View>
   );
 }

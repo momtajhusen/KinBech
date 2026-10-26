@@ -1,8 +1,9 @@
-import { api } from '../services/api';
+import { api, getAuthToken } from '../services/api';
 
 export const pinnedStoresUtils = {
   // Get all pinned stores from backend
   getPinnedStores: async (params = {}) => {
+    if (!getAuthToken()) return [];
     try {
       const { data, error } = await api.getPinnedStores(params);
       if (error) {
@@ -64,7 +65,7 @@ export const pinnedStoresUtils = {
   },
 
   incrementUsage: async (storeId) => {
-    if (!storeId) return false;
+    if (!storeId || !getAuthToken()) return false;
     try {
       const { error } = await api.recordPinnedView(storeId);
       return !error;

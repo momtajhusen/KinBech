@@ -3,11 +3,12 @@ import Icon from '../components/Icon';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
-import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { ROUTES } from '../navigation/helpers';
+import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
+import GradientButton from '../components/GradientButton';
 import LogoutConfirmModal from '../components/LogoutConfirmModal';
 import { resolveMediaUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
@@ -30,7 +31,162 @@ function resolveColor(colorRef, colors) {
   return colorRef;
 }
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen(props) {
+  const { isLoggedIn } = useAuth();
+  return isLoggedIn ? <MemberProfile {...props} /> : <GuestProfile {...props} />;
+}
+
+const GUEST_PERKS = [
+  { icon: 'chatbubble-ellipses-outline', title: 'Chat with buyers and sellers', hint: 'Ask questions and plan a meetup' },
+  { icon: 'heart-outline', title: 'Save items you like', hint: 'Find them again anytime' },
+  { icon: 'pricetag-outline', title: 'Sell for free', hint: 'Post an item in a minute' },
+];
+
+function GuestProfile({ navigation }) {
+  const { colors, isDark, setTheme, THEME_OPTIONS } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const insets = useSafeAreaInsets();
+
+  const helpItems = [
+    {
+      label: 'Help Center',
+      hint: 'FAQs and how KinBech works',
+      icon: 'help-circle-outline',
+      tint: resolveColor('colors.menuCyan', colors),
+      bg: resolveColor('colors.pastelCyan', colors),
+      onPress: () => navigation.navigate(ROUTES.HELP),
+    },
+    {
+      label: 'Safe buying tips',
+      hint: 'Meet, check and pay safely',
+      icon: 'shield-checkmark-outline',
+      tint: colors.primary,
+      bg: resolveColor('colors.pastelGreen', colors),
+      onPress: () => navigation.navigate(ROUTES.INFO, INFO_COPY.Article),
+    },
+    {
+      label: 'Legal & Policies',
+      hint: 'Terms, privacy and permissions',
+      icon: 'library-outline',
+      tint: resolveColor('colors.menuBlue', colors),
+      bg: resolveColor('colors.pastelIndigo', colors),
+      onPress: () => navigation.navigate(ROUTES.LEGAL_HUB),
+    },
+  ];
+
+  return (
+    <View style={styles.root}>
+      <ThemeStatusBar variant="header" />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 96 }}>
+        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <LinearGradient
+            colors={[colors.gradientStart, colors.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.headerCover}
+            pointerEvents="none"
+          />
+          <View style={styles.headerGlow} pointerEvents="none" />
+          <View style={styles.headerRow}>
+            <Text style={styles.headerTitle}>Profile</Text>
+          </View>
+          <View style={styles.identity}>
+            <View style={[styles.avatarWrap, styles.avatarRing]}>
+              <View style={styles.avatar}>
+                <Icon name="person" size={34} color={colors.textMuted} />
+              </View>
+            </View>
+            <Text style={styles.name}>Welcome to KinBech</Text>
+            <Text style={styles.contactText}>Buy and sell with people near you</Text>
+          </View>
+        </View>
+
+        <View style={styles.guestCard}>
+          <Text style={styles.guestTitle}>Log in to get more from KinBech</Text>
+          {GUEST_PERKS.map((perk) => (
+            <View key={perk.title} style={styles.guestPerk}>
+              <View style={styles.guestPerkIcon}>
+                <Icon name={perk.icon} size={17} color={colors.primary} />
+              </View>
+              <View style={styles.menuCopy}>
+                <Text style={styles.menuLabel}>{perk.title}</Text>
+                <Text style={styles.menuHint}>{perk.hint}</Text>
+              </View>
+            </View>
+          ))}
+          <GradientButton
+            title="Log in or sign up"
+            icon="arrow-forward"
+            onPress={() => navigation.navigate(ROUTES.LOGIN)}
+            style={styles.guestCta}
+          />
+        </View>
+
+        <View style={styles.body}>
+          <View>
+            <Text style={styles.sectionTitle}>Preferences</Text>
+            <View style={styles.card}>
+              <View style={styles.menuRow}>
+                <View style={[styles.menuIcon, { backgroundColor: resolveColor('colors.iconBackground', colors) }]}>
+                  <Icon name="moon-outline" size={17} color={resolveColor('colors.menuPurple', colors)} />
+                </View>
+                <View style={styles.menuCopy}>
+                  <Text style={styles.menuLabel}>Dark mode</Text>
+                  <Text style={styles.menuHint} numberOfLines={1}>Easier on the eyes at night</Text>
+                </View>
+                <Switch
+                  value={isDark}
+                  onValueChange={(value) => setTheme(value ? THEME_OPTIONS.DARK : THEME_OPTIONS.LIGHT)}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.white}
+                />
+              </View>
+            </View>
+          </View>
+
+          <View>
+            <Text style={styles.sectionTitle}>Help & Safety</Text>
+            <View style={styles.card}>
+              {helpItems.map((item, index) => (
+                <Pressable
+                  key={item.label}
+                  style={({ pressed }) => [
+                    styles.menuRow,
+                    index < helpItems.length - 1 && styles.menuRowBorder,
+                    pressed && styles.menuRowPressed,
+                  ]}
+                  onPress={item.onPress}
+                >
+                  <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
+                    <Icon name={item.icon} size={17} color={item.tint} />
+                  </View>
+                  <View style={styles.menuCopy}>
+                    <Text style={styles.menuLabel}>{item.label}</Text>
+                    <Text style={styles.menuHint} numberOfLines={1}>
+                      {item.hint}
+                    </Text>
+                  </View>
+                  <Icon name="chevron-forward" size={16} color={colors.textTertiary} />
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.footer}>
+            <Text style={styles.appName}>KinBech</Text>
+            <Text style={styles.appInfo}>
+              {Constants.expoConfig?.version
+                ? `Buy and sell nearby · v${Constants.expoConfig.version}`
+                : 'Buy and sell nearby'}
+            </Text>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function MemberProfile({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -552,7 +708,7 @@ export default function ProfileScreen({ navigation }) {
         onConfirm={async () => {
           setShowLogoutModal(false);
           await logout();
-          navigation.reset({ index: 0, routes: [{ name: ROUTES.LOGIN }] });
+          navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
         }}
       />
     </View>
@@ -768,6 +924,43 @@ const createStyles = (colors) => ({
   },
   pressed: {
     opacity: 0.7,
+  },
+  guestCard: {
+    marginHorizontal: 16,
+    marginTop: -32,
+    padding: 16,
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  guestTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  guestPerk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  guestPerkIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary + '16',
+  },
+  guestCta: {
+    marginTop: 4,
   },
   body: {
     paddingHorizontal: 16,

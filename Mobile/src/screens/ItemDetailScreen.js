@@ -19,6 +19,7 @@ import { useIsFocused } from '@react-navigation/native';
 import ZoomableImage from '../components/ZoomableImage';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
+import { useRequireLogin } from '../components/LoginPrompt';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
@@ -83,6 +84,7 @@ export default function ItemDetailScreen({ navigation, route }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const requireLogin = useRequireLogin();
   useDisplayCurrency();
   const { isSaved, toggle } = useWishlist();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -355,13 +357,13 @@ export default function ItemDetailScreen({ navigation, route }) {
 
   const renderContactActions = () => (
     <View style={styles.priceActions}>
-      <Pressable style={styles.viewMapBtn} onPress={handleOpenMap}>
+      <Pressable style={styles.viewMapBtn} onPress={() => requireLogin('map', handleOpenMap)}>
         <Icon name="map-outline" size={14} color={colors.link} />
         <Text style={styles.viewMapText}>View map</Text>
       </Pressable>
       <Pressable
         style={styles.chatBtnWrap}
-        onPress={async () => {
+        onPress={() => requireLogin('chat', async () => {
           const sellerId = item.sellerId;
           if (!sellerId) {
             navigation.navigate(ROUTES.CHAT, { name: item.seller });
@@ -386,7 +388,7 @@ export default function ItemDetailScreen({ navigation, route }) {
             otherUserId: data.chat.otherUser?.id || sellerId,
             image: resolveMediaUrl(data.chat.otherUser?.shop?.logo || data.chat.otherUser?.avatarUrl || ''),
           });
-        }}
+        })}
       >
         <LinearGradient
           colors={colors.gradient}
