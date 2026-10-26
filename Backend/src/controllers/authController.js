@@ -24,7 +24,7 @@ const { recordAudit } = require('../utils/audit');
 const { ADMIN_ROLES, scopesForRole } = require('../utils/adminScopes');
 const { SUSPENDED_MESSAGE } = require('../middleware/auth');
 const { cancelDeletion } = require('../utils/accountDeletion');
-const { sendOtpSms } = require('../utils/sms');
+const { sendOtpSms, smsConfigured } = require('../utils/sms');
 const {
   startSession,
   revokeAllSessions,
@@ -84,12 +84,15 @@ function isOtpTestPhone(phone) {
   return Boolean(process.env.OTP_TEST_CODE) && list.includes(phone);
 }
 
+/** Production without an SMS gateway falls back to DEFAULT_OTP (1111) so login keeps working. */
+const fixedOtpMode = () => !isProduction() || !smsConfigured();
+
 function makeOtp(phone) {
   if (isProduction()) {
     if (isOtpTestPhone(phone)) return String(process.env.OTP_TEST_CODE).replace(/\D/g, '').padStart(4, '0').slice(-4);
-    return String(crypto.randomInt(0, 10000)).padStart(4, '0');
+    if (smsConfigured()) return String(crypto.randomInt(0, 10000)).padStart(4, '0');
   }
-  // Development: DEFAULT_OTP=1111 (default) for easy QA; DEFAULT_OTP=random for real codes.
+  // DEFAULT_OTP=1111 (default) for easy QA; DEFAULT_OTP=random for real codes.
   const fixed = String(process.env.DEFAULT_OTP || '1111').trim().toLowerCase();
   if (fixed && fixed !== 'random') {
     return fixed.replace(/\D/g, '').padStart(4, '0').slice(-4);
@@ -117,7 +120,9 @@ async function createAndSendOtp(phone, purpose, name) {
     expiresAt: otpExpiry(),
   });
 
-  const mustSend = isProduction() ? !isOtpTestPhone(phone) : process.env.SMS_SEND_IN_DEV === 'true';
+  const mustSend = fixedOtpMode()
+    ? !isProduction() && process.env.SMS_SEND_IN_DEV === 'true'
+    : !isOtpTestPhone(phone);
   if (!mustSend) return { code, sent: true };
   const sent = await sendOtpSms(phone, code);
   if (!sent && isProduction()) {
