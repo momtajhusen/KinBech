@@ -42,6 +42,8 @@ const GENERATION_CONFIG = {
 };
 
 function isKeyError(status, payload) {
+  // Quota messages mention "billing" too; those must switch model, not drop the key.
+  if (isQuotaError(status, payload)) return false;
   const message = String(payload?.error?.message || '');
   if (status === 401 || status === 403) return true;
   return /api key|permission denied|unregistered|consumer|billing/i.test(message);
