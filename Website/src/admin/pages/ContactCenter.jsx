@@ -91,6 +91,26 @@ function PushBadge({ contact }) {
   return <span className="cc-chip success"><Smartphone aria-hidden /> Push ready</span>;
 }
 
+function pushFailureText({ pushReady, pushSent, pushReason }) {
+  if (!pushReady || pushReason === 'no_token') {
+    return 'Their phone has no push token, so it only rings while the app is open.';
+  }
+  if (pushSent !== false) return '';
+  if (pushReason === 'firebase_not_configured') {
+    return 'Push is off on the server (FIREBASE_SERVICE_ACCOUNT_JSON is missing), so it only rings while the app is open.';
+  }
+  if (pushReason === 'firebase_invalid') {
+    return 'The server Firebase key is invalid, so it only rings while the app is open.';
+  }
+  if (pushReason === 'messaging/mismatched-credential' || pushReason === 'messaging/sender-id-mismatch') {
+    return 'The server Firebase key belongs to a different project than the app, so the push was rejected.';
+  }
+  if (pushReason === 'messaging/registration-token-not-registered' || pushReason === 'messaging/invalid-registration-token') {
+    return 'Their saved push token is from an old install (app reinstalled or data cleared). It is saved again when they open the app signed in to this account.';
+  }
+  return `Push to their phone failed (${pushReason || 'unknown'}), so it only rings while the app is open.`;
+}
+
 function CallRow({ call, focusId }) {
   const outgoing = focusId ? call.caller.id === focusId : true;
   const Icon = call.status === 'answered' ? (outgoing ? PhoneOutgoing : PhoneIncoming) : PhoneMissed;
@@ -314,7 +334,8 @@ function CallPanel({ detail, onChanged }) {
       await client.join(session.appId, session.channel, session.token, session.uid);
       await client.publish([mic]);
       setPhase('calling');
-      if (!data.pushReady) setError('Their phone has no push token, so it only rings while the app is open.');
+      const pushProblem = pushFailureText(data);
+      if (pushProblem) setError(pushProblem);
       call.poll = setInterval(async () => {
         try {
           const { data: status } = await api.get(`/chats/${call.chatId}/call`);
@@ -336,10 +357,12 @@ function CallPanel({ detail, onChanged }) {
         /* never opened */
       }
       const denied = err?.name === 'NotAllowedError' || /permission/i.test(String(err?.message || ''));
-      await finish({
-        notifyServer: Boolean(call.chatId),
-        message: denied ? 'Allow microphone access in the browser to call.' : errorText(err, err?.message || 'Call failed'),
-      });
+      const policy = document.permissionsPolicy || document.featurePolicy;
+      const blockedBySite = Boolean(policy?.allowsFeature) && !policy.allowsFeature('microphone');
+      let message = errorText(err, err?.message || 'Call failed');
+      if (blockedBySite) message = 'The site blocks the microphone (Permissions-Policy header). Update .htaccess and redeploy.';
+      else if (denied) message = 'Allow microphone access in the browser to call.';
+      await finish({ notifyServer: Boolean(call.chatId), message });
     }
   };
 

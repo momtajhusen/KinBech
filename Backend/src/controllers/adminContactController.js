@@ -338,14 +338,23 @@ async function callUser(req, res, next) {
       params: { chatId: String(chat._id), name: SUPPORT_NAME, image: SUPPORT_AVATAR },
       relatedChat: chat._id,
     }).catch(() => {});
-    sendIncomingCallPush({
-      userId: user._id,
-      chatId: chat._id,
-      callerName: SUPPORT_NAME,
-      callerImage: SUPPORT_AVATAR,
-    }).catch(() => {});
+    const push = await Promise.race([
+      sendIncomingCallPush({
+        userId: user._id,
+        chatId: chat._id,
+        callerName: SUPPORT_NAME,
+        callerImage: SUPPORT_AVATAR,
+      }).catch((error) => ({ sent: false, reason: error?.message || 'error' })),
+      new Promise((resolve) => setTimeout(() => resolve({ sent: false, reason: 'timeout' }), 5000)),
+    ]);
 
-    res.json({ chatId: String(chat._id), session, pushReady: Boolean(user.fcmToken) });
+    res.json({
+      chatId: String(chat._id),
+      session,
+      pushReady: Boolean(user.fcmToken),
+      pushSent: push.sent,
+      pushReason: push.reason,
+    });
   } catch (error) {
     if (error.status === 503) return res.status(503).json({ message: error.message });
     next(error);

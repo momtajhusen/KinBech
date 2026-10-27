@@ -112,6 +112,7 @@
       ],
       "./plugins/withIncomingCall",
       "./plugins/withCertificatePinning",
+      "./plugins/withGradleMemory",
       [
         "expo-speech-recognition",
         {

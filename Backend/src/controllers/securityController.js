@@ -402,6 +402,10 @@ async function revokeMySession(req, res, next) {
 async function logoutCurrent(req, res, next) {
   try {
     if (req.sessionId) await revokeSession(req.user._id, req.sessionId);
+    const deviceToken = String(req.body?.deviceToken || '').trim();
+    if (deviceToken) {
+      await User.updateOne({ _id: req.user._id, fcmToken: deviceToken }, { $set: { fcmToken: '' } });
+    }
     res.json({ message: 'Signed out' });
   } catch (error) {
     next(error);

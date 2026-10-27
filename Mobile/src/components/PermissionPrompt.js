@@ -16,7 +16,12 @@ import {
 } from 'react-native';
 import Icon from './Icon';
 import { isSignInModalPending, onSignInModalClosed } from './SignedInModal';
-import { getFCMToken, getNotificationPermission, requestNotificationPermission } from '../services/notifications';
+import {
+  getFCMToken,
+  getNotificationPermission,
+  requestNotificationPermission,
+  syncDeviceToken,
+} from '../services/notifications';
 import { useTheme, useThemedStyles } from '../theme';
 
 const CARD_WIDTH = Math.min(Dimensions.get('window').width - 40, 380);
@@ -256,7 +261,7 @@ export default function PermissionPrompt({ enabled, onLocationGranted }) {
         // Back from the system dialog or Settings: pick up whatever changed there.
         refresh().then((next) => {
           if (next.location.granted) onLocationRef.current?.();
-          if (next.notifications.granted) getFCMToken().catch(() => {});
+          if (next.notifications.granted) getFCMToken().then(() => syncDeviceToken()).catch(() => {});
         });
         return;
       }
@@ -301,7 +306,7 @@ export default function PermissionPrompt({ enabled, onLocationGranted }) {
       if (key === 'notifications') {
         const result = await requestNotificationPermission();
         setPerms((prev) => ({ ...prev, notifications: result }));
-        if (result.granted) getFCMToken().catch(() => {});
+        if (result.granted) getFCMToken().then(() => syncDeviceToken()).catch(() => {});
       } else {
         const res = await Location.requestForegroundPermissionsAsync();
         const result = { granted: res.status === 'granted', canAskAgain: res.canAskAgain !== false };

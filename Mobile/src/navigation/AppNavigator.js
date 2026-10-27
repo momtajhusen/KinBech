@@ -11,6 +11,7 @@ import { api } from '../services/api';
 import { consumeNativePendingCall } from '../services/callWatch';
 import { shareMediaBaseWithNative } from '../services/callReadiness';
 import CallSetupModal from '../components/CallSetupModal';
+import { syncDeviceToken } from '../services/notifications';
 import { resolveMediaUrl } from '../utils/listing';
 import {
   consumeInitialCallNotification,
@@ -266,6 +267,23 @@ function PushAlertBridge() {
   return null;
 }
 
+/** Without a saved token the server cannot wake a killed or locked phone for calls. */
+function DeviceTokenBridge() {
+  const { ready, isLoggedIn, user } = useAuth();
+  const userId = user?._id || user?.id || '';
+
+  useEffect(() => {
+    if (!ready || !isLoggedIn) return undefined;
+    syncDeviceToken({ force: true }).catch(() => {});
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') syncDeviceToken().catch(() => {});
+    });
+    return () => sub.remove();
+  }, [ready, isLoggedIn, userId]);
+
+  return null;
+}
+
 function MessageSoundBridge() {
   const { ready, isLoggedIn } = useAuth();
   const seenRef = useRef(new Map());
@@ -414,6 +432,7 @@ export default function AppNavigator() {
     >
       <AndroidBackHandler />
       <IncomingCallBridge />
+      <DeviceTokenBridge />
       <PushAlertBridge />
       <MessageSoundBridge />
       <CallSetupModal />

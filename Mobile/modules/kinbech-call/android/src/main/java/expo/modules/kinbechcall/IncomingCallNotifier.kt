@@ -13,10 +13,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.media.AudioAttributes
-import android.media.AudioManager
-import android.media.RingtoneManager
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -26,37 +24,30 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object IncomingCallNotifier {
-  const val CHANNEL_ID = "kinbech-incoming-call"
+  const val CHANNEL_ID = "kinbech-incoming-call-v2"
   const val ACTION_DECLINE = "expo.modules.kinbechcall.DECLINE"
   const val EXTRA_ACTION = "kinbechCallAction"
   const val EXTRA_CHAT_ID = "kinbechCallChatId"
   const val EXTRA_CALLER_NAME = "kinbechCallCallerName"
   const val EXTRA_CALLER_IMAGE = "kinbechCallCallerImage"
+  const val NOTIFICATION_ID = 7301
 
-  private const val NOTIFICATION_ID = 7301
+  private const val LEGACY_CHANNEL_ID = "kinbech-incoming-call"
   private const val TAG_PREFIX = "kinbech-call:"
   private const val AVATAR_SIZE = 256
-  private val VIBRATION = longArrayOf(0, 800, 600, 800, 600)
-
-  private fun ringtone() = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
 
   fun ensureChannel(context: Context) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
+    if (manager.getNotificationChannel(LEGACY_CHANNEL_ID) != null) manager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
     if (manager.getNotificationChannel(CHANNEL_ID) != null) return
     val channel = NotificationChannel(CHANNEL_ID, "Incoming calls", NotificationManager.IMPORTANCE_HIGH).apply {
       description = "Rings when someone calls you on KinBech"
       lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-      enableVibration(true)
-      vibrationPattern = VIBRATION
       setBypassDnd(true)
-      setSound(
-        ringtone(),
-        AudioAttributes.Builder()
-          .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-          .build()
-      )
+      // CallRinger plays the ringtone and vibration, so they loop for the whole ring and never double up.
+      setSound(null, null)
+      enableVibration(false)
     }
     manager.createNotificationChannel(channel)
   }
@@ -80,14 +71,44 @@ object IncomingCallNotifier {
     if (!canPost(context)) return false
     ensureChannel(context)
     val name = callerName.ifBlank { "KinBech user" }
-    val avatar = downloadAvatar(callerImage) ?: initialsAvatar(name)
+    downloadAvatar(callerImage)?.let { lastAvatar = callerImage to it }
+    if (IncomingCallService.start(context, chatId, name, callerImage, timeoutMs)) return true
+
+    // Android refused the background service start: post the notification and ring from this process.
+    val posted = try {
+      NotificationManagerCompat.from(context)
+        .notify(TAG_PREFIX + chatId, NOTIFICATION_ID, build(context, chatId, name, callerImage, timeoutMs))
+      true
+    } catch (error: SecurityException) {
+      false
+    }
+    if (posted) CallRinger.start(context, chatId, timeoutMs)
+    return posted
+  }
+
+  fun build(context: Context, chatId: String, callerName: String, callerImage: String, timeoutMs: Long): Notification {
+    ensureChannel(context)
+    val name = callerName.ifBlank { "KinBech user" }
+    val avatar = cachedAvatar(callerImage) ?: initialsAvatar(name)
     val person = Person.Builder()
       .setName(name)
       .setIcon(IconCompat.createWithBitmap(avatar))
       .setImportant(true)
       .build()
 
-    val open = activityIntent(context, chatId, name, callerImage, "open", 1)
+    // Android shows this as a heads-up banner while the phone is in use, and as the full-screen
+    // ringing screen when it is locked or asleep.
+    val ringScreen = PendingIntent.getActivity(
+      context,
+      requestCode(chatId, 1),
+      Intent(context, IncomingCallActivity::class.java)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+        .putExtra(EXTRA_CHAT_ID, chatId)
+        .putExtra(EXTRA_CALLER_NAME, name)
+        .putExtra(EXTRA_CALLER_IMAGE, callerImage)
+        .putExtra(IncomingCallActivity.EXTRA_RING_UNTIL, System.currentTimeMillis() + timeoutMs),
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
     val answer = activityIntent(context, chatId, name, callerImage, "answer", 2)
     val decline = PendingIntent.getBroadcast(
       context,
@@ -111,14 +132,13 @@ object IncomingCallNotifier {
       .setOnlyAlertOnce(true)
       .setShowWhen(true)
       .setTimeoutAfter(timeoutMs)
-      .setContentIntent(open)
-      .setFullScreenIntent(open, true)
-      .setSound(ringtone(), AudioManager.STREAM_RING)
-      .setVibrate(VIBRATION)
+      .setContentIntent(ringScreen)
+      .setFullScreenIntent(ringScreen, true)
       .addPerson(person)
+      .addExtras(Bundle().apply { putString(EXTRA_CHAT_ID, chatId) })
       .setStyle(NotificationCompat.CallStyle.forIncomingCall(person, decline, answer))
 
-    val notification = try {
+    return try {
       builder.build()
     } catch (error: Exception) {
       builder.setStyle(null)
@@ -126,19 +146,42 @@ object IncomingCallNotifier {
         .addAction(0, "Answer", answer)
         .build()
     }
-    // Keeps the ringtone looping until the call is answered, declined, or times out.
-    notification.flags = notification.flags or Notification.FLAG_INSISTENT
-    return try {
-      NotificationManagerCompat.from(context).notify(TAG_PREFIX + chatId, NOTIFICATION_ID, notification)
-      true
-    } catch (error: SecurityException) {
-      false
-    }
   }
 
   fun cancel(context: Context, chatId: String) {
     NotificationManagerCompat.from(context).cancel(TAG_PREFIX + chatId, NOTIFICATION_ID)
+    IncomingCallService.stop(chatId)
+    CallRinger.stop(chatId)
+    IncomingCallActivity.dismiss(chatId)
   }
+
+  /** False once the call was answered, declined, hung up, or timed out. */
+  fun isRinging(context: Context, chatId: String): Boolean {
+    if (IncomingCallService.ringingChatId == chatId) return true
+    val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+    return try {
+      manager.activeNotifications.any {
+        it.id == NOTIFICATION_ID && it.notification.extras.getString(EXTRA_CHAT_ID) == chatId
+      }
+    } catch (error: Exception) {
+      true
+    }
+  }
+
+  fun cachedAvatar(url: String): Bitmap? = lastAvatar?.takeIf { url.isNotEmpty() && it.first == url }?.second
+
+  fun launchIntent(context: Context, chatId: String, name: String, image: String, action: String): Intent =
+    (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()).apply {
+      setPackage(context.packageName)
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      putExtra(EXTRA_ACTION, action)
+      putExtra(EXTRA_CHAT_ID, chatId)
+      putExtra(EXTRA_CALLER_NAME, name)
+      putExtra(EXTRA_CALLER_IMAGE, image)
+    }
+
+  @Volatile
+  private var lastAvatar: Pair<String, Bitmap>? = null
 
   fun setMediaBase(context: Context, base: String) {
     prefs(context).edit().putString(KEY_MEDIA_BASE, base.trimEnd('/')).apply()
@@ -167,23 +210,15 @@ object IncomingCallNotifier {
     action: String,
     slot: Int
   ): PendingIntent {
-    val intent = (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()).apply {
-      setPackage(context.packageName)
-      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-      putExtra(EXTRA_ACTION, action)
-      putExtra(EXTRA_CHAT_ID, chatId)
-      putExtra(EXTRA_CALLER_NAME, name)
-      putExtra(EXTRA_CALLER_IMAGE, image)
-    }
     return PendingIntent.getActivity(
       context,
       requestCode(chatId, slot),
-      intent,
+      launchIntent(context, chatId, name, image, action),
       PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
   }
 
-  private fun downloadAvatar(url: String): Bitmap? {
+  fun downloadAvatar(url: String): Bitmap? {
     if (!url.startsWith("http://") && !url.startsWith("https://")) return null
     var connection: HttpURLConnection? = null
     return try {
@@ -208,7 +243,7 @@ object IncomingCallNotifier {
     return Bitmap.createScaledBitmap(square, AVATAR_SIZE, AVATAR_SIZE, true)
   }
 
-  private fun initialsAvatar(name: String): Bitmap {
+  fun initialsAvatar(name: String): Bitmap {
     val bitmap = Bitmap.createBitmap(AVATAR_SIZE, AVATAR_SIZE, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val half = AVATAR_SIZE / 2f

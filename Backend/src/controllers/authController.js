@@ -1337,8 +1337,12 @@ async function saveDeviceToken(req, res, next) {
     if (!token) {
       return res.status(400).json({ message: 'token is required' });
     }
-    req.user.fcmToken = token;
-    await req.user.save();
+    // One phone rings for one account: drop this token from anyone who signed in on it before.
+    await User.updateMany({ fcmToken: token, _id: { $ne: req.user._id } }, { $set: { fcmToken: '' } });
+    if (req.user.fcmToken !== token) {
+      await User.updateOne({ _id: req.user._id }, { $set: { fcmToken: token } });
+      req.user.fcmToken = token;
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);

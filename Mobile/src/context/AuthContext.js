@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, onAuthTokenChange, setAuthToken } from '../services/api';
 import { signOutGoogle } from '../services/googleAuth';
+import { forgetDeviceTokenSync, getDeviceToken } from '../services/notifications';
 import { clearToken, readToken, writeToken } from '../services/tokenStorage';
 import { resetToLogin } from '../navigation/navigationRef';
 import { setDisplayCurrency } from '../utils/currency';
@@ -125,7 +126,8 @@ export function AuthProvider({ children }) {
       },
       async logout() {
         // Header is captured synchronously, before the token is cleared below.
-        api.logout().catch(() => {});
+        api.logout(getDeviceToken()).catch(() => {});
+        forgetDeviceTokenSync();
         signOutGoogle();
         setAuthToken(null);
         setToken(null);

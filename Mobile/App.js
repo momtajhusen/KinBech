@@ -11,7 +11,12 @@ import { WishlistProvider } from './src/context/WishlistContext';
 import { ThemeProvider } from './src/theme';
 import { getAuthToken, getWorkingApiBaseUrl } from './src/services/api';
 import { reportMobileError } from './src/utils/errorReporting';
-import { getFCMToken, setupFCMListeners, getInitialNotification } from './src/services/notifications';
+import {
+  getFCMToken,
+  getInitialNotification,
+  setupFCMListeners,
+  syncDeviceToken,
+} from './src/services/notifications';
  
 function getErrorUtils() {
   try {
@@ -60,14 +65,8 @@ export default function App() {
         console.log('Initial notification:', initialNotification);
       }
 
-      // Get FCM token
-      const token = await getFCMToken();
-      if (token) {
-        // Send this token to your backend to save it for the user
-        console.log('FCM token to send to backend:', token);
-        // You can call your API here to save the token
-        // await api.saveFCMToken(token);
-      }
+      await getFCMToken();
+      syncDeviceToken().catch(() => {});
 
       // Setup notification listeners
       const cleanup = setupFCMListeners((remoteMessage) => {

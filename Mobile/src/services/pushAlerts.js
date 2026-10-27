@@ -109,11 +109,11 @@ export async function displayAlert({ id, title, body, data, image }) {
       launchActivity: 'default',
     },
   };
+  // No circularLargeIcon: Notifee crops a bitmap it already recycled ("Canvas: trying to use a recycled bitmap").
   if (productImage) {
     android.largeIcon = productImage;
   } else if (senderImage) {
     android.largeIcon = senderImage;
-    android.circularLargeIcon = true;
   }
   if (isChat && AndroidStyle?.MESSAGING) {
     const person = { name: title, ...(senderImage ? { icon: senderImage } : {}) };
@@ -130,14 +130,21 @@ export async function displayAlert({ id, title, body, data, image }) {
     };
   }
   const listingTitle = data?.listingTitle ? String(data.listingTitle) : '';
-  await notifeeModule.default.displayNotification({
+  const notification = {
     id: notificationId,
     title,
     body: body || '',
     subtitle: listingTitle || undefined,
     data: data || {},
     android,
-  });
+  };
+  try {
+    await notifeeModule.default.displayNotification(notification);
+  } catch {
+    // A broken or unreachable picture should not cost the user the alert itself.
+    const { largeIcon, style, ...plain } = android;
+    await notifeeModule.default.displayNotification({ ...notification, android: plain });
+  }
 }
 
 export function alertFromMessage(remoteMessage) {

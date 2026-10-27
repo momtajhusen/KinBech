@@ -494,7 +494,13 @@ export const api = {
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
   logoutAllDevices: () => request('/auth/logout-all', { method: 'POST' }),
-  logout: () => request('/auth/logout', { method: 'POST', timeoutMs: 4000, skipAuthRefresh: true }),
+  logout: (deviceToken = '') =>
+    request('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ deviceToken }),
+      timeoutMs: 4000,
+      skipAuthRefresh: true,
+    }),
   getSessions: () => request('/auth/sessions'),
   exportMyData: () => request('/auth/me/export', { timeoutMs: 30000 }),
   deleteAccount: () =>

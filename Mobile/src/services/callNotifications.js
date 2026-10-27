@@ -202,10 +202,8 @@ export async function displayIncomingCall(call, { fullScreen = false } = {}) {
       },
     ],
   };
-  if (avatarUrl) {
-    android.largeIcon = avatarUrl;
-    android.circularLargeIcon = true;
-  }
+  // No circularLargeIcon: Notifee crops a bitmap it already recycled ("Canvas: trying to use a recycled bitmap").
+  if (avatarUrl) android.largeIcon = avatarUrl;
   if (!fullScreen && avatarUrl && AndroidStyle?.MESSAGING) {
     const person = { name: call.callerName || 'KinBech user', icon: avatarUrl };
     android.style = {
@@ -228,7 +226,7 @@ export async function displayIncomingCall(call, { fullScreen = false } = {}) {
       launchActivity: 'default',
     };
   }
-  await notifee.displayNotification({
+  const notification = {
     id: callNotificationId(call.chatId),
     title: call.callerName || 'Incoming call',
     body: 'Incoming voice call',
@@ -240,7 +238,13 @@ export async function displayIncomingCall(call, { fullScreen = false } = {}) {
       callerImage: call.callerImage || '',
     },
     android,
-  });
+  };
+  try {
+    await notifee.displayNotification(notification);
+  } catch {
+    const { largeIcon, style, ...plain } = android;
+    await notifee.displayNotification({ ...notification, android: plain });
+  }
 }
 
 function releaseCallKeep(chatId) {

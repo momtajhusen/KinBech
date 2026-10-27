@@ -8,7 +8,7 @@ import {
   onTokenRefresh,
 } from '@react-native-firebase/messaging';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { api } from './api';
+import { api, getAuthToken } from './api';
 import { ensureCallChannel } from './callNotifications';
 import { endRingingCall, presentIncomingCallFromRemoteMessage } from './CallKeepManager';
 import { alertFromMessage, displayAlert, ensureAlertChannel } from './pushAlerts';
@@ -53,23 +53,65 @@ export async function requestNotificationPermission() {
   };
 }
 
+const TOKEN_RESYNC_MS = 30 * 60 * 1000;
+let deviceToken = '';
+let synced = { token: '', auth: '', at: 0 };
+let syncing = null;
+
+export function getDeviceToken() {
+  return deviceToken;
+}
+
+export function forgetDeviceTokenSync() {
+  synced = { token: '', auth: '', at: 0 };
+}
+
+async function sendDeviceToken(token, { force = false } = {}) {
+  const auth = getAuthToken();
+  if (!token || !auth) return false;
+  const fresh =
+    synced.token === token && synced.auth === auth && Date.now() - synced.at < TOKEN_RESYNC_MS;
+  if (fresh && !force) return true;
+  const { error } = await api.saveDeviceToken(token);
+  if (error) return false;
+  synced = { token, auth, at: Date.now() };
+  return true;
+}
+
+/** FCM token does not need notification permission; calls arrive as data pushes. */
 export async function getFCMToken() {
   const messaging = getMessagingInstance();
   if (!messaging) return null;
 
-  const { granted } = await getNotificationPermission();
-  if (!granted) return null;
-
   try {
-    await ensureCallChannel();
-    await ensureAlertChannel();
-    const token = await getToken(messaging);
-    api.saveDeviceToken(token).catch(() => {});
-    return token;
+    const { granted } = await getNotificationPermission();
+    if (granted) {
+      await ensureCallChannel();
+      await ensureAlertChannel();
+    }
+    deviceToken = (await getToken(messaging)) || '';
+    return deviceToken || null;
   } catch (error) {
     console.warn('Error getting FCM token:', error?.message || error);
     return null;
   }
+}
+
+/** Saves this device's token for the signed-in user. Safe to call often. */
+export function syncDeviceToken(options) {
+  if (!getAuthToken()) return Promise.resolve(false);
+  if (syncing) return syncing;
+  syncing = (async () => {
+    try {
+      const token = deviceToken || (await getFCMToken());
+      return await sendDeviceToken(token, options);
+    } catch {
+      return false;
+    } finally {
+      syncing = null;
+    }
+  })();
+  return syncing;
 }
 
 export function setupTokenRefreshListener(callback) {
@@ -77,7 +119,8 @@ export function setupTokenRefreshListener(callback) {
   if (!messaging) return () => {};
 
   return onTokenRefresh(messaging, (token) => {
-    api.saveDeviceToken(token).catch(() => {});
+    deviceToken = token || '';
+    sendDeviceToken(deviceToken, { force: true }).catch(() => {});
     if (callback) callback(token);
   });
 }
