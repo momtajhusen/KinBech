@@ -1,5 +1,8 @@
+import KinBechCall from '../../modules/kinbech-call';
+
 const CALL_CHANNEL_ID = 'incoming-calls-v2';
 const DECLINE_MS = 15000;
+const RING_TIMEOUT_MS = 60000;
 
 let pendingCall = null;
 const listeners = new Set();
@@ -45,6 +48,7 @@ export async function declineIncomingCall(chatId) {
   markCallDeclined(chatId);
   const { stopCallSounds } = require('./sounds');
   stopCallSounds();
+  dismissNativeCallStyle(chatId);
   const notifeeModule = loadNotifee();
   if (notifeeModule) {
     try {
@@ -62,8 +66,17 @@ export async function declineIncomingCall(chatId) {
   }
 }
 
+function dismissNativeCallStyle(chatId) {
+  try {
+    KinBechCall?.dismissIncomingCall(String(chatId));
+  } catch {
+    /* already dismissed */
+  }
+}
+
 export async function dismissIncomingCallNotification(chatId) {
   if (!chatId) return;
+  dismissNativeCallStyle(chatId);
   const notifeeModule = loadNotifee();
   if (!notifeeModule) return;
   try {
@@ -82,8 +95,20 @@ function loadNotifee() {
   }
 }
 
+const CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/** A call push delivered after the ring window (the phone was offline); a far-off phone clock is ignored. */
+function isStaleCallPush(data) {
+  const sent = Number(data?.sentAt);
+  if (!sent) return false;
+  const age = Date.now() - sent;
+  if (Math.abs(age) > CLOCK_SKEW_MS) return false;
+  return age >= RING_TIMEOUT_MS - 5000;
+}
+
 export function callFromData(data) {
   if (!data || data.type !== 'incoming_call' || !data.chatId) return null;
+  if (isStaleCallPush(data)) return null;
   return {
     chatId: String(data.chatId),
     callerName: String(data.callerName || data.name || 'KinBech user'),
@@ -124,18 +149,39 @@ export async function ensureCallChannel() {
   return true;
 }
 
+/** Android's built-in call notification: red Decline and green Answer, ringtone, full screen when locked. */
+async function displayNativeCallStyle(call, avatarUrl) {
+  if (!KinBechCall?.showIncomingCall) return false;
+  try {
+    return Boolean(
+      await KinBechCall.showIncomingCall({
+        chatId: String(call.chatId),
+        callerName: call.callerName || 'KinBech user',
+        callerImage: avatarUrl,
+        timeoutMs: RING_TIMEOUT_MS,
+      })
+    );
+  } catch (error) {
+    console.warn('Native call notification failed:', error?.message || error);
+    return false;
+  }
+}
+
 export async function displayIncomingCall(call, { fullScreen = false } = {}) {
+  if (!call?.chatId || isCallDeclined(call.chatId)) return;
+  const { resolveMediaUrl } = require('../utils/listing');
+  const avatar = resolveMediaUrl(call.callerImage || '');
+  const avatarUrl = /^https?:\/\//i.test(avatar) ? avatar : '';
+  if (await displayNativeCallStyle(call, avatarUrl)) return;
+
   const notifeeModule = loadNotifee();
-  if (!notifeeModule || !call?.chatId) return;
+  if (!notifeeModule) return;
   const notifee = notifeeModule.default;
   const { AndroidCategory, AndroidImportance, AndroidStyle, AndroidVisibility } = notifeeModule;
-  const { resolveMediaUrl } = require('../utils/listing');
   await ensureCallChannel();
   if (isCallDeclined(call.chatId)) return;
   const { startIncomingRing } = require('./sounds');
   startIncomingRing();
-  const avatar = resolveMediaUrl(call.callerImage || '');
-  const avatarUrl = /^https?:\/\//i.test(avatar) ? avatar : '';
   const android = {
     channelId: CALL_CHANNEL_ID,
     importance: AndroidImportance.HIGH,
@@ -197,7 +243,41 @@ export async function displayIncomingCall(call, { fullScreen = false } = {}) {
   });
 }
 
+function releaseCallKeep(chatId) {
+  try {
+    require('./CallKeepManager').dismissNativeIncomingCall(chatId);
+  } catch {
+    /* CallKeep is not in every build */
+  }
+}
+
+function callFromNativeAction(event) {
+  if (!event?.chatId) return null;
+  return {
+    chatId: String(event.chatId),
+    callerName: String(event.callerName || 'KinBech user'),
+    callerImage: String(event.callerImage || ''),
+  };
+}
+
+function consumeNativeLaunchCall() {
+  try {
+    const event = KinBechCall?.consumeLaunchAction?.();
+    const call = callFromNativeAction(event);
+    if (!call || isCallDeclined(call.chatId)) return null;
+    if (event.action === 'answer') {
+      releaseCallKeep(call.chatId);
+      return { ...call, autoAnswer: true };
+    }
+    return call;
+  } catch {
+    return null;
+  }
+}
+
 export async function consumeInitialCallNotification() {
+  const nativeCall = consumeNativeLaunchCall();
+  if (nativeCall) return nativeCall;
   const notifeeModule = loadNotifee();
   if (!notifeeModule) return null;
   try {
@@ -218,12 +298,33 @@ export async function consumeInitialCallNotification() {
   }
 }
 
+function subscribeNativeCallActions(onOpen) {
+  if (!KinBechCall?.addListener) return () => {};
+  const subscription = KinBechCall.addListener('onCallAction', async (event) => {
+    const call = callFromNativeAction(event);
+    if (!call) return;
+    if (event.action === 'decline' || isCallDeclined(call.chatId)) {
+      releaseCallKeep(call.chatId);
+      await declineIncomingCall(call.chatId);
+      return;
+    }
+    if (event.action === 'answer') {
+      releaseCallKeep(call.chatId);
+      onOpen({ ...call, autoAnswer: true });
+      return;
+    }
+    onOpen(call);
+  });
+  return () => subscription.remove();
+}
+
 export function subscribeCallNotificationEvents(onOpen) {
+  const unsubscribeNative = subscribeNativeCallActions(onOpen);
   const notifeeModule = loadNotifee();
-  if (!notifeeModule) return () => {};
+  if (!notifeeModule) return unsubscribeNative;
   const notifee = notifeeModule.default;
   const { EventType } = notifeeModule;
-  return notifee.onForegroundEvent(async ({ type, detail }) => {
+  const unsubscribeNotifee = notifee.onForegroundEvent(async ({ type, detail }) => {
     const call = callFromData(detail.notification?.data);
     if (!call) return;
     const actionId = detail.pressAction?.id;
@@ -239,6 +340,10 @@ export function subscribeCallNotificationEvents(onOpen) {
     if (detail.notification?.id) await notifee.cancelNotification(detail.notification.id);
     onOpen(actionId === 'answer' ? { ...call, autoAnswer: true } : call);
   });
+  return () => {
+    unsubscribeNative();
+    unsubscribeNotifee();
+  };
 }
 
 export async function handleIncomingCallMessage(remoteMessage) {

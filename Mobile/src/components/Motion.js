@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Reanimated, {
   Easing,
+  FadeIn,
   FadeInDown,
   FadeInRight,
   cancelAnimation,
@@ -24,6 +25,40 @@ export function enterUp(index = 0, step = 55) {
 
 export function enterRight(index = 0, step = 60) {
   return FadeInRight.delay(Math.min(index, MAX_STAGGER) * step).duration(380).easing(Easing.out(Easing.cubic));
+}
+
+const CARD_SPRING = { damping: 15, stiffness: 170, mass: 0.7 };
+
+function springIn(delay, dx, dy, scale) {
+  return () => {
+    'worklet';
+    return {
+      initialValues: { opacity: 0, transform: [{ translateX: dx }, { translateY: dy }, { scale }] },
+      animations: {
+        opacity: withDelay(delay, withTiming(1, { duration: 260 })),
+        transform: [
+          { translateX: withDelay(delay, withSpring(0, CARD_SPRING)) },
+          { translateY: withDelay(delay, withSpring(0, CARD_SPRING)) },
+          { scale: withDelay(delay, withSpring(1, CARD_SPRING)) },
+        ],
+      },
+    };
+  };
+}
+
+/** Card rises and springs to full size, for grids. */
+export function enterCard(index = 0, step = 45) {
+  return springIn(Math.min(index, MAX_STAGGER) * step, 0, 24, 0.9);
+}
+
+/** Card slides in from the right with a soft spring, for horizontal rows. */
+export function enterSlide(index = 0, step = 60) {
+  return springIn(Math.min(index, MAX_STAGGER) * step, 40, 0, 0.92);
+}
+
+/** Short fade for content that swaps often (tabs, filters), so switching stays snappy. */
+export function enterQuick(index = 0) {
+  return FadeIn.delay(Math.min(index, 6) * 18).duration(200);
 }
 
 /** Pressable that springs down on touch and back on release, on the UI thread. */
@@ -115,6 +150,49 @@ export function Float({ children, style, distance = 3, duration = 1600 }) {
   }, [distance, duration, y]);
   const animated = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
   return <Reanimated.View style={[style, animated]}>{children}</Reanimated.View>;
+}
+
+/** Quick tilt shake that repeats every few seconds, so an icon catches the eye without looping constantly. */
+export function Wiggle({ children, style, angle = 12, every = 3600, delay = 0 }) {
+  const rotate = useSharedValue(0);
+  useEffect(() => {
+    rotate.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-angle, { duration: 90 }),
+          withTiming(angle, { duration: 140 }),
+          withTiming(-angle / 2, { duration: 120 }),
+          withTiming(0, { duration: 110 }),
+          withDelay(every, withTiming(0, { duration: 0 }))
+        ),
+        -1
+      )
+    );
+    return () => cancelAnimation(rotate);
+  }, [angle, every, delay, rotate]);
+  const animated = useAnimatedStyle(() => ({ transform: [{ rotate: `${rotate.value}deg` }] }));
+  return <Reanimated.View style={[style, animated]}>{children}</Reanimated.View>;
+}
+
+/** Status dot with a ring that keeps rippling outward. */
+export function Ping({ size = 7, color = '#4ADE80', style }) {
+  const progress = useSharedValue(0);
+  useEffect(() => {
+    progress.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.out(Easing.quad) }), -1);
+    return () => cancelAnimation(progress);
+  }, [progress]);
+  const ring = useAnimatedStyle(() => ({
+    opacity: 0.7 * (1 - progress.value),
+    transform: [{ scale: 1 + progress.value * 1.8 }],
+  }));
+  const dot = { width: size, height: size, borderRadius: size / 2, backgroundColor: color };
+  return (
+    <View style={[{ width: size, height: size }, style]}>
+      <Reanimated.View style={[StyleSheet.absoluteFill, dot, ring]} />
+      <View style={dot} />
+    </View>
+  );
 }
 
 /** Light sweep that glides across its parent. Parent needs overflow: 'hidden'. */

@@ -164,7 +164,7 @@ function broadcastPayload(doc, status) {
 async function audienceFilter(audience, city) {
   const userFilter = { role: 'user', status: { $ne: 'suspended' } };
   if (audience === 'individual_sellers') {
-    userFilter.sellerTypePreference = { $in: ['individual', 'both'] };
+    userFilter.sellerTypePreference = 'individual';
   } else if (audience === 'shop_sellers') {
     userFilter.sellerTypePreference = { $in: ['shop', 'both'] };
   } else if (audience === 'buyers') {

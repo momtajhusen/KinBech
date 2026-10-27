@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, googleLogin, me, updateMe, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
+const { signup, login, verifyOtp, googleLogin, me, updateMe, getSellerMode, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -78,6 +78,7 @@ router.post('/integrity/verify', requireAuth, twoFactorLimiter, integrityVerify)
 router.get('/sessions', requireAuth, getMySessions);
 router.delete('/sessions/:sessionId', requireAuth, revokeMySession);
 router.patch('/me', requireAuth, updateMe);
+router.get('/me/seller-mode', requireAuth, getSellerMode);
 router.get('/me/export', requireAuth, dataExportLimiter, exportMyData);
 router.post('/me/delete', requireAuth, twoFactorLimiter, requestAccountDeletion);
 router.post('/device-token', requireAuth, saveDeviceToken);

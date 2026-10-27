@@ -4,6 +4,8 @@ import Icon from './Icon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { declineIncomingCall } from '../services/callNotifications';
+import { resolveMediaUrl } from '../utils/listing';
+import { callHaptic } from '../services/callHaptics';
 import {
   dismissNativeIncomingCall,
   hideIncomingCallBanner,
@@ -24,6 +26,7 @@ export default function IncomingCallBanner() {
   const decline = () => {
     const chatId = call.chatId;
     hideIncomingCallBanner();
+    callHaptic('decline');
     dismissNativeIncomingCall(chatId);
     declineIncomingCall(chatId);
   };
@@ -31,6 +34,7 @@ export default function IncomingCallBanner() {
   const accept = () => {
     const next = call;
     hideIncomingCallBanner({ keepLock: true });
+    callHaptic('answer');
     navigation.navigate('Call', {
       chatId: next.chatId,
       name: next.callerName,
@@ -45,7 +49,7 @@ export default function IncomingCallBanner() {
       <View style={styles.card}>
         <View style={styles.identity}>
           {call.callerImage ? (
-            <Image source={{ uri: call.callerImage }} style={styles.avatar} />
+            <Image source={{ uri: resolveMediaUrl(call.callerImage) }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarFallback}>
               <Text style={styles.avatarLetter}>{initial}</Text>

@@ -8,6 +8,7 @@ import { ChatItemSkeleton } from '../components/SkeletonLoader';
 import { PressableScale, enterUp } from '../components/Motion';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
+import { requireCallSetup } from '../services/callReadiness';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
@@ -259,6 +260,7 @@ export default function ChatListScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       loadChats({ silent: hasLoadedRef.current });
+      requireCallSetup().catch(() => {});
     }, [loadChats])
   );
 

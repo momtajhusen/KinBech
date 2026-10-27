@@ -44,7 +44,16 @@ import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
 import { isNearEnd } from '../utils/scroll';
 import { ProductCardSkeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
-import { PressableScale, Reanimated, SoftPop, enterUp } from '../components/Motion';
+import {
+  Ping,
+  PressableScale,
+  Reanimated,
+  SoftPop,
+  enterCard,
+  enterQuick,
+  enterSlide,
+  enterUp,
+} from '../components/Motion';
 import ExploreFilterSheet, { DEFAULT_EXPLORE_FILTERS, countActiveFilters } from '../components/ExploreFilterSheet';
 
 const SIDEBAR_WIDTH = 62;
@@ -143,12 +152,6 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  liveDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#4ADE80',
   },
   exploreSubtitle: {
     fontSize: 12.5,
@@ -1281,8 +1284,12 @@ export default function ExploreScreen({ navigation, route }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={[styles.productGrid, { flexWrap: 'nowrap', paddingRight: GRID_PADDING }]}
         >
-          {list.map((seller) => (
-            <View key={seller._id || seller.id} style={{ width: productCardWidth }}>
+          {list.map((seller, index) => (
+            <Reanimated.View
+              key={seller._id || seller.id}
+              entering={skipEnter.current ? enterQuick(index) : enterSlide(index, 60)}
+              style={{ width: productCardWidth }}
+            >
               <SellerProfileCard
                 seller={seller}
                 sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
@@ -1291,7 +1298,7 @@ export default function ExploreScreen({ navigation, route }) {
                 onPinToggle={() => handlePinToggle(seller._id)}
                 isPinned={true}
               />
-            </View>
+            </Reanimated.View>
           ))}
         </ScrollView>
       );
@@ -1299,16 +1306,21 @@ export default function ExploreScreen({ navigation, route }) {
 
     return (
       <View style={styles.productGrid}>
-        {list.map((seller) => (
-          <SellerProfileCard
+        {list.map((seller, index) => (
+          <Reanimated.View
             key={seller._id || seller.id}
-            seller={seller}
-            sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
-            width={productCardWidth}
-            onPress={() => handleSellerPress(seller)}
-            onPinToggle={() => handlePinToggle(seller._id)}
-            isPinned={pinnedStores.some((s) => s._id === seller._id)}
-          />
+            entering={skipEnter.current ? enterQuick(index) : enterCard(index, 50)}
+            style={{ width: productCardWidth }}
+          >
+            <SellerProfileCard
+              seller={seller}
+              sellerType={seller.sellerType || (seller.shopId ? 'shop' : 'individual')}
+              width={productCardWidth}
+              onPress={() => handleSellerPress(seller)}
+              onPinToggle={() => handlePinToggle(seller._id)}
+              isPinned={pinnedStores.some((s) => s._id === seller._id)}
+            />
+          </Reanimated.View>
         ))}
       </View>
     );
@@ -1369,7 +1381,7 @@ export default function ExploreScreen({ navigation, route }) {
             <View style={styles.headerCopy}>
               <Text style={styles.exploreTitle}>Explore</Text>
               <View style={styles.headerMeta}>
-                <View style={styles.liveDot} />
+                <Ping size={7} color="#4ADE80" />
                 <Text style={styles.exploreSubtitle} numberOfLines={1}>
                   {products.length} items · {uniqueSellers.length} sellers near you
                 </Text>
@@ -1377,9 +1389,6 @@ export default function ExploreScreen({ navigation, route }) {
             </View>
             <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('save', () => navigation.navigate(ROUTES.WISHLIST))}>
               <Icon name="heart-outline" size={19} color={colors.onGradient} />
-            </PressableScale>
-            <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
-              <Icon name="map-outline" size={19} color={colors.onGradient} />
             </PressableScale>
           </View>
         </LinearGradient>
@@ -1478,11 +1487,12 @@ export default function ExploreScreen({ navigation, route }) {
                   style={styles.sortScroll}
                   contentContainerStyle={styles.sortRow}
                 >
-                  {sortOptions.map((opt) => {
+                  {sortOptions.map((opt, index) => {
                     const active = sortBy === opt.key;
                     return (
                       <PressableScale
                         key={opt.key}
+                        entering={enterSlide(index, 50)}
                         contentStyle={[styles.sortChip, active && styles.sortChipActive]}
                         scaleTo={0.96}
                         onPress={() => setSortBy(opt.key)}
@@ -1582,15 +1592,12 @@ export default function ExploreScreen({ navigation, route }) {
                                 onSave={handleSaveProduct}
                               />
                             );
-                            if (skipEnter.current || index > 7) {
-                              return (
-                                <View key={item.id} style={{ width: productCardWidth }}>
-                                  {card}
-                                </View>
-                              );
-                            }
+                            let entering;
+                            if (skipEnter.current) entering = enterQuick(index);
+                            else if (index <= 7) entering = enterCard(index, 50);
+                            else entering = enterCard(index % 2, 60);
                             return (
-                              <Reanimated.View key={item.id} entering={enterUp(index, 28)} style={{ width: productCardWidth }}>
+                              <Reanimated.View key={item.id} entering={entering} style={{ width: productCardWidth }}>
                                 {card}
                               </Reanimated.View>
                             );

@@ -11,6 +11,7 @@ import { api } from '../services/api';
 import GradientButton from '../components/GradientButton';
 import LogoutConfirmModal from '../components/LogoutConfirmModal';
 import { resolveMediaUrl } from '../utils/listing';
+import { openCallSetup, readCallReadiness } from '../services/callReadiness';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -200,8 +201,7 @@ function MemberProfile({ navigation }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [statsLoaded, setStatsLoaded] = useState(false);
 
-  const isShopAccount =
-    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+  const isShopAccount = user?.sellerTypePreference === 'shop';
 
   const loadProfile = useCallback(async () => {
     const [{ data, error }, purchasesRes, shopRes, notesRes] = await Promise.all([
@@ -413,6 +413,18 @@ function MemberProfile({ navigation }) {
           badge: unreadCount,
           onPress: () => navigation.navigate(ROUTES.NOTIFICATIONS),
         },
+        ...(readCallReadiness()
+          ? [
+              {
+                label: 'Call settings',
+                hint: 'Ring when the app is closed or locked',
+                icon: 'call-outline',
+                tint: colors.success,
+                bg: resolveColor('colors.iconBackground', colors),
+                onPress: openCallSetup,
+              },
+            ]
+          : []),
         {
           label: 'Settings',
           hint: 'Theme, privacy and app settings',

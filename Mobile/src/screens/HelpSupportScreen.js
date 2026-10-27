@@ -65,7 +65,7 @@ const CATEGORIES = [
 ];
 
 const FAQS = [
-  { key: 'login', topic: 'account', question: 'How do I sign up or log in?', answer: 'Enter your Nepal mobile number (+977) and type the OTP we send you. New users then add their name and choose how they want to sell. There is no password to remember.' },
+  { key: 'login', topic: 'account', question: 'How do I sign up or log in?', answer: 'Tap Continue with Google and pick your Google account. New users then add their name and choose how they want to sell.' },
   { key: 'free', topic: 'buying', question: 'Is KinBech free to use?', answer: 'Yes. Posting, browsing, chatting and calling are free, and KinBech takes no commission on your sales.' },
   { key: 'post', topic: 'selling', question: 'How do I post an item?', answer: 'Tap Sell in the bottom bar, add clear photos and fill in the details, then post. AI fill can read your photo and suggest the title, category and price for you to check.' },
   { key: 'pay', topic: 'buying', question: 'How do I pay for an item?', answer: 'KinBech does not take payments. You pay the seller directly when you meet: cash, eSewa, Khalti, IME Pay or bank transfer. Never pay before you have seen the item.' },
@@ -78,7 +78,7 @@ const FAQS = [
   { key: 'afterDeal', topic: 'buying', question: 'What should I do after a deal?', answer: 'Mark the deal as done in the chat and leave a review. Honest reviews help other buyers and build the seller\'s trust level.' },
   { key: 'report', topic: 'safety', question: 'How do I report or block someone?', answer: 'In a chat, tap the ⋮ menu. On a seller or shop page, tap the ••• button. Choose Report or Block. You can track your reports and unblock people in Settings → Privacy & Security.' },
   { key: 'profile', topic: 'account', question: 'How do I change my name, photo or area?', answer: 'Go to Profile → Edit Profile (store owners see Edit Store Profile). Saved meetup places are under Settings → Saved Addresses.' },
-  { key: 'sellerType', topic: 'account', question: 'Can I sell as a shop and as an individual?', answer: 'Yes. In Settings → Seller Preference choose Individual, Shop or Both. A shop gets its own store page, QR code and sales stats.' },
+  { key: 'sellerType', topic: 'account', question: 'Can I sell as a shop and as an individual?', answer: 'You sell as one at a time. In Settings → Seller Preference choose Individual or Shop; you can switch once every 30 days. A shop gets its own store page, QR code and sales stats. Listings of the other mode are paused, not deleted.' },
   { key: 'verified', topic: 'selling', question: 'How does my shop get a verified badge?', answer: 'Open Settings → Business Verification, add your PAN/VAT number and upload business documents. The badge appears after our team reviews them.' },
   { key: 'delete', topic: 'account', question: 'How do I delete my account?', answer: 'Go to Settings → Privacy & Security. You can download a copy of your data there first, then delete your account.' },
 ];

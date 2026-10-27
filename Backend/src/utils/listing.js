@@ -1,4 +1,4 @@
-const { publicUser } = require('./token');
+const { phoneVisible, publicUser } = require('./token');
 const { serializeVariantsForPayload } = require('./listingVariants');
 const { isListingFeatured, featuredTrustBoost } = require('./referral');
 const { coordsForPlaceName } = require('./nepalLocations');
@@ -155,11 +155,11 @@ function listingPayload(listing, distanceKm, extras = {}) {
   const verification = resolveListingVerification(listing);
   const featured = isListingFeatured(listing);
 
-  // The number is shown only when the seller turned on "Show phone number";
-  // otherwise buyers see it in chat after a meetup is confirmed.
+  // Numbers (personal and store) are shown only when the seller turned on "Show phone number".
   const seller = listing.seller && listing.seller._id
     ? publicUser(listing.seller)
     : listing.seller;
+  const sellerShowsPhone = phoneVisible(listing.seller);
 
   const shop = listing.shopId && listing.shopId._id
     ? {
@@ -171,7 +171,7 @@ function listingPayload(listing, distanceKm, extras = {}) {
         ratingAverage: listing.shopId.ratingAverage,
         reviewCount: listing.shopId.reviewCount,
         isVerified: listing.shopId.isVerified,
-        phone: listing.shopId.phone || '',
+        phone: sellerShowsPhone ? listing.shopId.phone || '' : '',
         location: listing.shopId.location || listing.shopId.address || '',
         coordinates: listing.shopId.coordinates,
         openNow: openNow(listing.shopId),

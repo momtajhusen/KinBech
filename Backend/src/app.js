@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 
@@ -43,6 +44,7 @@ app.use(securityHeaders);
 app.use(cors(corsOptions));
 // Static images are cheap and load in bursts; keep them out of the API limits.
 app.use('/uploads', serveUploads);
+app.use('/brand', express.static(path.join(__dirname, '../assets/brand'), { maxAge: '7d', fallthrough: false }));
 app.use(trackResponses);
 app.use(globalLimiter);
 app.use(perUserLimiter);

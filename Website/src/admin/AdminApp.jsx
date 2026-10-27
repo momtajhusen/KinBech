@@ -8,6 +8,7 @@ import LiveActivity from './pages/LiveActivity';
 import Users from './pages/Users';
 import UserDetail from './pages/UserDetail';
 import Support from './pages/Support';
+import ContactCenter from './pages/ContactCenter';
 import TestAccounts from './pages/TestAccounts';
 import ScamMonitor from './pages/ScamMonitor';
 import FraudSignals from './pages/FraudSignals';
@@ -63,6 +64,7 @@ const PAGES = [
   ['live-activity', LiveActivity],
   ['users', Users],
   ['support', Support],
+  ['contact-center', ContactCenter],
   ['testers', TestAccounts],
   ['shops', Shops],
   ['shop-verification', ShopVerification],

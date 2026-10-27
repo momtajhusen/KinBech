@@ -15,10 +15,28 @@ const {
   endCall,
   setDealOutcome,
 } = require('../controllers/chatController');
-const { requireAuth } = require('../middleware/auth');
+const {
+  listContacts,
+  getFeed,
+  getContact,
+  sendSupportMessage,
+  notifyUser,
+  callUser,
+} = require('../controllers/adminContactController');
+const { requireAuth, requireScope } = require('../middleware/auth');
 const { chatMessageLimiter } = require('../middleware/security');
+const { auditRoute } = require('../utils/audit');
 
 const router = Router();
+
+// Admin contact center: check and reach one user by message, notification or call.
+const contactScope = requireScope('users');
+router.get('/admin/contacts', contactScope, listContacts);
+router.get('/admin/feed', contactScope, getFeed);
+router.get('/admin/users/:userId', contactScope, getContact);
+router.post('/admin/users/:userId/messages', contactScope, auditRoute('contact.message', { targetType: 'user', param: 'userId' }), sendSupportMessage);
+router.post('/admin/users/:userId/notify', contactScope, auditRoute('contact.notify', { targetType: 'user', param: 'userId' }), notifyUser);
+router.post('/admin/users/:userId/call', contactScope, auditRoute('contact.call', { targetType: 'user', param: 'userId' }), callUser);
 
 router.use(requireAuth);
 router.get('/', getChats);

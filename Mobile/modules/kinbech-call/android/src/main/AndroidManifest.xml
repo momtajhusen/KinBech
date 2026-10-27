@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <receiver
+      android:name="expo.modules.kinbechcall.CallActionReceiver"
+      android:exported="false" />
+    <service
+      android:name="expo.modules.kinbechcall.CallDeclineService"
+      android:exported="false" />
+    <receiver
+      android:name="expo.modules.kinbechcall.CallPushReceiver"
+      android:exported="true"
+      android:permission="com.google.android.c2dm.permission.SEND">
+      <intent-filter>
+        <action android:name="com.google.android.c2dm.intent.RECEIVE" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Icon from '../components/Icon';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import HeroHeader from '../components/HeroHeader';
 import { PressableScale, Reanimated, enterUp } from '../components/Motion';
-import { AlertModal, showErrorAlert } from '../components/AlertModal';
+import { AlertModal, showErrorAlert, showWarningAlert } from '../components/AlertModal';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
@@ -36,66 +36,145 @@ const OPTIONS = [
       { icon: 'ribbon-outline', text: 'Verified badge with PAN/VAT' },
     ],
   },
-  {
-    key: 'both',
-    icon: 'layers',
-    tint: '#8B5CF6',
-    title: 'Both',
-    tagline: 'Personal items and shop products',
-    perks: [
-      { icon: 'swap-horizontal-outline', text: 'Choose each time you post' },
-      { icon: 'person-outline', text: 'Personal items stay apart from your store' },
-      { icon: 'storefront-outline', text: 'All store tools included' },
-    ],
-  },
 ];
 
-const POST_CHOICES = [
-  {
-    key: 'individual',
-    icon: 'person',
-    tint: '#10B981',
-    title: 'Personal item',
-    body: 'Something you own: phone, furniture, bike…',
-    route: ROUTES.INDIVIDUAL_POST_LISTING,
-  },
-  {
-    key: 'shop',
-    icon: 'storefront',
-    tint: '#3B82F6',
-    title: 'Shop product',
-    body: 'Stock from your store, shown on your store page',
-    route: ROUTES.SHOP_POST_LISTING,
-  },
-];
+const MODE_TITLE = { individual: 'Individual', shop: 'Shop' };
+const kindsFor = (mode) => [mode === 'shop' ? 'store' : 'personal'];
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const isAre = (n) => (n === 1 ? 'is' : 'are');
+const formatDate = (value) =>
+  value ? new Date(value).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+const formatTime = (value) =>
+  value ? new Date(value).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
 
-export default function SellerTypeSelectionScreen({ navigation, route, postMode = false }) {
+/** Mirrors the backend switch rules so the screen can explain a change before it is saved. */
+function switchPlan(status, from, to) {
+  const leaving = kindsFor(from).filter((kind) => !kindsFor(to).includes(kind));
+  const entering = kindsFor(to).filter((kind) => !kindsFor(from).includes(kind));
+  const effects = [];
+  let blocker = null;
+  let needsStore = false;
+
+  for (const kind of leaving) {
+    const counts = status.listings?.[kind] || {};
+    const label = kind === 'store' ? 'store' : 'personal';
+    if (!blocker && counts.scheduledDeals) {
+      blocker = `You have ${plural(counts.scheduledDeals, 'meetup')} scheduled for ${label} items. Finish or cancel ${counts.scheduledDeals === 1 ? 'it' : 'them'} first, so no buyer is left waiting.`;
+    } else if (!blocker && counts.pending) {
+      blocker = `${plural(counts.pending, `${label} listing`)} ${isAre(counts.pending)} still under review. Try again once the review is done.`;
+    }
+    if (kind === 'store') {
+      effects.push(`Your store page is hidden from buyers${counts.active ? ` and ${plural(counts.active, 'store listing')} ${isAre(counts.active)} paused` : ''}.`);
+    } else if (counts.active) {
+      effects.push(`${plural(counts.active, 'personal listing')} ${isAre(counts.active)} paused and hidden from buyers.`);
+    }
+  }
+
+  for (const kind of entering) {
+    const counts = status.listings?.[kind] || {};
+    if (kind === 'store') {
+      if (status.store?.unavailable) {
+        blocker = blocker || 'Your store is not active right now. Contact KinBech support to reopen it.';
+      } else if (!status.store?.exists) {
+        needsStore = true;
+      } else if (status.store?.paused) {
+        effects.push(`Your store page comes back${counts.paused ? ` with ${plural(counts.paused, 'paused listing')}` : ''}.`);
+      }
+    } else if (counts.paused) {
+      effects.push(`${plural(counts.paused, 'paused personal listing')} come${counts.paused === 1 ? 's' : ''} back live.`);
+    }
+  }
+
+  if (leaving.length) effects.push('Nothing is deleted. Paused items come back when you switch again.');
+  return { blocker, needsStore, effects };
+}
+
+export default function SellerTypeSelectionScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user, saveSession } = useAuth();
   const fromSettings = Boolean(route?.params?.fromSettings);
-  const current = user?.sellerTypePreference || 'individual';
+  const current = ['shop', 'both'].includes(user?.sellerTypePreference) ? 'shop' : 'individual';
   const [selected, setSelected] = useState(current);
   const [saving, setSaving] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [statusFailed, setStatusFailed] = useState(false);
 
   const closeAlert = () => setAlertConfig(null);
+
+  const loadStatus = useCallback(async () => {
+    setStatusFailed(false);
+    const { data, error } = await api.getSellerMode();
+    if (error || !data) {
+      setStatusFailed(true);
+      return;
+    }
+    setStatus(data);
+  }, []);
+
+  useEffect(() => {
+    if (fromSettings) loadStatus();
+  }, [fromSettings, loadStatus]);
+
+  const unchanged = fromSettings && selected === current;
+  const isUndo = Boolean(status?.undoTarget) && status.undoTarget === selected;
+  const cooldownBlocked = fromSettings && !unchanged && Boolean(status) && !status.canChange && !isUndo;
+  const plan = fromSettings && status && !unchanged ? switchPlan(status, current, selected) : null;
+  const ctaLocked = fromSettings && !unchanged && (!status || cooldownBlocked || Boolean(plan?.blocker));
+
+  const openStoreSetup = () =>
+    navigation.navigate(ROUTES.STORE_CATEGORY_SELECTION, { fromSettings, preference: selected });
 
   const savePreference = async (preference) => {
     const { data, error } = await api.updateMe({ sellerTypePreference: preference });
     if (error) {
-      setAlertConfig(showErrorAlert({ title: 'Could not save', message: error, onConfirm: closeAlert }));
+      if (data?.code === 'store_required') {
+        openStoreSetup();
+        return false;
+      }
+      setAlertConfig(showErrorAlert({ title: 'Could not switch', message: data?.message || error, onConfirm: closeAlert }));
+      if (fromSettings) loadStatus();
       return false;
     }
     if (data?.token) await saveSession(data.token, data.user);
     return true;
   };
 
+  const applySwitch = async () => {
+    closeAlert();
+    setSaving(true);
+    try {
+      if (await savePreference(selected)) navigation.goBack();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const confirmSwitch = () => {
+    const rule = isUndo
+      ? `Switching back is free this once. Your next change opens on ${formatDate(status.nextChangeAt)}.`
+      : `After this you can change again in ${status.cooldownDays} days. Changed your mind? You can switch back once within ${status.undoHours} hours.`;
+    const alert = showWarningAlert({
+      title: `Switch to ${MODE_TITLE[selected]}?`,
+      message: [...plan.effects, rule].join('\n\n'),
+      onConfirm: applySwitch,
+      onCancel: closeAlert,
+    });
+    setAlertConfig({ ...alert, primaryButton: { ...alert.primaryButton, text: 'Switch' } });
+  };
+
   const handleContinue = async () => {
     if (saving) return;
     if (fromSettings && selected === current) {
       navigation.goBack();
+      return;
+    }
+    if (fromSettings) {
+      if (ctaLocked) return;
+      if (plan.needsStore) openStoreSetup();
+      else confirmSwitch();
       return;
     }
     setSaving(true);
@@ -117,59 +196,15 @@ export default function SellerTypeSelectionScreen({ navigation, route, postMode 
     }
   };
 
-  if (postMode) {
-    return (
-      <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <HeroHeader
-          icon="add-circle"
-          title="What are you posting?"
-          subtitle="You sell as an individual and as a shop. Pick one for this listing."
-          onBack={navigation.canGoBack() ? () => navigation.goBack() : null}
-        />
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 110 }]} showsVerticalScrollIndicator={false}>
-          {POST_CHOICES.map((choice, index) => (
-            <PressableScale
-              key={choice.key}
-              entering={enterUp(index)}
-              scaleTo={0.97}
-              contentStyle={styles.postCard}
-              onPress={() => navigation.navigate(choice.route)}
-            >
-              <LinearGradient
-                colors={[`${choice.tint}26`, `${choice.tint}08`]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.postFill}
-                pointerEvents="none"
-              />
-              <View style={[styles.postIcon, { backgroundColor: choice.tint }]}>
-                <Icon name={choice.icon} size={28} color="#FFFFFF" />
-              </View>
-              <View style={styles.flex1}>
-                <Text style={styles.postTitle}>{choice.title}</Text>
-                <Text style={styles.postBody}>{choice.body}</Text>
-              </View>
-              <View style={[styles.postArrow, { backgroundColor: `${choice.tint}22` }]}>
-                <Icon name="arrow-forward" size={18} color={choice.tint} />
-              </View>
-            </PressableScale>
-          ))}
-          <Pressable
-            style={styles.changeLink}
-            onPress={() => navigation.navigate(ROUTES.SELLER_TYPE_SELECTION, { fromSettings: true })}
-          >
-            <Icon name="settings-outline" size={15} color={colors.textSecondary} />
-            <Text style={styles.changeLinkText}>Change seller preference</Text>
-          </Pressable>
-        </ScrollView>
-      </View>
-    );
-  }
-
   const selectedMeta = OPTIONS.find((o) => o.key === selected) || OPTIONS[0];
-  const unchanged = fromSettings && selected === current;
-  const leavingShop = fromSettings && current !== 'individual' && selected === 'individual';
+  const ctaLabel = unchanged
+    ? 'Done'
+    : cooldownBlocked
+      ? `Locked until ${formatDate(status.nextChangeAt)}`
+      : fromSettings
+        ? `${isUndo ? 'Switch back to' : 'Save as'} ${selectedMeta.title}`
+        : `Continue as ${selectedMeta.title}`;
+  const ctaIcon = unchanged ? 'checkmark' : ctaLocked && status ? 'lock-closed' : 'arrow-forward';
 
   return (
     <View style={styles.root}>
@@ -177,7 +212,7 @@ export default function SellerTypeSelectionScreen({ navigation, route, postMode 
       <HeroHeader
         icon="storefront"
         title={fromSettings ? 'Seller Preference' : 'How do you want to sell?'}
-        subtitle={fromSettings ? 'Choose how you sell on KinBech. You can change it anytime.' : 'Pick the option that fits you. You can change it later.'}
+        subtitle={fromSettings ? 'Choose how you sell on KinBech. You can change it once a month.' : 'Pick the option that fits you. You can change it later.'}
         onBack={() => navigation.goBack()}
       />
 
@@ -228,12 +263,63 @@ export default function SellerTypeSelectionScreen({ navigation, route, postMode 
           );
         })}
 
-        {leavingShop ? (
-          <View style={styles.note}>
-            <Icon name="information-circle-outline" size={16} color={colors.info} />
-            <Text style={styles.noteText}>Your store and its listings stay saved. Switch back anytime to manage them.</Text>
-          </View>
-        ) : selected !== 'individual' && !unchanged ? (
+        {fromSettings ? (
+          !status ? (
+            statusFailed ? (
+              <Pressable style={[styles.note, styles.noteWarn]} onPress={loadStatus}>
+                <Icon name="refresh" size={16} color={colors.danger} />
+                <Text style={styles.noteText}>Could not check your listings. Tap to try again.</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.note}>
+                <ActivityIndicator size="small" color={colors.info} />
+                <Text style={styles.noteText}>Checking your store and listings…</Text>
+              </View>
+            )
+          ) : (
+            <>
+              <View style={[styles.note, !status.canChange && styles.noteLock]}>
+                <Icon
+                  name={status.canChange ? 'time-outline' : 'lock-closed-outline'}
+                  size={16}
+                  color={status.canChange ? colors.info : colors.warning}
+                />
+                <Text style={styles.noteText}>
+                  {status.canChange
+                    ? `You can change how you sell once every ${status.cooldownDays} days, with one free switch back within ${status.undoHours} hours.`
+                    : `You changed this recently. Next change on ${formatDate(status.nextChangeAt)}.${
+                      status.undoTarget
+                        ? ` You can still switch back to ${MODE_TITLE[status.undoTarget]} until ${formatTime(status.undoUntil)}.`
+                        : ''
+                    }`}
+                </Text>
+              </View>
+              {plan && !cooldownBlocked ? (
+                plan.blocker ? (
+                  <View style={[styles.note, styles.noteWarn]}>
+                    <Icon name="alert-circle-outline" size={16} color={colors.danger} />
+                    <Text style={styles.noteText}>{plan.blocker}</Text>
+                  </View>
+                ) : plan.needsStore ? (
+                  <View style={styles.note}>
+                    <Icon name="storefront-outline" size={16} color={colors.info} />
+                    <Text style={styles.noteText}>No store yet? We will help you set one up next. Your mode switches once the store is saved.</Text>
+                  </View>
+                ) : plan.effects.length ? (
+                  <View style={styles.effects}>
+                    <Text style={styles.effectsTitle}>What changes</Text>
+                    {plan.effects.map((line) => (
+                      <View key={line} style={styles.effectRow}>
+                        <View style={styles.effectDot} />
+                        <Text style={styles.noteText}>{line}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ) : null
+              ) : null}
+            </>
+          )
+        ) : selected !== 'individual' ? (
           <View style={styles.note}>
             <Icon name="information-circle-outline" size={16} color={colors.info} />
             <Text style={styles.noteText}>No store yet? We will help you set one up next. It takes about a minute.</Text>
@@ -242,7 +328,11 @@ export default function SellerTypeSelectionScreen({ navigation, route, postMode 
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 14 }]}>
-        <Pressable onPress={handleContinue} disabled={saving} style={({ pressed }) => [styles.cta, pressed && styles.pressed]}>
+        <Pressable
+          onPress={handleContinue}
+          disabled={saving || ctaLocked}
+          style={({ pressed }) => [styles.cta, ctaLocked && styles.ctaLocked, pressed && styles.pressed]}
+        >
           <LinearGradient
             colors={[selectedMeta.tint, colors.gradientEnd]}
             start={{ x: 0, y: 0 }}
@@ -253,10 +343,8 @@ export default function SellerTypeSelectionScreen({ navigation, route, postMode 
               <ActivityIndicator color="#FFFFFF" />
             ) : (
               <>
-                <Text style={styles.ctaText}>
-                  {unchanged ? 'Done' : fromSettings ? `Save as ${selectedMeta.title}` : `Continue as ${selectedMeta.title}`}
-                </Text>
-                <Icon name={unchanged ? 'checkmark' : 'arrow-forward'} size={18} color="#FFFFFF" />
+                <Text style={styles.ctaText}>{ctaLabel}</Text>
+                <Icon name={ctaIcon} size={18} color="#FFFFFF" />
               </>
             )}
           </LinearGradient>
@@ -320,6 +408,20 @@ const createStyles = (colors) => ({
     backgroundColor: colors.pastelBlue,
   },
   noteText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
+  noteLock: { backgroundColor: colors.pastelOrange },
+  noteWarn: { backgroundColor: colors.pastelRed },
+  effects: {
+    gap: 8,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  effectsTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
+  effectRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  effectDot: { width: 6, height: 6, borderRadius: 3, marginTop: 6, backgroundColor: colors.warning },
+  ctaLocked: { opacity: 0.55 },
   footer: {
     position: 'absolute',
     left: 0,
@@ -340,28 +442,4 @@ const createStyles = (colors) => ({
     gap: 8,
   },
   ctaText: { fontSize: 16, fontWeight: '900', color: '#FFFFFF' },
-  postCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    padding: 18,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-  },
-  postFill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  postIcon: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  postTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
-  postBody: { marginTop: 3, fontSize: 12.5, lineHeight: 17, color: colors.textSecondary },
-  postArrow: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  changeLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-  },
-  changeLinkText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
 });

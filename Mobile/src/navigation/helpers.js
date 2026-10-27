@@ -48,7 +48,6 @@ export const ROUTES = {
   SHOP_PROFILE: 'ShopProfile',
   SHOP_DASHBOARD: 'ShopDashboard',
   SHOP_STOREFRONT_QR: 'ShopStorefrontQr',
-  MAP_EXPLORE: 'MapExplore',
 };
 
 export const TABS = {

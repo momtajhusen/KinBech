@@ -463,9 +463,9 @@ export default function EditShopScreen({ navigation }) {
                 error={errors.ownerName}
               />
               <EditField
-                label="Login phone"
-                icon="call-outline"
-                value={user?.phone || '—'}
+                label={user?.phone ? 'Login phone' : 'Login email'}
+                icon={user?.phone ? 'call-outline' : 'mail-outline'}
+                value={user?.phone || user?.email || '—'}
                 editable={false}
                 right={
                   <View style={styles.verifiedTag}>
@@ -499,6 +499,14 @@ export default function EditShopScreen({ navigation }) {
                 <Pressable onPress={() => set('whatsapp')(form.phone)} style={styles.inlineAction}>
                   <Icon name="copy-outline" size={12} color={colors.primary} />
                   <Text style={styles.inlineActionText}>Use phone number for WhatsApp</Text>
+                </Pressable>
+              ) : null}
+              {(form.phone || form.whatsapp) && !user?.preferences?.showPhone ? (
+                <Pressable onPress={() => navigation.navigate(ROUTES.PRIVACY)} style={styles.phoneHiddenNote}>
+                  <Icon name="eye-off-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.phoneHiddenText}>
+                    Hidden from buyers. Turn on <Text style={styles.inlineActionText}>Show phone number</Text> in Privacy to show it.
+                  </Text>
                 </Pressable>
               ) : null}
               <EditField
@@ -911,6 +919,18 @@ const createStyles = (colors) => ({
     fontSize: 11.5,
     fontWeight: '700',
     color: colors.primary,
+  },
+  phoneHiddenNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: -4,
+  },
+  phoneHiddenText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: colors.textMuted,
   },
   gpsBtn: {
     flexDirection: 'row',

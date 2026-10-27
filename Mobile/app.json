@@ -41,13 +41,13 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.VIBRATE",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
         "android.permission.FOREGROUND_SERVICE_PHONE_CALL",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.MANAGE_OWN_CALLS",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ],
       "blockedPermissions": [
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS",
         "android.permission.READ_SMS",
@@ -124,7 +124,6 @@
       ],
       "expo-status-bar",
       "expo-font",
-      "react-native-maps",
       "expo-video",
       "expo-secure-store"
     ]

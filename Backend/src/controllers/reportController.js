@@ -149,7 +149,7 @@ async function unblockUser(req, res, next) {
 async function getMyReports(req, res, next) {
   try {
     const reports = await Report.find({ reporter: req.user._id })
-      .populate('reportedUser', 'name phone avatarUrl')
+      .populate('reportedUser', 'name avatarUrl')
       .populate('reportedListing', 'title photos')
       .sort({ createdAt: -1 })
       .limit(50);

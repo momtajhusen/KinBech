@@ -6,7 +6,7 @@ const { haversineDistanceKm } = require('../utils/listing');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { mapShopCategory } = require('../utils/shopCategory');
 const { scoreSeller, sellerMatches } = require('../utils/searchMatch');
-const { sellerSignals } = require('../utils/token');
+const { phoneVisible, sellerSignals } = require('../utils/token');
 const { currentAudience, sameAudienceUser } = require('../utils/audience');
 
 function readCoords(entity) {
@@ -38,7 +38,7 @@ function sellerPoint(entity, locationText) {
   return coordsForPlaceName(locationText);
 }
 
-function toShopSeller(shop, listings = [], userLat, userLng) {
+function toShopSeller(shop, listings = [], userLat, userLng, showPhone = false) {
   const coords = sellerPoint(shop, shop.location || shop.address || '');
   const distance = coords && hasUserPoint(userLat, userLng)
     ? haversineDistanceKm(userLat, userLng, coords.lat, coords.lng)
@@ -64,7 +64,7 @@ function toShopSeller(shop, listings = [], userLat, userLng) {
     shopId: shop._id,
     userId: shop.owner,
     description: shop.description || '',
-    phone: shop.phone || '',
+    phone: showPhone ? shop.phone || '' : '',
     openingHours: shop.openingHours || '',
     coordinates: coords,
   };
@@ -162,12 +162,16 @@ async function collectSellers(req) {
       shopQuery.$or = [{ category: mapShopCategory(category) }, { _id: { $in: withListings } }];
     }
     const shops = await Shop.find(shopQuery).lean();
+    const owners = await User.find({ _id: { $in: shops.map((shop) => shop.owner).filter(Boolean) } })
+      .select('preferences')
+      .lean();
+    const phoneOwners = new Set(owners.filter(phoneVisible).map((owner) => String(owner._id)));
     for (const shop of shops) {
       const shopListings = byShop.get(String(shop._id)) || [];
       if (category && shopListings.length === 0 && shop.category !== mapShopCategory(category)) {
         continue;
       }
-      const card = toShopSeller(shop, shopListings, userLat, userLng);
+      const card = toShopSeller(shop, shopListings, userLat, userLng, phoneOwners.has(String(shop.owner)));
       if (verifiedOnly && !card.verified) continue;
       if (topRated && card.rating < 4) continue;
       if (!matchesQuery(card, q)) continue;
@@ -296,12 +300,12 @@ async function getSeller(req, res, next) {
         .select('photos category location coordinates createdAt status price title')
         .sort({ createdAt: -1 })
         .lean();
-      const shopOwnerSignals = await User.findById(shop.owner).select('trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt').lean();
+      const shopOwnerSignals = await User.findById(shop.owner).select('trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt preferences').lean();
       const activeCount = listings.filter((l) => l.status === 'active').length;
       const soldCount = listings.filter((l) => l.status === 'sold').length;
       return res.json({
         seller: {
-          ...toShopSeller(shop, listings, userLat, userLng),
+          ...toShopSeller(shop, listings, userLat, userLng, phoneVisible(shopOwnerSignals)),
           activeCount,
           soldCount,
           memberSince: shop.createdAt || null,

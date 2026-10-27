@@ -1,6 +1,7 @@
 import { declineIncomingCall, callFromData } from './callNotifications';
 import {
   dismissNativeIncomingCall,
+  endRingingCall,
   isAppUiReady,
   isDeviceLocked,
   presentIncomingCall,
@@ -37,6 +38,10 @@ try {
   if (getApps().length > 0) {
     const { getMessaging, setBackgroundMessageHandler } = require('@react-native-firebase/messaging');
     setBackgroundMessageHandler(getMessaging(), async (remoteMessage) => {
+      if (remoteMessage?.data?.type === 'call_ended') {
+        endRingingCall(remoteMessage.data.chatId);
+        return;
+      }
       if (remoteMessage?.data?.type === 'incoming_call') {
         const call = callFromData(remoteMessage.data);
         if (!call) return;

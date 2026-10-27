@@ -19,9 +19,14 @@ function stringData(data) {
   return payload;
 }
 
+// A call push still matters if the phone was briefly offline, but not after the ring window ends.
+const CALL_PUSH_TTL_MS = 60 * 1000;
+
 async function sendUserPush({ userId, title, body, data, incomingCall = false, dataOnly = false }) {
   const user = await User.findById(userId).select('fcmToken preferences').lean();
-  if (!user?.fcmToken || user.preferences?.notifications === false) return false;
+  if (!user?.fcmToken) return false;
+  // The in-app notifications switch silences alerts, not calls.
+  if (!incomingCall && user.preferences?.notifications === false) return false;
 
   const messaging = messagingClient();
   if (!messaging) return false;
@@ -39,7 +44,7 @@ async function sendUserPush({ userId, title, body, data, incomingCall = false, d
     token: user.fcmToken,
     data: payload,
     android: incomingCall
-      ? { priority: 'high', ttl: 0, directBootOk: true }
+      ? { priority: 'high', ttl: CALL_PUSH_TTL_MS, directBootOk: true }
       : { priority: 'high' },
   };
 
@@ -69,6 +74,7 @@ async function sendIncomingCallPush({ userId, chatId, callerName, callerImage })
       chatId,
       callerName: callerName || 'KinBech user',
       callerImage: callerImage || '',
+      sentAt: Date.now(),
     },
   });
 }

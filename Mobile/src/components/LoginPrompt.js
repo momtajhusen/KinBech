@@ -4,9 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackActions } from '@react-navigation/native';
 import Icon from './Icon';
-import GradientButton from './GradientButton';
+import GoogleButton from './GoogleButton';
 import { navigationRef } from '../navigation/navigationRef';
 import { useAuth } from '../context/AuthContext';
+import { useGoogleLogin } from '../hooks/useGoogleLogin';
 import { useTheme, useThemedStyles } from '../theme';
 
 const REASONS = {
@@ -68,7 +69,7 @@ const REASONS = {
   default: {
     icon: 'person-circle',
     title: 'Log in to continue',
-    message: 'Use your phone number. It takes less than a minute.',
+    message: 'Pick your Google account. It takes just a tap.',
   },
 };
 
@@ -102,22 +103,27 @@ export function clearPendingLogin() {
   pendingAction = null;
 }
 
-/** After OTP or profile setup: return to the screen that asked for login, then finish the tapped action. */
+function runAfterSettle(action, delay) {
+  if (!action) return;
+  // Let the stack or sheet settle first; actions usually navigate.
+  setTimeout(() => {
+    Promise.resolve()
+      .then(action)
+      .catch(() => {});
+  }, delay);
+}
+
+/** After login or profile setup: return to the screen that asked for login, then finish the tapped action. */
 export function finishLogin(navigation) {
   const action = pendingAction;
   pendingAction = null;
   const state = navigationRef.isReady() ? navigationRef.getRootState() : null;
-  const loginIndex = state ? state.routes.findIndex((route) => route.name === 'Login') : -1;
+  const loginIndex = state
+    ? state.routes.findIndex((route) => route.name === 'Login' || route.name === 'ProfileSetup')
+    : -1;
   if (loginIndex > 0) {
     navigationRef.dispatch(StackActions.pop(state.index - loginIndex + 1));
-    if (action) {
-      // Let the stack settle first; actions usually navigate.
-      setTimeout(() => {
-        Promise.resolve()
-          .then(action)
-          .catch(() => {});
-      }, 450);
-    }
+    runAfterSettle(action, 450);
     return;
   }
   navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
@@ -127,37 +133,58 @@ export function LoginPromptHost() {
   const actionRef = useRef(null);
   const [copy, setCopy] = useState(null);
   const [visible, setVisible] = useState(false);
+  const { signIn, loading, error, setError } = useGoogleLogin();
 
   useEffect(() => {
     opener = (reason, action) => {
       actionRef.current = action || null;
+      setError('');
       setCopy(REASONS[reason] || REASONS.default);
       setVisible(true);
     };
     return () => {
       opener = null;
     };
-  }, []);
+  }, [setError]);
 
   const close = () => {
+    if (loading) return;
     actionRef.current = null;
+    setError('');
     setVisible(false);
   };
 
-  const goLogin = () => {
-    pendingAction = actionRef.current;
+  const continueWithGoogle = async () => {
+    const result = await signIn();
+    if (result.status !== 'ok') return;
+    const action = actionRef.current;
     actionRef.current = null;
     setVisible(false);
-    setTimeout(() => {
-      if (navigationRef.isReady()) navigationRef.navigate('Login');
-    }, 220);
+    if (result.needsProfile) {
+      // ProfileSetup calls finishLogin, which pops back here and runs the action.
+      pendingAction = action;
+      setTimeout(() => {
+        if (navigationRef.isReady()) navigationRef.navigate('ProfileSetup');
+      }, 220);
+      return;
+    }
+    runAfterSettle(action, 300);
   };
 
   if (!copy) return null;
-  return <LoginPromptSheet visible={visible} copy={copy} onClose={close} onLogin={goLogin} />;
+  return (
+    <LoginPromptSheet
+      visible={visible}
+      copy={copy}
+      loading={loading}
+      error={error}
+      onClose={close}
+      onGoogle={continueWithGoogle}
+    />
+  );
 }
 
-function LoginPromptSheet({ visible, copy, onClose, onLogin }) {
+function LoginPromptSheet({ visible, copy, loading, error, onClose, onGoogle }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -229,14 +256,24 @@ function LoginPromptSheet({ visible, copy, onClose, onLogin }) {
           <Text style={styles.title}>{copy.title}</Text>
           <Text style={styles.message}>{copy.message}</Text>
 
-          <GradientButton title="Log in or sign up" icon="arrow-forward" onPress={onLogin} style={styles.cta} />
-          <Pressable style={({ pressed }) => [styles.later, pressed && styles.pressed]} onPress={onClose}>
+          <GoogleButton onPress={onGoogle} loading={loading} style={styles.cta} />
+          {error ? (
+            <View style={styles.errorRow}>
+              <Icon name="alert-circle" size={14} color={colors.error} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+          <Pressable
+            style={({ pressed }) => [styles.later, pressed && styles.pressed, loading && styles.disabled]}
+            onPress={onClose}
+            disabled={loading}
+          >
             <Text style={styles.laterText}>Not now</Text>
           </Pressable>
 
           <View style={styles.note}>
-            <Icon name="lock-closed" size={12} color={colors.textMuted} />
-            <Text style={styles.noteText}>Just your phone number. We send a 4-digit code.</Text>
+            <Icon name="shield-checkmark" size={12} color={colors.textMuted} />
+            <Text style={styles.noteText}>We never post to your Google account.</Text>
           </View>
         </Animated.View>
       </View>
@@ -390,6 +427,25 @@ function createStyles(colors) {
     },
     pressed: {
       opacity: 0.7,
+    },
+    disabled: {
+      opacity: 0.4,
+    },
+    errorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'stretch',
+      justifyContent: 'center',
+      gap: 6,
+      marginTop: 10,
+      paddingHorizontal: 8,
+    },
+    errorText: {
+      flexShrink: 1,
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.error,
+      textAlign: 'center',
     },
     laterText: {
       fontSize: 15,

@@ -14,6 +14,7 @@ import {
   Flag,
   FlaskConical,
   FolderTree,
+  Headphones,
   History,
   KeyRound,
   LayoutDashboard,
@@ -57,6 +58,7 @@ const navSections = [
     items: [
       { path: adminPath('users'), label: 'Users', icon: Users },
       { path: adminPath('support'), label: 'Support Inbox', icon: LifeBuoy },
+      { path: adminPath('contact-center'), label: 'Contact Center', icon: Headphones },
       { path: adminPath('testers'), label: 'Test Accounts', icon: FlaskConical },
       { path: adminPath('shops'), label: 'Shops', icon: Store },
       { path: adminPath('shop-verification'), label: 'Shop Verification', icon: BadgeCheck },
@@ -147,6 +149,7 @@ const pageTitleMap = {
   [adminPath('live-activity')]: 'Live Activity',
   [adminPath('users')]: 'Users',
   [adminPath('support')]: 'Support Inbox',
+  [adminPath('contact-center')]: 'Contact Center',
   [adminPath('testers')]: 'Test Accounts',
   [adminPath('shops')]: 'Shops',
   [adminPath('pending-review')]: 'Pending Review',

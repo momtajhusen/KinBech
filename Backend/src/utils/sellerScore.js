@@ -148,7 +148,10 @@ async function computeSeller(userId, settings) {
     else if (state === 'lapsed') missed += 0.5 * weight;
   }
   const wrongHide = (l) => ms(l.autoHidden?.restoredAt) && ms(l.autoHidden.restoredAt) - ms(l.autoHidden.at) < 2 * DAY;
-  const hides = allListings.filter((l) => ms(l.autoHidden?.at) >= since90.getTime() && !wrongHide(l)).length;
+  // Pauses from a seller-mode switch are the seller's choice, not a sign of stale listings.
+  const hides = allListings.filter(
+    (l) => ms(l.autoHidden?.at) >= since90.getTime() && !wrongHide(l) && l.autoHidden?.reason !== 'seller_mode'
+  ).length;
   let reliability = null;
   if (done + missed > 0) reliability = clamp((100 * done) / (done + missed) - hides * 8);
   else if (hides) reliability = clamp(70 - hides * 8);

@@ -12,7 +12,18 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { PressableScale, Reanimated, SoftPop, enterUp } from '../components/Motion';
+import {
+  Float,
+  PressableScale,
+  Pulse,
+  Reanimated,
+  Shimmer,
+  SoftPop,
+  Wiggle,
+  enterCard,
+  enterSlide,
+  enterUp,
+} from '../components/Motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
@@ -22,6 +33,7 @@ import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpe
 import { api, getAuthToken } from '../services/api';
 import { useRequireLogin } from '../components/LoginPrompt';
 import WelcomeModal from '../components/WelcomeModal';
+import PermissionPrompt from '../components/PermissionPrompt';
 import { useAuth } from '../context/AuthContext';
 import { attachDistanceToCard, formatDistanceLabel, formatPrice, resolveMediaUrl, toCardItem } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
@@ -95,6 +107,7 @@ export default function HomeScreen({ navigation }) {
   const [personalized, setPersonalized] = useState(() => Boolean(initialCatalog?.personalized));
   const [interestCategories, setInterestCategories] = useState([]);
   const [liveCounts, setLiveCounts] = useState(null);
+  const [welcomeDone, setWelcomeDone] = useState(false);
 
   useEffect(() => {
     const hasCoords = userCoords.lat != null && userCoords.lng != null;
@@ -106,11 +119,14 @@ export default function HomeScreen({ navigation }) {
     });
   }, [location, userCoords]);
 
-  const fetchCurrentLocation = useCallback(async () => {
+  // Opening Home only checks; the system dialog comes from a tap (here or in PermissionPrompt).
+  const fetchCurrentLocation = useCallback(async ({ prompt = false } = {}) => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = prompt
+        ? await Location.requestForegroundPermissionsAsync()
+        : await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Location permission', 'Allow location access to see items near you.');
+        if (prompt) Alert.alert('Location permission', 'Allow location access to see items near you.');
         return null;
       }
 
@@ -471,7 +487,7 @@ export default function HomeScreen({ navigation }) {
   const categoryGap = 8;
   const categoryTileWidth = Math.floor((windowWidth - 32 - categoryGap * (CATEGORY_COLS - 1)) / CATEGORY_COLS);
 
-  const renderStore = (store) => {
+  const renderStore = (store, index) => {
     const isShop = store.sellerType === 'shop';
     const logo = resolveMediaUrl(store.avatarUrl || '');
     const distance = formatDistanceLabel(Number(store.distance));
@@ -480,8 +496,8 @@ export default function HomeScreen({ navigation }) {
     const accentSoft = isShop ? colors.pastelGreen : colors.pastelBlue;
     const typeIcon = isShop ? 'storefront' : 'person';
     return (
+      <Reanimated.View key={String(store.shopId || store.id || store._id)} entering={enterSlide(index, 70)}>
       <Pressable
-        key={String(store.shopId || store.id || store._id)}
         onPress={() => openStore(store)}
         style={({ pressed }) => [
           styles.storeCard,
@@ -556,6 +572,7 @@ export default function HomeScreen({ navigation }) {
           ) : null}
         </View>
       </Pressable>
+      </Reanimated.View>
     );
   };
 
@@ -571,13 +588,15 @@ export default function HomeScreen({ navigation }) {
         >
           <View style={styles.headerRow}>
             <View style={styles.brand}>
-              <Image source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
+              <Float distance={2} duration={1800}>
+                <Image source={APP_LOGO} style={styles.brandLogo} resizeMode="contain" />
+              </Float>
               <View style={styles.brandCopy}>
                 <Text style={styles.appName}>KinBech</Text>
                 <Pressable
                   style={styles.locationRow}
                   onPress={() => {
-                    fetchCurrentLocation();
+                    fetchCurrentLocation({ prompt: true });
                   }}
                   hitSlop={8}
                 >
@@ -590,27 +609,28 @@ export default function HomeScreen({ navigation }) {
               </View>
             </View>
             <View style={styles.headerActions}>
-              <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => navigation.navigate(ROUTES.MAP_EXPLORE)}>
-                <Icon name="map-outline" size={19} color={colors.onGradient} />
-              </PressableScale>
               <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('save', () => navigation.navigate(ROUTES.WISHLIST))}>
                 <Icon name="heart-outline" size={20} color={colors.onGradient} />
               </PressableScale>
               <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('notifications', () => navigation.navigate(ROUTES.NOTIFICATIONS))}>
-                <Icon name="notifications-outline" size={20} color={colors.onGradient} />
+                <Wiggle angle={unreadCount > 0 ? 14 : 0} every={4200} delay={900}>
+                  <Icon name="notifications-outline" size={20} color={colors.onGradient} />
+                </Wiggle>
                 {unreadCount > 0 ? (
-                  <View style={styles.badge}>
+                  <Pulse style={styles.badge} to={1.2} pause={1800}>
                     <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-                  </View>
+                  </Pulse>
                 ) : null}
               </PressableScale>
             </View>
           </View>
-          <Text style={styles.greeting}>
+          <Reanimated.Text entering={enterUp(0, 0)} style={styles.greeting}>
             {greeting}
             {firstName ? `, ${firstName}` : ''}
-          </Text>
-          <Text style={styles.headline}>What are you looking for today?</Text>
+          </Reanimated.Text>
+          <Reanimated.Text entering={enterUp(1, 90)} style={styles.headline}>
+            What are you looking for today?
+          </Reanimated.Text>
         </LinearGradient>
 
         <View style={styles.searchWrap}>
@@ -663,6 +683,7 @@ export default function HomeScreen({ navigation }) {
                 <PressableScale
                   key={cat.label}
                   style={{ width: categoryTileWidth }}
+                  entering={enterCard(index, 40)}
                   scaleTo={0.95}
                   onPress={() => (cat.isMore ? navigation.navigate(ROUTES.ALL_CATEGORIES) : openCategory(cat.label))}
                 >
@@ -713,6 +734,7 @@ export default function HomeScreen({ navigation }) {
         ) : (
           <>
             {forYou.length > 0 ? (
+              <Reanimated.View entering={enterUp(2, 46)}>
               <Section
                 styles={styles}
                 colors={colors}
@@ -730,6 +752,7 @@ export default function HomeScreen({ navigation }) {
                 items={forYou}
                 onPressItem={openItem}
               />
+              </Reanimated.View>
             ) : null}
 
             {pinnedStores.length > 0 ? (
@@ -826,9 +849,14 @@ export default function HomeScreen({ navigation }) {
                 end={{ x: 1, y: 1 }}
                 style={styles.sellBannerInner}
               >
-                <View style={styles.sellIcon}>
-                  <Icon name="camera" size={22} color={colors.primary} />
-                </View>
+                <Shimmer duration={2000} pause={2600} />
+                <Float distance={3} duration={1400}>
+                  <View style={styles.sellIcon}>
+                    <Wiggle angle={10} every={3000} delay={1200}>
+                      <Icon name="camera" size={22} color={colors.primary} />
+                    </Wiggle>
+                  </View>
+                </Float>
                 <View style={styles.sellCopy}>
                   <Text style={styles.sellTitle}>Sell in 30 seconds</Text>
                   <Text style={styles.sellBody}>Snap a photo, set a price and reach buyers nearby.</Text>
@@ -841,14 +869,16 @@ export default function HomeScreen({ navigation }) {
                     ))}
                   </View>
                 </View>
-                <PressableScale
-                  scaleTo={0.96}
-                  contentStyle={styles.sellButton}
-                  onPress={() => requireLogin('sell', () => navigateToTab(navigation, TABS.POST))}
-                >
-                  <Icon name="add" size={16} color={colors.primary} />
-                  <Text style={styles.sellButtonText}>Post</Text>
-                </PressableScale>
+                <Pulse to={1.07} duration={700} pause={1600}>
+                  <PressableScale
+                    scaleTo={0.96}
+                    contentStyle={styles.sellButton}
+                    onPress={() => requireLogin('sell', () => navigateToTab(navigation, TABS.POST))}
+                  >
+                    <Icon name="add" size={16} color={colors.primary} />
+                    <Text style={styles.sellButtonText}>Post</Text>
+                  </PressableScale>
+                </Pulse>
               </LinearGradient>
             </Reanimated.View>
 
@@ -876,6 +906,7 @@ export default function HomeScreen({ navigation }) {
             ) : null}
 
             {recent.length > 0 ? (
+              <Reanimated.View entering={enterUp(9, 46)}>
               <Section
                 styles={styles}
                 colors={colors}
@@ -887,11 +918,13 @@ export default function HomeScreen({ navigation }) {
                 items={recent}
                 onPressItem={openItem}
               />
+              </Reanimated.View>
             ) : null}
           </>
         )}
       </ScrollView>
-      <WelcomeModal />
+      <WelcomeModal onDone={() => setWelcomeDone(true)} />
+      <PermissionPrompt enabled={welcomeDone} onLocationGranted={fetchCurrentLocation} />
     </View>
   );
 }
@@ -911,11 +944,14 @@ function compareTrendingNear(a, b) {
 }
 
 function SectionHeader({ styles, colors, icon, tint, title, subtitle, onViewAll }) {
+  const [wiggleDelay] = useState(() => 600 + Math.round(Math.random() * 2400));
   return (
     <View style={styles.sectionHeader}>
-      <View style={[styles.sectionIcon, { backgroundColor: `${tint}1F` }]}>
-        <Icon name={icon} size={15} color={tint} />
-      </View>
+      <SoftPop style={[styles.sectionIcon, { backgroundColor: `${tint}1F` }]}>
+        <Wiggle angle={14} every={5200} delay={wiggleDelay}>
+          <Icon name={icon} size={15} color={tint} />
+        </Wiggle>
+      </SoftPop>
       <View style={styles.sectionCopy}>
         <Text style={styles.sectionTitle}>{title}</Text>
         {subtitle ? <Text style={styles.sectionSub}>{subtitle}</Text> : null}

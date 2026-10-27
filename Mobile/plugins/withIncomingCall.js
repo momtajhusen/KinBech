@@ -10,11 +10,9 @@ const PERMISSIONS = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.VIBRATE',
   'android.permission.FOREGROUND_SERVICE',
-  'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
   'android.permission.FOREGROUND_SERVICE_PHONE_CALL',
   'android.permission.FOREGROUND_SERVICE_MICROPHONE',
   'android.permission.MANAGE_OWN_CALLS',
-  'android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
 ];
 
 function ensurePermission(manifest, name) {
@@ -73,33 +71,14 @@ function withIncomingCall(config) {
           'android:exported': 'false',
         },
       });
-      ensureService(application, {
-        $: {
-          'android:name': '.IncomingCallWatchService',
-          'android:exported': 'false',
-          'android:foregroundServiceType': 'specialUse',
-          'android:stopWithTask': 'false',
-        },
-        property: [
-          {
-            $: {
-              'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',
-              'android:value':
-                'Receives KinBech voice calls while the app is in the background, the screen is locked, or the app was closed.',
-            },
-          },
-        ],
-      });
-      const receivers = application.receiver || [];
-      if (!receivers.some((item) => item.$?.['android:name'] === '.IncomingCallActionReceiver')) {
-        receivers.push({
-          $: {
-            'android:name': '.IncomingCallActionReceiver',
-            'android:exported': 'false',
-          },
-        });
-      }
-      application.receiver = receivers;
+      // Incoming calls arrive as high-priority FCM pushes, so there is no always-on watcher service
+      // (it needed a permanent "Ready for calls" notification).
+      application.service = (application.service || []).filter(
+        (item) => item.$?.['android:name'] !== '.IncomingCallWatchService'
+      );
+      application.receiver = (application.receiver || []).filter(
+        (item) => item.$?.['android:name'] !== '.IncomingCallActionReceiver'
+      );
     }
     const activities = mod.modResults.manifest.application?.[0]?.activity || [];
     activities.forEach((activity) => {

@@ -1,56 +1,110 @@
-import { useEffect, useRef, useState } from 'react';
-import {
-  Alert,
-  Text,
-  View,
-  TouchableOpacity,
-  Dimensions,
-  ActivityIndicator,
-} from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Animated, Easing, Pressable, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Icon from '../components/Icon';
-import Svg, { Path } from 'react-native-svg';
 import BrandLogo from '../components/BrandLogo';
+import GoogleButton from '../components/GoogleButton';
 import { FormScroll } from '../components/FormScroll';
+import { Reanimated, enterUp } from '../components/Motion';
 import { BRAND_TAGLINE } from '../content/brand';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clearPendingLogin, finishLogin } from '../components/LoginPrompt';
-import { useAuth } from '../context/AuthContext';
+import { useGoogleLogin } from '../hooks/useGoogleLogin';
 import { ROUTES } from '../navigation/helpers';
-import { api } from '../services/api';
-import { signInWithGoogle } from '../services/googleAuth';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CURVE_HEIGHT = 45;
-
 const PERKS = [
-  { icon: 'location', text: 'Buy and sell with people near you' },
-  { icon: 'chatbubbles', text: 'Chat and plan a safe meetup' },
-  { icon: 'shield-checkmark', text: 'No password, no OTP to remember' },
+  { icon: 'location', title: 'Deals near you', text: 'Buy and sell with people in your area' },
+  { icon: 'chatbubbles', title: 'Chat and meet safely', text: 'Talk, call and plan a meetup in the app' },
 ];
 
+const SPARKS = [
+  { top: 18, left: 28, size: 14, delay: 0 },
+  { top: 52, right: 34, size: 11, delay: 350 },
+  { top: 132, left: 20, size: 9, delay: 700 },
+  { top: 150, right: 26, size: 13, delay: 200 },
+  { top: 214, left: 56, size: 8, delay: 500 },
+  { top: 206, right: 62, size: 10, delay: 850 },
+];
+
+/** Native 0→1 loop on the UI thread. */
+function useLoop(duration, delay = 0, easing = Easing.inOut(Easing.sin)) {
+  const value = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.sequence([
+      Animated.delay(delay),
+      Animated.loop(Animated.timing(value, { toValue: 1, duration, easing, useNativeDriver: true })),
+    ]);
+    anim.start();
+    return () => anim.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, duration, delay]);
+  return value;
+}
+
+function Ripple({ delay, styles }) {
+  const t = useLoop(2600, delay, Easing.out(Easing.quad));
+  return (
+    <Animated.View
+      style={[
+        styles.ripple,
+        {
+          opacity: t.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+          transform: [{ scale: t.interpolate({ inputRange: [0, 1], outputRange: [0.75, 2] }) }],
+        },
+      ]}
+    />
+  );
+}
+
+function Spark({ spec, styles }) {
+  const t = useLoop(1900, spec.delay);
+  const { size, delay, ...pos } = spec;
+  return (
+    <Animated.Text
+      style={[
+        styles.spark,
+        pos,
+        {
+          fontSize: size,
+          opacity: t.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.15, 0.9, 0.15] }),
+          transform: [{ scale: t.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 1.2, 0.7] }) }],
+        },
+      ]}
+    >
+      ✦
+    </Animated.Text>
+  );
+}
+
 const createStyles = (colors) => ({
-  container: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  scrollContent: {
-    flexGrow: 1,
-  },
-  headerWrapper: {
-    position: 'relative',
-  },
-  header: {
+  container: { flex: 1, backgroundColor: colors.background },
+  scrollContent: { flexGrow: 1 },
+  hero: {
     alignItems: 'center',
-    paddingTop: 50,
-    paddingBottom: CURVE_HEIGHT,
+    paddingBottom: 56,
     paddingHorizontal: 24,
+    overflow: 'hidden',
   },
-  curveSvg: {
+  glowA: {
     position: 'absolute',
-    bottom: -1,
-    left: 0,
+    top: -80,
+    right: -70,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(255,255,255,0.10)',
   },
+  glowB: {
+    position: 'absolute',
+    bottom: -40,
+    left: -90,
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+  },
+  spark: { position: 'absolute', color: 'rgba(255,255,255,0.85)' },
   closeBtn: {
     position: 'absolute',
     left: 16,
@@ -64,169 +118,140 @@ const createStyles = (colors) => ({
     borderColor: 'rgba(255,255,255,0.22)',
     zIndex: 2,
   },
-  logoCircle: {
-    width: 112,
-    height: 112,
+  logoStage: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
+  ripple: {
+    position: 'absolute',
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.7)',
+  },
+  logoWrap: {
+    width: 116,
+    height: 116,
+    borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
   brand: {
-    fontSize: 30,
+    marginTop: 10,
+    fontSize: 36,
     fontWeight: '800',
+    letterSpacing: 0.5,
     color: colors.onGradient,
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
+  brandAccent: { color: '#A7F3D0' },
   brandTagline: {
-    fontSize: 15,
-    color: colors.onGradient,
-    opacity: 0.9,
-    marginTop: 2,
-    marginBottom: 28,
+    marginTop: 4,
+    fontSize: 14.5,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+    color: 'rgba(255,255,255,0.9)',
   },
-  welcome: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: colors.onGradient,
-    textAlign: 'center',
+  trustRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 16 },
+  trustPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
-  welcomeSub: {
-    fontSize: 16,
-    color: colors.onGradient,
-    opacity: 0.9,
-    marginTop: 6,
-  },
-  card: {
+  trustText: { fontSize: 11.5, fontWeight: '700', color: colors.onGradient },
+  sheet: {
     flex: 1,
-    backgroundColor: colors.surface,
-    marginTop: -1,
-    paddingHorizontal: 24,
-    paddingTop: 28,
-    paddingBottom: 32,
+    marginTop: -32,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    backgroundColor: colors.background,
+    paddingHorizontal: 22,
+    paddingTop: 12,
   },
-  perks: {
-    gap: 14,
-    marginBottom: 32,
+  handle: {
+    alignSelf: 'center',
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    marginBottom: 18,
   },
+  welcome: { fontSize: 28, fontWeight: '800', color: colors.text, textAlign: 'center' },
+  welcomeSub: { marginTop: 4, fontSize: 15, color: colors.textMuted, textAlign: 'center' },
+  perks: { gap: 10, marginTop: 22, marginBottom: 24 },
   perkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-  },
-  perkIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
-  },
-  perkText: {
-    flex: 1,
-    fontSize: 15,
-    color: colors.text,
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    borderRadius: 16,
-    paddingVertical: 17,
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: `${colors.primary}0D`,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: `${colors.primary}22`,
   },
-  googleButtonBusy: {
-    opacity: 0.7,
+  perkIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  perkCopy: { flex: 1 },
+  perkTitle: { fontSize: 14.5, fontWeight: '800', color: colors.text },
+  perkText: { marginTop: 1, fontSize: 12.5, color: colors.textMuted },
+  googleShadow: {
+    borderRadius: 28,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.22,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  googleBadge: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  googleText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  errorText: {
-    marginTop: 12,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.error,
-    textAlign: 'center',
-  },
-  hintRow: {
+  errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
-    marginTop: 16,
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 12,
+    backgroundColor: colors.pastelRed,
   },
-  hintText: {
-    fontSize: 13,
-    color: colors.textMuted,
-  },
+  errorText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.error },
+  hintRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 14 },
+  hintText: { fontSize: 13, color: colors.textMuted },
   legalText: {
-    marginTop: 28,
+    marginTop: 22,
     fontSize: 12,
     lineHeight: 18,
     color: colors.textMuted,
     textAlign: 'center',
     paddingHorizontal: 8,
   },
-  legalLink: {
-    color: colors.primary,
-    fontWeight: '700',
-  },
+  legalLink: { color: colors.primary, fontWeight: '700' },
 });
 
 export default function LoginScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const { saveSession } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const busyRef = useRef(false);
+  const { signIn, loading, error } = useGoogleLogin();
   const insets = useSafeAreaInsets();
   const canClose = navigation.canGoBack();
+  const float = useLoop(3200);
 
   // Leaving login without signing in drops the action that asked for it.
   useEffect(() => () => clearPendingLogin(), []);
 
   const continueWithGoogle = async () => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setError('');
-    setLoading(true);
-    try {
-      const account = await signInWithGoogle();
-      if (account.cancelled) return;
-
-      const { data, error: apiError } = await api.googleLogin({ idToken: account.idToken });
-      if (apiError || !data?.token) {
-        setError(apiError || 'Could not sign in. Please try again.');
-        return;
-      }
-
-      await saveSession(data.token, data.user);
-      if (data.isNewUser || !data.user?.profileComplete) {
-        navigation.replace(ROUTES.PROFILE_SETUP);
-        return;
-      }
-      finishLogin(navigation);
-      if (data.deletionCancelled) {
-        Alert.alert('Welcome back', 'Your account deletion was cancelled. Your listings and shop are visible again.');
-      }
-    } catch (signInError) {
-      setError(signInError?.message || 'Could not sign in with Google. Please try again.');
-    } finally {
-      busyRef.current = false;
-      setLoading(false);
+    const result = await signIn();
+    if (result.status !== 'ok') return;
+    if (result.needsProfile) {
+      navigation.replace(ROUTES.PROFILE_SETUP);
+      return;
     }
+    finishLogin(navigation);
   };
 
   if (!colors) {
@@ -236,79 +261,88 @@ export default function LoginScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <ThemeStatusBar variant="header" />
-      <FormScroll contentContainerStyle={styles.scrollContent} bounces={false}>
-        <View style={styles.headerWrapper}>
+      <FormScroll contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]} bounces={false}>
+        <LinearGradient
+          colors={colors.gradientSplash || colors.gradient}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={[styles.hero, { paddingTop: insets.top + 36 }]}
+        >
+          <View style={styles.glowA} />
+          <View style={styles.glowB} />
+          {SPARKS.map((spec, i) => (
+            <Spark key={i} spec={spec} styles={styles} />
+          ))}
           {canClose ? (
-            <TouchableOpacity
+            <Pressable
               style={[styles.closeBtn, { top: insets.top + 8 }]}
               onPress={() => navigation.goBack()}
-              activeOpacity={0.7}
               hitSlop={10}
               accessibilityLabel="Close"
             >
               <Icon name="close" size={22} color={colors.onGradient} />
-            </TouchableOpacity>
+            </Pressable>
           ) : null}
-          <View style={[styles.header, { backgroundColor: colors.primary }]}>
-            <View style={styles.logoCircle}>
-              <BrandLogo size={112} />
-            </View>
-            <Text style={styles.brand}>KinBech</Text>
-            <Text style={styles.brandTagline}>{BRAND_TAGLINE}</Text>
 
-            <Text style={styles.welcome}>Welcome</Text>
-            <Text style={styles.welcomeSub}>Sign in to continue</Text>
+          <View style={styles.logoStage}>
+            <Ripple delay={0} styles={styles} />
+            <Ripple delay={1300} styles={styles} />
+            <Animated.View
+              style={[
+                styles.logoWrap,
+                { transform: [{ translateY: float.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -8, 0] }) }] },
+              ]}
+            >
+              <BrandLogo size={92} />
+            </Animated.View>
           </View>
-
-          {/* Smooth curve cut into the bottom of the header */}
-          <Svg
-            height={CURVE_HEIGHT}
-            width={SCREEN_WIDTH}
-            viewBox={`0 0 ${SCREEN_WIDTH} ${CURVE_HEIGHT}`}
-            style={styles.curveSvg}
-          >
-            <Path
-              fill={colors.surface}
-              d={`M0,0 
-                  Q${SCREEN_WIDTH / 2},${CURVE_HEIGHT * 1.6} ${SCREEN_WIDTH},0 
-                  L${SCREEN_WIDTH},${CURVE_HEIGHT} 
-                  L0,${CURVE_HEIGHT} 
-                  Z`}
-            />
-          </Svg>
-        </View>
-
-        <View style={styles.card}>
-          <View style={styles.perks}>
-            {PERKS.map((perk) => (
-              <View key={perk.icon} style={styles.perkRow}>
-                <View style={styles.perkIcon}>
-                  <Icon name={perk.icon} size={18} color={colors.primary} />
-                </View>
-                <Text style={styles.perkText}>{perk.text}</Text>
+          <Reanimated.Text entering={enterUp(0)} style={styles.brand}>
+            Kin<Text style={styles.brandAccent}>Bech</Text>
+          </Reanimated.Text>
+          <Reanimated.Text entering={enterUp(1)} style={styles.brandTagline}>{BRAND_TAGLINE}</Reanimated.Text>
+          <Reanimated.View entering={enterUp(2)} style={styles.trustRow}>
+            {[
+              { icon: 'flash', label: 'One-tap sign in' },
+              { icon: 'pricetag', label: 'Free to sell' },
+            ].map((pill) => (
+              <View key={pill.label} style={styles.trustPill}>
+                <Icon name={pill.icon} size={12} color={colors.onGradient} />
+                <Text style={styles.trustText}>{pill.label}</Text>
               </View>
+            ))}
+          </Reanimated.View>
+        </LinearGradient>
+
+        <View style={styles.sheet}>
+          <View style={styles.handle} />
+          <Reanimated.Text entering={enterUp(2)} style={styles.welcome}>Welcome back</Reanimated.Text>
+          <Reanimated.Text entering={enterUp(3)} style={styles.welcomeSub}>Sign in to continue</Reanimated.Text>
+
+          <View style={styles.perks}>
+            {PERKS.map((perk, index) => (
+              <Reanimated.View key={perk.icon} entering={enterUp(4 + index)} style={styles.perkRow}>
+                <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.perkIcon}>
+                  <Icon name={perk.icon} size={19} color={colors.onGradient} />
+                </LinearGradient>
+                <View style={styles.perkCopy}>
+                  <Text style={styles.perkTitle}>{perk.title}</Text>
+                  <Text style={styles.perkText}>{perk.text}</Text>
+                </View>
+                <Icon name="checkmark-circle" size={18} color={colors.primary} />
+              </Reanimated.View>
             ))}
           </View>
 
-          <TouchableOpacity
-            style={[styles.googleButton, loading && styles.googleButtonBusy]}
-            activeOpacity={0.8}
-            disabled={loading}
-            onPress={continueWithGoogle}
-            accessibilityRole="button"
-            accessibilityLabel="Continue with Google"
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.primary} />
-            ) : (
-              <View style={styles.googleBadge}>
-                <Icon name="logo-google" size={22} color={colors.socialGoogle || '#EA4335'} />
-              </View>
-            )}
-            <Text style={styles.googleText}>{loading ? 'Signing in…' : 'Continue with Google'}</Text>
-          </TouchableOpacity>
+          <Reanimated.View entering={enterUp(6)} style={styles.googleShadow}>
+            <GoogleButton onPress={continueWithGoogle} loading={loading} />
+          </Reanimated.View>
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {error ? (
+            <View style={styles.errorBox}>
+              <Icon name="alert-circle" size={16} color={colors.error} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.hintRow}>
             <Icon name="lock-closed" size={14} color={colors.textMuted} />

@@ -179,7 +179,7 @@ export default function SettingsScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [alertConfig, setAlertConfig] = useState(null);
-  const isShopAccount = user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+  const isShopAccount = user?.sellerTypePreference === 'shop';
   const accountRows = ACCOUNT_ROWS.filter((row) => !row.shopOnly || isShopAccount);
 
   const signOutHere = async () => {

@@ -167,6 +167,9 @@ const shopSchema = new mongoose.Schema(
       default: 'active',
       index: true
     },
+    /** Set with status `inactive` when the owner switched to selling as an individual; switching back reopens the store. */
+    pausedAt: { type: Date, default: null },
+    pauseReason: { type: String, default: '' },
     /** Owned by a tester account; visible only to testers (utils/audience). */
     isTest: { type: Boolean, default: false, index: true }
   },

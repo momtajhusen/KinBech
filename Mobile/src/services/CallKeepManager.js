@@ -320,6 +320,25 @@ export async function presentIncomingCallFromRemoteMessage(remoteMessage, option
   return true;
 }
 
+/** Decline tapped on the native call notification, possibly while the app is closed. */
+export async function callDeclineHeadlessTask(data) {
+  const chatId = String(data?.chatId || '');
+  if (!chatId) return;
+  dismissNativeIncomingCall(chatId);
+  hideIncomingCallBanner();
+  await declineIncomingCall(chatId);
+}
+
+/** The caller hung up before anyone answered. */
+export function endRingingCall(chatId) {
+  if (!chatId) return;
+  const id = String(chatId);
+  dismissNativeIncomingCall(id);
+  dismissIncomingCallNotification(id);
+  releaseIncomingCall(id);
+  stopCallSounds();
+}
+
 export async function callKeepHeadlessTask(data) {
   try {
     const chatId = chatIdFromUuid(data?.callUUID) || '';

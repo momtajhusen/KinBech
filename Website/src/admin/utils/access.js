@@ -6,6 +6,7 @@ export const PAGE_SCOPES = {
   'live-activity': 'dashboard',
   users: 'users',
   support: 'users',
+  'contact-center': 'users',
   testers: 'settings',
   shops: 'shops',
   'shop-verification': 'shops',

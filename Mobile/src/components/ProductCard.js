@@ -1,6 +1,7 @@
-import { useState, memo, useCallback, useRef } from 'react';
+import { useState, memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import Icon from './Icon';
-import { Dimensions, Image, Pressable, Text, View, useWindowDimensions, Animated } from 'react-native';
+import { Dimensions, Pressable, Text, View, useWindowDimensions, Animated } from 'react-native';
+import { Shimmer } from './Motion';
 import { useWishlist } from '../context/WishlistContext';
 import { useTheme, useThemedStyles } from '../theme';
 import { cardPrice } from '../utils/listing';
@@ -92,6 +93,16 @@ const createStyles = (colors) => ({
     shadowRadius: 3,
     elevation: 3,
   },
+  heartBurst: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: colors.favorite,
+  },
   conditionTag: {
     position: 'absolute',
     bottom: 8,
@@ -130,6 +141,7 @@ const createStyles = (colors) => ({
     borderRadius: 999,
     backgroundColor: 'rgba(37, 99, 235, 0.92)',
     zIndex: 2,
+    overflow: 'hidden',
   },
   featuredBadgeText: {
     fontSize: 10,
@@ -327,22 +339,52 @@ const ProductCard = memo(function ProductCard({
 
   // Micro-animations
   const heartScaleAnim = useRef(new Animated.Value(1)).current;
+  const heartBurst = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(1)).current;
+  const imageReveal = useRef(new Animated.Value(photo ? 0 : 1)).current;
+  const imageZoom = useRef(new Animated.Value(1)).current;
+  const imageMotion = useMemo(
+    () => ({
+      opacity: imageReveal,
+      transform: [
+        {
+          scale: Animated.multiply(
+            imageZoom,
+            imageReveal.interpolate({ inputRange: [0, 1], outputRange: [1.1, 1] })
+          ),
+        },
+      ],
+    }),
+    [imageReveal, imageZoom]
+  );
+
+  useEffect(() => {
+    if (!photo) imageReveal.setValue(1);
+  }, [photo, imageReveal]);
+
+  const revealImage = useCallback(() => {
+    Animated.timing(imageReveal, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+  }, [imageReveal]);
 
   const handlePress = useCallback(() => {
     if (onPress) onPress();
   }, [onPress]);
 
   const handleToggleSave = useCallback(() => {
+    if (!saved) {
+      heartBurst.setValue(0);
+      Animated.timing(heartBurst, { toValue: 1, duration: 480, useNativeDriver: true }).start();
+    }
     Animated.sequence([
       Animated.timing(heartScaleAnim, {
-        toValue: 1.25,
-        duration: 100,
+        toValue: saved ? 0.8 : 1.35,
+        duration: 110,
         useNativeDriver: true,
       }),
-      Animated.timing(heartScaleAnim, {
+      Animated.spring(heartScaleAnim, {
         toValue: 1,
-        duration: 150,
+        speed: 22,
+        bounciness: 14,
         useNativeDriver: true,
       }),
     ]).start();
@@ -356,7 +398,7 @@ const ProductCard = memo(function ProductCard({
       return;
     }
     setSavedLocal((value) => !value);
-  }, [listingId, toggle, onToggleSave, heartScaleAnim]);
+  }, [saved, listingId, toggle, onToggleSave, heartScaleAnim, heartBurst]);
 
   const conditionTone = colors[CONDITION_TONES[condition]] || colors.primary;
 
@@ -373,18 +415,22 @@ const ProductCard = memo(function ProductCard({
         onPress={handlePress}
         onPressIn={() => {
           Animated.spring(cardScale, { toValue: 0.97, useNativeDriver: true, speed: 48, bounciness: 4 }).start();
+          Animated.spring(imageZoom, { toValue: 1.06, useNativeDriver: true, speed: 30, bounciness: 2 }).start();
         }}
         onPressOut={() => {
           Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, speed: 48, bounciness: 4 }).start();
+          Animated.spring(imageZoom, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 2 }).start();
         }}
         style={[styles.card, layout ? { flex: 1 } : null]}
       >
         <View style={[styles.image, { backgroundColor: bgColor, height: imageHeight }]}>
           {photo ? (
-            <Image
+            <Animated.Image
               source={{ uri: photo }}
-              style={styles.imageFill}
+              style={[styles.imageFill, imageMotion]}
               resizeMode="cover"
+              onLoad={revealImage}
+              onError={revealImage}
             />
           ) : (
             <Icon
@@ -396,6 +442,7 @@ const ProductCard = memo(function ProductCard({
 
           {isFeatured ? (
             <View style={styles.featuredBadge}>
+              <Shimmer duration={1600} pause={2400} color="rgba(255,255,255,0.45)" />
               <Icon name="sparkles" size={10} color="#fff" />
               <Text style={styles.featuredBadgeText}>Featured</Text>
             </View>
@@ -455,6 +502,16 @@ const ProductCard = memo(function ProductCard({
       </Pressable>
       </Animated.View>
       <Animated.View style={[styles.heartWrap, { transform: [{ scale: heartScaleAnim }] }]}>
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            styles.heartBurst,
+            {
+              opacity: heartBurst.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 0.8, 0] }),
+              transform: [{ scale: heartBurst.interpolate({ inputRange: [0, 1], outputRange: [0.6, 2.2] }) }],
+            },
+          ]}
+        />
         <Pressable
           onPress={handleToggleSave}
           style={styles.heart}

@@ -90,10 +90,18 @@ const userSchema = new mongoose.Schema(
       default: [],
     },
     blockedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    // 'both' is a retired mode kept only so old documents still validate; it is read as 'shop'.
     sellerTypePreference: { 
       type: String, 
       enum: ['individual', 'shop', 'both'], 
       default: 'individual' 
+    },
+    /** Last seller-mode switch after signup (see utils/sellerMode): drives the cooldown and the one-time undo. */
+    sellerTypeChange: {
+      from: { type: String, default: '' },
+      to: { type: String, default: '' },
+      at: { type: Date, default: null },
+      undone: { type: Boolean, default: false },
     },
     preferences: {
       notifications: { type: Boolean, default: true },

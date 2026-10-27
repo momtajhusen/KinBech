@@ -8,15 +8,9 @@ import { AppState, BackHandler, Platform, ToastAndroid } from 'react-native';
 import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { readToken } from '../services/tokenStorage';
-import { getApiBaseUrl } from '../config/apiUrl';
-import {
-  consumeNativePendingCall,
-  isCallWatchRunning,
-  setCallWatchForeground,
-  startCallWatch,
-  stopCallWatch,
-} from '../services/callWatch';
+import { consumeNativePendingCall } from '../services/callWatch';
+import { shareMediaBaseWithNative } from '../services/callReadiness';
+import CallSetupModal from '../components/CallSetupModal';
 import { resolveMediaUrl } from '../utils/listing';
 import {
   consumeInitialCallNotification,
@@ -42,7 +36,6 @@ import {
   subscribeAlertPress,
   subscribeNativeChatAlert,
 } from '../services/pushAlerts';
-import { requestNotificationPermissions } from '../services/notifications';
 import { useTheme } from '../theme';
 import AllCategoriesScreen from '../screens/AllCategoriesScreen';
 import CallScreen from '../screens/CallScreen';
@@ -84,6 +77,7 @@ import ShopPostListingScreen from '../screens/ShopPostListingScreen';
 import ShopProfileScreen from '../screens/ShopProfileScreen';
 import ShopDashboardScreen from '../screens/ShopDashboardScreen';
 import SplashScreen from '../screens/SplashScreen';
+import SignedInModal from '../components/SignedInModal';
 import TermsScreen from '../screens/TermsScreen';
 import LegalHubScreen from '../screens/LegalHubScreen';
 import LegalDocumentScreen from '../components/LegalDocumentScreen';
@@ -93,7 +87,6 @@ import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
 import WalletScreen from '../screens/WalletScreen';
 import ContactUsScreen from '../screens/ContactUsScreen';
 import ListingSuccessScreen from '../screens/ListingSuccessScreen';
-import MapExploreScreen from '../screens/MapExploreScreen';
 import ShopStorefrontQrScreen from '../screens/ShopStorefrontQrScreen';
 
 const Stack = createNativeStackNavigator();
@@ -144,7 +137,6 @@ function IncomingCallBridge() {
     };
 
     const checkNow = async () => {
-      if (AppState.currentState !== 'active' && isCallWatchRunning()) return;
       const { data, error } = await api.getIncomingCall();
       if (error) return;
       if (!data?.call?.chatId) {
@@ -171,23 +163,13 @@ function IncomingCallBridge() {
 
     markCallUiMounted();
     ensureCallKeep().catch(() => {});
-    setCallWatchForeground(AppState.currentState === 'active');
-    requestNotificationPermissions()
-      .catch(() => {})
-      .finally(async () => {
-        // The native watcher can't refresh, so it gets a long-lived calls-only token.
-        const { data } = await api.getCallWatchToken();
-        const token = data?.token || (await readToken());
-        if (token) startCallWatch(getApiBaseUrl(), token);
-      });
+    shareMediaBaseWithNative();
     readInitial();
     const poll = setInterval(checkNow, 2000);
     const unsubscribeCalls = subscribeIncomingCall(open);
     const unsubscribeEvents = subscribeCallNotificationEvents(open);
     const appState = AppState.addEventListener('change', (state) => {
-      const active = state === 'active';
-      setCallWatchForeground(active);
-      if (active) {
+      if (state === 'active') {
         readInitial();
         checkNow();
         return;
@@ -200,7 +182,6 @@ function IncomingCallBridge() {
       unsubscribeCalls();
       unsubscribeEvents();
       appState.remove();
-      stopCallWatch();
     };
   }, [ready, isLoggedIn, navigation]);
 
@@ -234,9 +215,7 @@ function PushAlertBridge() {
     });
     const unsubscribe = subscribeAlertPress(openAlert);
     const unsubscribeNative = subscribeNativeChatAlert(openAlert);
-    requestNotificationPermissions()
-      .then(() => ensureAlertChannel())
-      .catch(() => {});
+    ensureAlertChannel().catch(() => {});
 
     const tick = async () => {
       const { data, error } = await api.getNotifications();
@@ -437,6 +416,7 @@ export default function AppNavigator() {
       <IncomingCallBridge />
       <PushAlertBridge />
       <MessageSoundBridge />
+      <CallSetupModal />
       <Stack.Navigator
         initialRouteName="Splash"
         screenOptions={{
@@ -486,7 +466,6 @@ export default function AppNavigator() {
         <Stack.Screen name="ShopProfile" component={ShopProfileScreen} />
         <Stack.Screen name="ShopDashboard" component={ShopDashboardScreen} />
         <Stack.Screen name="ShopStorefrontQr" component={ShopStorefrontQrScreen} />
-        <Stack.Screen name="MapExplore" component={MapExploreScreen} />
         <Stack.Screen name="EditProfile" component={EditProfileScreen} />
         <Stack.Screen name="EditShop" component={EditShopScreen} />
         <Stack.Screen name="Privacy" component={PrivacyScreen} />
@@ -501,6 +480,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Wallet" component={WalletScreen} />
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
       </Stack.Navigator>
+      <SignedInModal />
     </NavigationContainer>
   );
 }

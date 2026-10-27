@@ -10,7 +10,7 @@ import {
 import { PermissionsAndroid, Platform } from 'react-native';
 import { api } from './api';
 import { ensureCallChannel } from './callNotifications';
-import { presentIncomingCallFromRemoteMessage } from './CallKeepManager';
+import { endRingingCall, presentIncomingCallFromRemoteMessage } from './CallKeepManager';
 import { alertFromMessage, displayAlert, ensureAlertChannel } from './pushAlerts';
 
 let messagingInstance;
@@ -34,25 +34,31 @@ function getMessagingInstance() {
   return messagingInstance;
 }
 
-export async function requestNotificationPermissions() {
-  if (Platform.OS === 'android' && Platform.Version >= 33) {
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
-    );
-    if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-      console.log('Notification permission denied');
-      return false;
-    }
-  }
-  return true;
+const needsRuntimeNotificationPermission = () => Platform.OS === 'android' && Platform.Version >= 33;
+
+/** Checks without prompting. */
+export async function getNotificationPermission() {
+  if (!needsRuntimeNotificationPermission()) return { granted: true, canAskAgain: true };
+  const granted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  return { granted, canAskAgain: true };
+}
+
+/** Shows the system dialog. Only call from a user tap (the permission prompt), never at startup. */
+export async function requestNotificationPermission() {
+  if (!needsRuntimeNotificationPermission()) return { granted: true, canAskAgain: true };
+  const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  return {
+    granted: result === PermissionsAndroid.RESULTS.GRANTED,
+    canAskAgain: result !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN,
+  };
 }
 
 export async function getFCMToken() {
   const messaging = getMessagingInstance();
   if (!messaging) return null;
 
-  const hasPermission = await requestNotificationPermissions();
-  if (!hasPermission) return null;
+  const { granted } = await getNotificationPermission();
+  if (!granted) return null;
 
   try {
     await ensureCallChannel();
@@ -81,6 +87,10 @@ export function setupForegroundMessageListener() {
   if (!messaging) return () => {};
 
   return onMessage(messaging, async (remoteMessage) => {
+    if (remoteMessage?.data?.type === 'call_ended') {
+      endRingingCall(remoteMessage.data.chatId);
+      return;
+    }
     const handled = await presentIncomingCallFromRemoteMessage(remoteMessage, { mode: 'foreground' });
     if (handled) return;
     const alert = alertFromMessage(remoteMessage);

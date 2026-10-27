@@ -22,6 +22,7 @@ const { listingActivityEvent } = require('../utils/activityEvents');
 const { isAdminRole } = require('../utils/adminScopes');
 const { onListingMarkedSold } = require('../utils/deals');
 const { confirmAvailable } = require('../utils/listingTrust');
+const { MODE_PAUSE_REASON, modeAllowsListing } = require('../utils/sellerMode');
 const { duplicatePhotoReason } = require('../utils/imageHash');
 const {
   interestScore,
@@ -269,6 +270,11 @@ async function ownListing(req, res) {
   }
   if (listing.status === 'hidden' && listing.autoHidden?.reason === 'account_suspended') {
     res.status(403).json({ message: 'This listing was hidden by KinBech and cannot be restored yet' });
+    return null;
+  }
+  if (listing.status === 'hidden' && listing.autoHidden?.reason === MODE_PAUSE_REASON) {
+    const mode = listing.sellerType === 'shop' ? 'Store or Both' : 'Individual or Both';
+    res.status(403).json({ message: `Paused while you sell in another mode. Switch to ${mode} in Seller Preference to show it again.` });
     return null;
   }
   return listing;
@@ -984,6 +990,14 @@ async function createListing(req, res, next) {
     if (!['individual', 'shop'].includes(sellerType)) {
       return res.status(400).json({ message: 'Invalid seller type' });
     }
+    if (!modeAllowsListing(req.user, sellerType)) {
+      return res.status(403).json({
+        code: 'seller_mode',
+        message: sellerType === 'shop'
+          ? 'Switch to Store or Both in Seller Preference to post store products.'
+          : 'Switch to Individual or Both in Seller Preference to post personal items.',
+      });
+    }
 
     let shopRecord = null;
     if (sellerType === 'shop') {
@@ -1298,6 +1312,10 @@ async function updateListing(req, res, next) {
       listing.heldAt = moderation.status === 'pending' ? listing.heldAt || new Date() : null;
     }
 
+    if (previousStatus === 'hidden' && listing.autoHidden?.reason === MODE_PAUSE_REASON && listing.status === 'active') {
+      // Editing never brings back a listing paused by a seller-mode switch; switching back does.
+      listing.status = 'hidden';
+    }
     if (!wasSold && listing.status === 'sold' && !listing.soldAt) {
       listing.soldAt = new Date();
     }

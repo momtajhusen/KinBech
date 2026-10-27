@@ -18,7 +18,6 @@ const filterOptions = [
 const SELLER_TYPE_LABELS = {
   individual: 'Individual Seller',
   shop: 'Shop Owner',
-  both: 'Shop + Individual',
   buyer: 'Buyer Only',
 };
 

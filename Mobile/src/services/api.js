@@ -495,7 +495,6 @@ export const api = {
   me: () => request('/auth/me'),
   logoutAllDevices: () => request('/auth/logout-all', { method: 'POST' }),
   logout: () => request('/auth/logout', { method: 'POST', timeoutMs: 4000, skipAuthRefresh: true }),
-  getCallWatchToken: () => request('/auth/call-watch-token'),
   getSessions: () => request('/auth/sessions'),
   exportMyData: () => request('/auth/me/export', { timeoutMs: 30000 }),
   deleteAccount: () =>
@@ -517,6 +516,7 @@ export const api = {
     request(`/listings/${id}/feature`, { method: 'POST' }),
   updateMe: (payload) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify(payload) }),
+  getSellerMode: () => request('/auth/me/seller-mode'),
   updateProfile: (payload) =>
     request('/auth/me', { method: 'PATCH', body: JSON.stringify({ ...payload, profileComplete: true }) }),
   uploadMedia: (formData, folder = 'misc') =>
@@ -696,7 +696,6 @@ export const api = {
   getMyShopCategories: () => request('/shops/mine/categories', { timeoutMs: 60000 }),
   getMyShopAnalytics: (period = '30d') => request(`/shops/mine/analytics${toQuery({ period })}`),
   getMyShopStorefront: () => request('/shops/mine/storefront'),
-  getMapNearby: (params = {}) => request(`/map/nearby${toQuery(params)}`),
   getShopById: (shopId) => request(`/shops/${shopId}`),
   updateShop: (shopId, payload) =>
     request(`/shops/${shopId}`, { method: 'PUT', body: JSON.stringify(payload) }),

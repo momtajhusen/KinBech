@@ -26,6 +26,7 @@ import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { playNewMessageSound, setActiveChatId } from '../services/sounds';
 import { dismissChatAlerts } from '../services/pushAlerts';
+import { requireCallSetup } from '../services/callReadiness';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import VoiceCapture, { VoiceBubble } from '../components/VoiceMessage';
@@ -627,6 +628,7 @@ export default function ChatScreen({ navigation, route }) {
       setActiveChatId(chatId);
       dismissChatAlerts(chatId);
       loadMessages();
+      requireCallSetup().catch(() => {});
       return () => setActiveChatId('');
     }, [chatId, loadMessages])
   );

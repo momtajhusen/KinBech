@@ -1,6 +1,9 @@
 const Shop = require('../models/Shop');
 const Listing = require('../models/Listing');
 const Review = require('../models/Review');
+const User = require('../models/User');
+const { phoneVisible } = require('../utils/token');
+const { MODE_PAUSE_REASON } = require('../utils/sellerMode');
 const { mapShopCategory } = require('../utils/shopCategory');
 const { recordShopMetric } = require('../utils/shopAnalytics');
 const { buildStorefrontPayload } = require('../utils/storefront');
@@ -103,6 +106,13 @@ async function createShop(req, res, next) {
 
     if (existingShop) {
       return res.status(400).json({ message: 'You already have an active shop' });
+    }
+    const pausedShop = await Shop.exists({ owner: req.user._id, status: 'inactive', pauseReason: MODE_PAUSE_REASON });
+    if (pausedShop) {
+      return res.status(409).json({
+        code: 'store_paused',
+        message: 'You already have a store. Switch to Store or Both in Seller Preference to reopen it.',
+      });
     }
 
     const contentCheck = await evaluatePublicText(
@@ -223,11 +233,12 @@ async function getShopById(req, res, next) {
     }
 
     const isOwner = req.user && String(shop.owner) === String(req.user._id);
-    if (!isOwner) {
-      recordShopMetric(shop._id, 'profileViews').catch(() => {});
+    if (isOwner) {
+      return res.json({ shop: shopOwnerFields(shop) });
     }
-
-    res.json({ shop: isOwner ? shopOwnerFields(shop) : shopPublicFields(shop) });
+    recordShopMetric(shop._id, 'profileViews').catch(() => {});
+    const owner = await User.findById(shop.owner).select('preferences').lean();
+    res.json({ shop: shopPublicFields(shop, { showPhone: phoneVisible(owner) }) });
   } catch (error) {
     next(error);
   }
@@ -374,11 +385,11 @@ async function getAllShops(req, res, next) {
     }
 
     const shops = await Shop.find(filter)
-      .populate('owner', 'name avatarUrl')
+      .populate('owner', 'name avatarUrl preferences')
       .sort({ ratingAverage: -1, reviewCount: -1 })
       .limit(50);
 
-    res.json({ shops: shops.map(shopPublicFields) });
+    res.json({ shops: shops.map((shop) => shopPublicFields(shop)) });
   } catch (error) {
     next(error);
   }

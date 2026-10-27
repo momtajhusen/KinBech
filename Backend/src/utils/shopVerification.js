@@ -62,8 +62,13 @@ function markVerificationPending(shop) {
   shop.verificationSubmittedAt = new Date();
 }
 
-function shopPublicFields(shop) {
+/**
+ * Phone and WhatsApp are included only when `showPhone` is true (the owner's privacy setting).
+ * With no option, a populated `owner.preferences` decides.
+ */
+function shopPublicFields(shop, options = {}) {
   const obj = shop.toObject ? shop.toObject() : shop;
+  const showPhone = options.showPhone ?? Boolean(obj.owner?.preferences?.showPhone);
   return {
     id: obj._id,
     _id: obj._id,
@@ -71,14 +76,14 @@ function shopPublicFields(shop) {
     name: obj.name,
     category: obj.category,
     description: obj.description,
-    phone: obj.phone,
+    phone: showPhone ? obj.phone || '' : '',
     address: obj.address,
     location: obj.location,
     openingHours: obj.openingHours,
     logo: obj.logo,
     coverImage: obj.coverImage || '',
     tagline: obj.tagline || '',
-    whatsapp: obj.whatsapp || '',
+    whatsapp: showPhone ? obj.whatsapp || '' : '',
     email: obj.email || '',
     website: obj.website || '',
     socialLinks: obj.socialLinks || {},
@@ -106,7 +111,7 @@ function shopOwnerFields(shop) {
   if (!shop) return null;
   const obj = shop.toObject ? shop.toObject() : shop;
   return {
-    ...shopPublicFields(obj),
+    ...shopPublicFields(obj, { showPhone: true }),
     panNumber: openField(obj.panNumber),
     vatNumber: openField(obj.vatNumber),
     businessDocuments: withViewUrls(obj.businessDocuments),

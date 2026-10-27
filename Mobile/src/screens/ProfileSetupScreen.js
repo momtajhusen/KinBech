@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -11,6 +11,7 @@ import { EditField, EditSection, FieldRow } from '../components/ProfileEditKit';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import { finishLogin } from '../components/LoginPrompt';
 import { useAuth } from '../context/AuthContext';
+import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { resolveMediaUrl } from '../utils/listing';
@@ -496,8 +497,9 @@ export default function ProfileSetupScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
-  const { user, saveSession } = useAuth();
+  const { user, saveSession, logout, isLoggedIn } = useAuth();
   const shopCategories = useCategories('shop');
+  const leavingRef = useRef(false);
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const accountEmail = user?.email || '';
@@ -601,6 +603,31 @@ export default function ProfileSetupScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The account stays incomplete until "Complete Profile" succeeds, so back/gesture can't skip this screen.
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: false });
+    return navigation.addListener('beforeRemove', (event) => {
+      // Resets come from session expiry or logout; only block back / pop.
+      if (leavingRef.current || !isLoggedIn || event.data.action.type === 'RESET') return;
+      event.preventDefault();
+      setAlertConfig({
+        type: 'warning',
+        title: 'Finish setting up',
+        message: 'Choose Individual or Store and tap Complete Profile to start using KinBech.',
+        primaryButton: { text: 'Continue setup', onPress: () => setAlertConfig(null) },
+        secondaryButton: {
+          text: 'Log out',
+          onPress: async () => {
+            leavingRef.current = true;
+            setAlertConfig(null);
+            await logout();
+            navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
+          },
+        },
+      });
+    });
+  }, [navigation, isLoggedIn, logout]);
+
   const completeProfile = async () => {
     setSubmitted(true);
     if (!name.trim()) {
@@ -657,21 +684,23 @@ export default function ProfileSetupScreen({ navigation }) {
           ? { latitude: namedPlace.lat, longitude: namedPlace.lng }
           : undefined;
 
-      const { data, error } = await api.updateProfile({
+      const profileFields = {
         name: name.trim(),
         location: location.trim(),
         avatarUrl: nextAvatarUrl,
         coordinates: profileCoordinates,
-        sellerTypePreference,
-      });
+      };
+      // A store account is marked complete (and switched to Store) only after the store exists;
+      // otherwise a failed or interrupted store step would leave a finished individual account behind.
+      let { data, error } = isShop
+        ? await api.updateMe(profileFields)
+        : await api.updateProfile({ ...profileFields, sellerTypePreference });
 
       if (error) {
         setLoading(false);
         showError('Update Failed', error);
         return;
       }
-
-      await saveSession(data.token, data.user);
 
       if (isShop) {
         const shopRes = await api.createShop({
@@ -695,9 +724,17 @@ export default function ProfileSetupScreen({ navigation }) {
           showError('Store details', shopRes.error);
           return;
         }
+        ({ data, error } = await api.updateProfile({ sellerTypePreference }));
+        if (error) {
+          setLoading(false);
+          showError('Update Failed', error);
+          return;
+        }
       }
 
+      await saveSession(data.token, data.user);
       setLoading(false);
+      leavingRef.current = true;
       finishLogin(navigation);
     } catch {
       setLoading(false);
@@ -979,7 +1016,7 @@ export default function ProfileSetupScreen({ navigation }) {
                 onChangeText={(value) => setPhone(value.replace(/[^\d+]/g, '').slice(0, 14))}
                 placeholder="98XXXXXXXX"
                 keyboardType="phone-pad"
-                hint="Buyers can call your store from its page"
+                hint="Hidden from buyers until you turn on Show phone number in Privacy"
               />
             ) : null}
 

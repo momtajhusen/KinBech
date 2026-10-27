@@ -19,8 +19,18 @@ const { sendIncomingCallPush, sendUserPush } = require('../utils/callPush');
 const { scheduleDeal, noteChatMessage, recordDealOutcome } = require('../utils/deals');
 const { detectScamRisk } = require('../utils/chatIntent');
 const { sameAudienceUser } = require('../utils/audience');
+const { isAdminRole } = require('../utils/adminScopes');
+const { SUPPORT_NAME, SUPPORT_AVATAR } = require('../utils/support');
 
 const MESSAGE_PAGE_MAX = 100;
+
+/** Admins reach users through the contact center and always show up as KinBech Support. */
+function chatPeer(user) {
+  if (!user) return null;
+  const peer = publicUser(user);
+  if (!isAdminRole(user.role)) return peer;
+  return { ...peer, name: SUPPORT_NAME, avatarUrl: SUPPORT_AVATAR, phone: '', isSupport: true };
+}
 
 function deliverPush(note) {
   if (!note?.user) return;
@@ -177,10 +187,13 @@ async function shopIdentities(chats, userId) {
 async function getChats(req, res, next) {
   try {
     const chats = (await Chat.find({ participants: req.user._id })
-      .populate('participants', 'name phone avatarUrl rating preferences location isTester')
+      .populate('participants', 'name phone avatarUrl rating preferences location isTester role')
       .populate('listing', 'title photos price shopId')
       .sort({ lastMessageAt: -1 }))
-      .filter((chat) => sameAudienceUser(otherParticipant(chat, req.user._id)));
+      .filter((chat) => {
+        const other = otherParticipant(chat, req.user._id);
+        return isAdminRole(other?.role) || sameAudienceUser(other);
+      });
     const shops = await shopIdentities(chats, req.user._id);
     const chatIds = chats.map((chat) => chat._id);
     const [unreadRows, latestRows] = chatIds.length
@@ -227,9 +240,7 @@ async function getChats(req, res, next) {
       chats: chats.map((chat, i) => {
         const latest = latestById.get(String(chat._id));
         const other = otherParticipant(chat, req.user._id);
-        const otherPublic = other ? publicUser(other) : null;
-        // Hidden numbers are shared with the other person once a meetup is confirmed.
-        if (otherPublic && !otherPublic.phone && chat.meetupConfirmed) otherPublic.phone = other.phone || '';
+        const otherPublic = chatPeer(other);
         const lastMessageMine = latest?.sender
           ? String(latest.sender) === String(req.user._id)
           : chat.lastMessageSender
@@ -304,7 +315,7 @@ async function createChat(req, res, next) {
       }
     }
 
-    await chat.populate('participants', 'name phone avatarUrl rating preferences location');
+    await chat.populate('participants', 'name phone avatarUrl rating preferences location role');
     await chat.populate('listing', 'title photos price shopId');
     const [shop] = await shopIdentities([chat], req.user._id);
 
@@ -312,7 +323,7 @@ async function createChat(req, res, next) {
       chat: {
         id: chat._id,
         listing: chat.listing,
-        otherUser: { ...publicUser(otherParticipant(chat, req.user._id)), shop },
+        otherUser: { ...chatPeer(otherParticipant(chat, req.user._id)), shop },
         lastMessage: chat.lastMessage,
         lastMessageAt: chat.lastMessageAt,
       },
@@ -1053,7 +1064,7 @@ async function endCall(req, res, next) {
     const chat = await Chat.findOne({
       _id: req.params.id,
       participants: req.user._id,
-    }).select('ringingCall');
+    }).select('ringingCall participants');
     if (!chat) {
       return res.status(404).json({ message: 'Chat not found' });
     }
@@ -1077,6 +1088,18 @@ async function endCall(req, res, next) {
     if (previous?.ringingCall?.startedAt) {
       await recordCallHistory(previous, req.user._id);
     }
+    const ended = previous?.ringingCall;
+    if (ended?.startedAt && !ended.answeredAt && String(ended.caller) === String(req.user._id)) {
+      // Stops the ringing call notification on the other phone, even when the app there is closed.
+      const calleeId = (chat.participants || []).find((id) => String(id) !== String(req.user._id));
+      if (calleeId) {
+        sendUserPush({
+          userId: calleeId,
+          incomingCall: true,
+          data: { type: 'call_ended', chatId: String(chat._id) },
+        }).catch(() => {});
+      }
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -1096,6 +1119,8 @@ async function setDealOutcome(req, res, next) {
 }
 
 module.exports = {
+  deliverPush,
+  presentMessage,
   setDealOutcome,
   getChats,
   createChat,

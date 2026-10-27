@@ -438,7 +438,7 @@ export default function PrivacyScreen({ navigation }) {
       icon: 'call',
       tint: TINT.phone,
       title: 'Show phone number',
-      body: 'Off by default. Turn on only if you want buyers to call you outside the app.',
+      body: 'Off by default. Covers your personal and store phone/WhatsApp. Turn on only if you want buyers to call you outside the app.',
       value: showPhone,
       onChange: (value) => {
         setShowPhone(value);

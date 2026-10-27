@@ -1,4 +1,8 @@
+import { Vibration } from 'react-native';
+
 const incomingSource = require('../../assets/sounds/incoming-call.mp3');
+// Buzz, pause, repeat while an incoming call rings inside the app.
+const RING_VIBRATION = [0, 900, 1100];
 const ringingSource = require('../../assets/sounds/ringing.mp3');
 const messageSource = require('../../assets/sounds/new-message.mp3');
 
@@ -16,7 +20,15 @@ let loopKind = null;
 let loopToken = 0;
 let messagePlayer = null;
 let activeChatId = '';
+let ringVibrating = false;
 const heardMessageAt = new Map();
+
+/** Stops only the ring buzz, so a haptic played right after a tap is not cut off. */
+export function stopRingVibration() {
+  if (!ringVibrating) return;
+  ringVibrating = false;
+  Vibration.cancel();
+}
 
 function ensureMode() {
   const audio = loadAudio();
@@ -61,6 +73,7 @@ export function getActiveChatId() {
 }
 
 export function stopCallSounds() {
+  stopRingVibration();
   loopToken += 1;
   loopKind = null;
   const player = loopPlayer;
@@ -95,6 +108,10 @@ async function startLoop(kind, source) {
 }
 
 export function startIncomingRing() {
+  if (!ringVibrating) {
+    ringVibrating = true;
+    Vibration.vibrate(RING_VIBRATION, true);
+  }
   return startLoop('incoming', incomingSource);
 }
 

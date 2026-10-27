@@ -25,8 +25,7 @@ export default function EditProfileScreen({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user, saveSession } = useAuth();
-  const isShopAccount =
-    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+  const isShopAccount = user?.sellerTypePreference === 'shop';
 
   const [name, setName] = useState(user?.name || '');
   const [location, setLocation] = useState(user?.location || '');

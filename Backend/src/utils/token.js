@@ -64,6 +64,11 @@ function sellerSignals(user) {
   };
 }
 
+/** Seller turned on Privacy > "Show phone number". Covers their personal and store numbers. */
+function phoneVisible(user) {
+  return Boolean(user?.preferences?.showPhone);
+}
+
 function publicUser(user, options = {}) {
   const defaultPrefs = {
     notifications: true,
@@ -94,7 +99,8 @@ function publicUser(user, options = {}) {
     bio: user.bio || '',
     soldCount: user.soldCount,
     boughtCount: user.boughtCount,
-    sellerTypePreference: user.sellerTypePreference || 'individual',
+    // Retired 'both' accounts sell as a store.
+    sellerTypePreference: ['shop', 'both'].includes(user.sellerTypePreference) ? 'shop' : 'individual',
     preferences: prefs,
     location: includePrivate || prefs.showLocation !== false ? user.location || '' : '',
     coordinates: includePrivate || prefs.showLocation !== false ? user.coordinates || null : null,
@@ -129,4 +135,4 @@ function publicUser(user, options = {}) {
   };
 }
 
-module.exports = { signUserToken, signCallWatchToken, publicUser, sellerSignals };
+module.exports = { signUserToken, signCallWatchToken, publicUser, sellerSignals, phoneVisible };

@@ -10,6 +10,18 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme, useThemedStyles } from '../theme';
 
 const WELCOME_KEY = 'kinbech_welcome_seen';
+
+/** Read at import (during splash) so Home can show the modal in its very first frame. */
+let welcomeSeen = null;
+const welcomeSeenReady = AsyncStorage.getItem(WELCOME_KEY)
+  .then((value) => {
+    welcomeSeen = Boolean(value);
+    return welcomeSeen;
+  })
+  .catch(() => {
+    welcomeSeen = false;
+    return false;
+  });
 const APP_NAME = 'KinBech';
 const CARD_WIDTH = Math.min(Dimensions.get('window').width - 40, 380);
 /** Whole intro length; every element animates inside its own window of this one native timeline. */
@@ -81,29 +93,38 @@ function Spark({ spec, styles }) {
   );
 }
 
-export default function WelcomeModal() {
+/** `onDone` fires once the welcome is out of the way: closed now, or already seen before. */
+export default function WelcomeModal({ onDone }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
   const focused = useIsFocused();
-  const [visible, setVisible] = useState(false);
+  const [visible, setVisible] = useState(() => welcomeSeen === false);
   const introStartedRef = useRef(false);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   const progress = useRef(new Animated.Value(0)).current;
   const exit = useRef(new Animated.Value(1)).current;
   const float = useLoop(3000, 0, Easing.inOut(Easing.sin));
 
   useEffect(() => {
     if (!focused) return undefined;
-    let timer;
+    if (welcomeSeen === true) {
+      onDoneRef.current?.();
+      return undefined;
+    }
+    if (welcomeSeen === false) {
+      setVisible(true);
+      return undefined;
+    }
     let cancelled = false;
-    AsyncStorage.getItem(WELCOME_KEY)
-      .then((seen) => {
-        if (!seen && !cancelled) timer = setTimeout(() => setVisible(true), 120);
-      })
-      .catch(() => {});
+    welcomeSeenReady.then((seen) => {
+      if (cancelled) return;
+      if (seen) onDoneRef.current?.();
+      else setVisible(true);
+    });
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
   }, [focused]);
 
@@ -126,13 +147,17 @@ export default function WelcomeModal() {
   }, [visible]);
 
   const close = () => {
+    welcomeSeen = true;
     AsyncStorage.setItem(WELCOME_KEY, '1').catch(() => {});
     Animated.timing(exit, {
       toValue: 0,
       duration: 240,
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
-    }).start(() => setVisible(false));
+    }).start(() => {
+      setVisible(false);
+      onDoneRef.current?.();
+    });
   };
 
   if (!visible || !colors) return null;

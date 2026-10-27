@@ -6,7 +6,8 @@ const Listing = require('../models/Listing');
 const Report = require('../models/Report');
 const Shop = require('../models/Shop');
 const { normalizePhone } = require('../utils/phone');
-const { publicUser } = require('../utils/token');
+const { phoneVisible, publicUser } = require('../utils/token');
+const { applySellerModeChange, checkSellerModeChange, sellerModeStatus } = require('../utils/sellerMode');
 const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
 const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
 const { getPlatformSettings, savePlatformSettings } = require('../utils/platformSettings');
@@ -456,6 +457,7 @@ async function completeSignup(req, res, next) {
 
 async function updateMe(req, res, next) {
   try {
+    const inSetup = !req.user.profileComplete;
     if (req.body.name !== undefined) {
       req.user.name = String(req.body.name).trim();
     }
@@ -477,10 +479,6 @@ async function updateMe(req, res, next) {
     if (req.body.profileComplete !== undefined) {
       req.user.profileComplete = Boolean(req.body.profileComplete);
     }
-    if (req.body.sellerTypePreference !== undefined) {
-      req.user.sellerTypePreference = String(req.body.sellerTypePreference);
-    }
-
     if (req.body.name !== undefined || req.body.bio !== undefined) {
       const contentCheck = await evaluatePublicText(
         { name: req.user.name, bio: req.user.bio },
@@ -489,6 +487,16 @@ async function updateMe(req, res, next) {
       if (!contentCheck.ok) {
         return res.status(contentCheck.httpStatus || 400).json(publicProhibitedBody(contentCheck));
       }
+    }
+
+    let modeChange = null;
+    if (req.body.sellerTypePreference !== undefined) {
+      const target = String(req.body.sellerTypePreference);
+      const plan = await checkSellerModeChange(req.user, target, { inSetup });
+      if (!plan.ok) {
+        return res.status(plan.status).json({ message: plan.message, code: plan.code, nextChangeAt: plan.nextChangeAt || null });
+      }
+      modeChange = await applySellerModeChange(req.user, target, plan, { inSetup });
     }
 
     await ensureReferralCode(req.user);
@@ -501,7 +509,16 @@ async function updateMe(req, res, next) {
     return res.json({
       token,
       user: publicUser(req.user, { includePrivate: true }),
+      ...(modeChange ? { modeChange } : {}),
     });
+  } catch (error) {
+    next(error);
+  }
+}
+
+async function getSellerMode(req, res, next) {
+  try {
+    res.json(await sellerModeStatus(req.user));
   } catch (error) {
     next(error);
   }
@@ -546,14 +563,14 @@ async function getBlockedUsers(req, res, next) {
   try {
     const ids = Array.isArray(req.user.blockedUserIds) ? req.user.blockedUserIds : [];
     const users = ids.length
-      ? await User.find({ _id: { $in: ids } }, 'name avatarUrl phone')
+      ? await User.find({ _id: { $in: ids } }, 'name avatarUrl phone preferences')
       : [];
     res.json({
       users: users.map((u) => ({
         id: u._id.toString(),
         name: u.name,
         avatarUrl: u.avatarUrl,
-        phone: u.phone,
+        phone: phoneVisible(u) ? u.phone || '' : '',
       })),
     });
   } catch (error) {
@@ -1240,7 +1257,7 @@ async function getAllUsers(req, res, next) {
         email: user.email,
         phone: user.phone,
         avatarUrl: user.avatarUrl || '',
-        sellerType: hasShop && sells ? 'both' : hasShop ? 'shop' : sells ? 'individual' : 'buyer',
+        sellerType: hasShop ? 'shop' : sells ? 'individual' : 'buyer',
         joinDate: user.createdAt,
         lastActiveAt: user.lastActiveAt || null,
         listingsCount,
@@ -1444,6 +1461,10 @@ async function getPinnedStores(req, res, next) {
 
     if (shopIds.length > 0) {
       const shops = await Shop.find({ _id: { $in: shopIds }, status: 'active' }).lean();
+      const owners = await User.find({ _id: { $in: shops.map((shop) => shop.owner).filter(Boolean) } })
+        .select('preferences')
+        .lean();
+      const phoneOwners = new Set(owners.filter(phoneVisible).map((owner) => String(owner._id)));
       for (const shop of shops) {
         const listings = await Listing.find({
           shopId: shop._id,
@@ -1479,7 +1500,7 @@ async function getPinnedStores(req, res, next) {
           shopId: shop._id,
           userId: shop.owner,
           description: shop.description || '',
-          phone: shop.phone || '',
+          phone: phoneOwners.has(String(shop.owner)) ? shop.phone || '' : '',
           openingHours: shop.openingHours || '',
           coordinates: coords,
         });
@@ -1721,6 +1742,7 @@ module.exports = {
   googleLogin,
   me,
   updateMe,
+  getSellerMode,
   saveDeviceToken,
   completeSignup,
   updatePreferences,

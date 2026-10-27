@@ -42,6 +42,7 @@ const HIDDEN_REASONS = {
   stock_unconfirmed: 'Buyers were waiting and the stock was not confirmed.',
   store_inactive: 'Buyers were waiting while your store was inactive.',
   account_suspended: 'Your account was suspended for a while.',
+  seller_mode: 'Paused while you sell in another mode.',
 };
 
 const SOLD_REASONS = {
@@ -102,6 +103,13 @@ function trustNotice(item) {
     return {
       title: 'Hidden by KinBech',
       text: `${HIDDEN_REASONS.account_suspended} It comes back automatically when the suspension ends.`,
+      noRestore: true,
+    };
+  }
+  if (item.status === 'hidden' && item.autoHiddenReason === 'seller_mode') {
+    return {
+      title: 'Paused',
+      text: `${HIDDEN_REASONS.seller_mode} It comes back when you switch back in Settings > Seller Preference.`,
       noRestore: true,
     };
   }
@@ -194,8 +202,7 @@ export default function MyListingsScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [myShop, setMyShop] = useState(null);
 
-  const isShopAccount =
-    user?.sellerTypePreference === 'shop' || user?.sellerTypePreference === 'both';
+  const isShopAccount = user?.sellerTypePreference === 'shop';
 
   const loadListings = useCallback(async () => {
     setLoading(true);
