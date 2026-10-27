@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification sounds are referenced by name from JS and FCM, so resource shrinking cannot see them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+  tools:keep="@raw/kinbech_notification,@raw/kinbech_incoming_call" />

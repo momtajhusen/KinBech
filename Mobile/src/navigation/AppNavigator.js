@@ -231,6 +231,8 @@ function PushAlertBridge() {
       primedRef.current = true;
       for (const item of fresh) {
         const chatId = item.params?.chatId ? String(item.params.chatId) : '';
+        // The push already showed it (system tray in background, onMessage in foreground).
+        if (item.pushed) continue;
         if (item.type === 'chat' && chatId && chatId === getActiveChatId()) continue;
         if (item.type === 'call' && /incoming/i.test(item.title || '') && chatId) {
           continue;

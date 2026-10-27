@@ -1,12 +1,11 @@
-const { NativeModules, Platform } = require('react-native');
-const ALERT_CHANNEL_ID = 'kinbech-alerts';
+const KinBechCall = require('../../modules/kinbech-call').default;
+// Android fixes a channel's sound when it is created, so a new sound needs a new channel id.
+const ALERT_CHANNEL_ID = 'kinbech-alerts-v2';
+const OLD_ALERT_CHANNEL_IDS = ['kinbech-alerts'];
+// res/raw/kinbech_notification.mp3 in modules/kinbech-call (same file as assets/sounds/new-message.mp3).
+const ALERT_SOUND = 'kinbech_notification';
 const { getActiveChatId } = require('./sounds');
 const { resolveMediaUrl } = require('../utils/listing');
-
-function device() {
-  if (Platform.OS !== 'android') return null;
-  return NativeModules.CallDevice || null;
-}
 
 function pictureUrl(value) {
   const resolved = resolveMediaUrl(value || '');
@@ -25,13 +24,15 @@ export async function ensureAlertChannel() {
   const notifeeModule = loadNotifee();
   if (!notifeeModule) return false;
   const { AndroidImportance } = notifeeModule;
-  await notifeeModule.default.createChannel({
+  const notifee = notifeeModule.default;
+  await notifee.createChannel({
     id: ALERT_CHANNEL_ID,
     name: 'KinBech alerts',
     importance: AndroidImportance.HIGH,
-    sound: 'default',
+    sound: ALERT_SOUND,
     vibration: true,
   });
+  await Promise.all(OLD_ALERT_CHANNEL_IDS.map((id) => notifee.deleteChannel(id).catch(() => {})));
   return true;
 }
 
@@ -50,7 +51,7 @@ export async function dismissChatAlerts(chatId) {
     /* already gone */
   }
   try {
-    device()?.cancelChatAlert?.(id);
+    KinBechCall?.cancelChatAlert?.(id);
   } catch {
     /* native card is from the latest app build */
   }
@@ -69,8 +70,16 @@ export async function dismissChatAlerts(chatId) {
   }
 }
 
+// Push and the notifications poller can deliver the same server notification within seconds.
+const shownNoteIds = new Set();
+
 export async function displayAlert({ id, title, body, data, image }) {
   if (!title) return;
+  if (id && id.startsWith('note-')) {
+    if (shownNoteIds.has(id)) return;
+    shownNoteIds.add(id);
+    if (shownNoteIds.size > 200) shownNoteIds.delete(shownNoteIds.values().next().value);
+  }
   const notifeeModule = loadNotifee();
   const chatId = data?.chatId ? String(data.chatId) : '';
   const isChat = data?.type === 'chat';
@@ -81,15 +90,16 @@ export async function displayAlert({ id, title, body, data, image }) {
   }
   const senderImage = pictureUrl(data?.image || image || '');
   const productImage = pictureUrl(data?.listingImage || '');
-  if (isChat && chatId && device()?.showChatCard) {
+  if (isChat && chatId && KinBechCall?.showChatAlert) {
     try {
-      const shown = await device().showChatCard(
+      const shown = await KinBechCall.showChatAlert({
         chatId,
         title,
-        body || 'New message',
+        body: body || 'New message',
+        listingTitle: data?.listingTitle ? String(data.listingTitle) : '',
         senderImage,
-        productImage
-      );
+        itemImage: productImage,
+      });
       if (shown) return;
     } catch {
       /* fall back to the standard alert */
@@ -101,7 +111,7 @@ export async function displayAlert({ id, title, body, data, image }) {
   const android = {
     channelId: ALERT_CHANNEL_ID,
     importance: AndroidImportance.HIGH,
-    sound: 'default',
+    sound: ALERT_SOUND,
     color: '#047857',
     showTimestamp: true,
     pressAction: {
@@ -162,21 +172,19 @@ export function alertFromMessage(remoteMessage) {
   };
 }
 
+/** Chat the app was opened for by tapping a native chat alert. */
 export async function consumePendingChatAlert() {
-  const mod = device();
-  if (!mod?.consumePendingMessage) return null;
   try {
-    return await mod.consumePendingMessage();
+    return KinBechCall?.consumeChatLaunch?.() || null;
   } catch {
     return null;
   }
 }
 
 export function subscribeNativeChatAlert(onOpen) {
-  const { DeviceEventEmitter } = require('react-native');
-  const subscription = DeviceEventEmitter.addListener('kinbechChatAlert', async () => {
-    const pending = await consumePendingChatAlert();
-    if (pending?.chatId) onOpen(pending);
+  if (!KinBechCall?.addListener) return () => {};
+  const subscription = KinBechCall.addListener('onChatOpen', (event) => {
+    if (event?.chatId) onOpen(event);
   });
   return () => subscription.remove();
 }

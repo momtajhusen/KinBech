@@ -1,5 +1,7 @@
 const admin = require('firebase-admin');
+const mongoose = require('mongoose');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 
 function messagingClient() {
   if (admin.apps.length) return admin.messaging();
@@ -71,13 +73,17 @@ async function deliverPush({ userId, title, body, data, incomingCall = false, da
       body: body || '',
     };
     message.android.notification = {
-      channelId: 'kinbech-alerts',
-      sound: 'default',
+      // Must match ALERT_CHANNEL_ID / ALERT_SOUND in Mobile/src/services/pushAlerts.js.
+      channelId: 'kinbech-alerts-v2',
+      sound: 'kinbech_notification',
     };
   }
 
   try {
     await messaging.send(message);
+    if (payload.notificationId && mongoose.isValidObjectId(payload.notificationId)) {
+      Notification.updateOne({ _id: payload.notificationId }, { $set: { pushedAt: new Date() } }).catch(() => {});
+    }
     return { sent: true, reason: 'sent' };
   } catch (error) {
     const code = error?.errorInfo?.code || error?.code || 'unknown';

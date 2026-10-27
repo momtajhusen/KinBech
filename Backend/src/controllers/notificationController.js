@@ -78,6 +78,7 @@ async function getNotifications(req, res, next) {
         params: item.params || null,
         tab: item.tab || '',
         createdAt: item.createdAt,
+        pushed: Boolean(item.pushedAt),
       })),
     });
   } catch (error) {

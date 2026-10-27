@@ -23,6 +23,26 @@ class IncomingCallOptions : Record {
   val timeoutMs: Double = 60000.0
 }
 
+class ChatAlertOptions : Record {
+  @Field
+  val chatId: String = ""
+
+  @Field
+  val title: String = ""
+
+  @Field
+  val body: String = ""
+
+  @Field
+  val listingTitle: String = ""
+
+  @Field
+  val senderImage: String = ""
+
+  @Field
+  val itemImage: String = ""
+}
+
 class KinBechCallModule : Module() {
   private val context: Context
     get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
@@ -30,7 +50,7 @@ class KinBechCallModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("KinBechCall")
 
-    Events("onCallAction")
+    Events("onCallAction", "onChatOpen")
 
     OnCreate {
       instance = WeakReference(this@KinBechCallModule)
@@ -85,10 +105,44 @@ class KinBechCallModule : Module() {
       readAction(intent)
     }
 
+    // Runs off the main thread, so the sender and item photos can be downloaded here.
+    AsyncFunction("showChatAlert") { options: ChatAlertOptions ->
+      ChatAlertNotifier.show(
+        context,
+        options.chatId,
+        options.title,
+        options.body,
+        options.listingTitle,
+        options.senderImage,
+        options.itemImage
+      )
+    }
+
+    Function("cancelChatAlert") { chatId: String ->
+      if (chatId.isNotBlank()) ChatAlertNotifier.cancel(context, chatId)
+    }
+
+    Function("consumeChatLaunch") {
+      val intent = appContext.currentActivity?.intent ?: return@Function null
+      readChatOpen(intent)
+    }
+
     OnNewIntent { intent ->
+      readChatOpen(intent)?.let {
+        sendEvent("onChatOpen", it)
+        return@OnNewIntent
+      }
       val action = readAction(intent) ?: return@OnNewIntent
       sendEvent("onCallAction", action)
     }
+  }
+
+  private fun readChatOpen(intent: Intent): Map<String, Any?>? {
+    val chatId = intent.getStringExtra(ChatAlertNotifier.EXTRA_OPEN_CHAT_ID) ?: return null
+    val name = intent.getStringExtra(ChatAlertNotifier.EXTRA_OPEN_CHAT_NAME) ?: ""
+    intent.removeExtra(ChatAlertNotifier.EXTRA_OPEN_CHAT_ID)
+    intent.removeExtra(ChatAlertNotifier.EXTRA_OPEN_CHAT_NAME)
+    return mapOf("chatId" to chatId, "name" to name)
   }
 
   private fun readAction(intent: Intent): Map<String, Any?>? {

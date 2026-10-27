@@ -15,6 +15,8 @@ const notificationSchema = new mongoose.Schema(
     tab: { type: String },
     relatedListing: { type: mongoose.Schema.Types.ObjectId, ref: 'Listing' },
     relatedChat: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat' },
+    // Set once FCM accepted the push; the app's poller skips these so the alert is not shown twice.
+    pushedAt: { type: Date, default: null },
     // Broadcast notification fields
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     audience: { type: String, enum: ['all', 'buyers', 'individual_sellers', 'shop_sellers', 'specific_city'], default: 'all' },
