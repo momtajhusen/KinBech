@@ -14,7 +14,7 @@ export default function DownloadPage() {
         <section className="page-info-card">
           <h3>What you get in the app</h3>
           <ul className="page-feature-list">
-            <li>Phone OTP login (+977) — no email required</li>
+            <li>One-tap sign in with your Google account</li>
             <li>Explore nearby listings & verified shops</li>
             <li>In-app chat without sharing your number</li>
             <li>Post listings with photos in minutes</li>

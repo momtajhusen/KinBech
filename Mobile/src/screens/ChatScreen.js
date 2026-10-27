@@ -30,6 +30,7 @@ import { requireCallSetup } from '../services/callReadiness';
 import { formatPrice, resolveMediaUrl } from '../utils/listing';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import VoiceCapture, { VoiceBubble } from '../components/VoiceMessage';
+import ChatBlockSheet from '../components/ChatBlockSheet';
 import { useKeyboardOverlap } from '../components/FormScroll';
 import {
   CHAT_SAFETY_BANNER,
@@ -42,6 +43,13 @@ import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const MESSAGE_PAGE = 40;
+const NO_BLOCK = { messages: false, calls: false };
+
+function sameBlock(prev, next) {
+  const messages = Boolean(next?.messages);
+  const calls = Boolean(next?.calls);
+  return prev.messages === messages && prev.calls === calls ? prev : { messages, calls };
+}
 
 const QUICK_REPLIES = {
   buyer: [
@@ -446,6 +454,10 @@ export default function ChatScreen({ navigation, route }) {
   const [dealBusy, setDealBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [myRole, setMyRole] = useState('');
+  const [block, setBlock] = useState(NO_BLOCK);
+  const [blockedBy, setBlockedBy] = useState(NO_BLOCK);
+  const [blockSheet, setBlockSheet] = useState(null);
+  const [blockBusy, setBlockBusy] = useState(false);
   const typingSentAtRef = useRef(0);
   const typingStopRef = useRef(null);
   const seenMessageIdsRef = useRef(new Set());
@@ -535,6 +547,8 @@ export default function ChatScreen({ navigation, route }) {
     if (data.peer) setPeer(data.peer);
     if (data.listing) setChatListing(data.listing);
     if (data.myRole) setMyRole(data.myRole);
+    if (data.block) setBlock((prev) => sameBlock(prev, data.block));
+    if (data.blockedBy) setBlockedBy((prev) => sameBlock(prev, data.blockedBy));
     const nextDeal = data.deal || null;
     setDeal((prev) => (JSON.stringify(prev) === JSON.stringify(nextDeal) ? prev : nextDeal));
   }, [historyKey, publishMessages]);
@@ -633,7 +647,57 @@ export default function ChatScreen({ navigation, route }) {
     }, [chatId, loadMessages])
   );
 
+  const applyBlock = async (flags) => {
+    const targetId = peer?.id || otherUserId;
+    if (!targetId) return;
+    setBlockBusy(true);
+    const { error } = flags
+      ? await api.blockUser(targetId, flags)
+      : await api.unblockUser(targetId);
+    setBlockBusy(false);
+    if (error) {
+      setBlockSheet(null);
+      setAlertConfig(
+        showErrorAlert({
+          title: flags ? 'Could not block' : 'Could not unblock',
+          message: typeof error === 'string' ? error : 'Please try again.',
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
+    setBlock(flags ? { messages: Boolean(flags.messages), calls: Boolean(flags.calls) } : NO_BLOCK);
+    setBlockSheet(null);
+    loadMessages();
+  };
+
   const startCall = () => {
+    if (block.calls) {
+      setAlertConfig({
+        type: 'warning',
+        title: 'Calls blocked',
+        message: `You blocked calls from ${shownName}. Unblock calls to ring them.`,
+        primaryButton: {
+          text: 'Manage block',
+          onPress: () => {
+            setAlertConfig(null);
+            setBlockSheet('block');
+          },
+        },
+        secondaryButton: { text: 'Cancel', onPress: () => setAlertConfig(null) },
+      });
+      return;
+    }
+    if (blockedBy.calls) {
+      setAlertConfig(
+        showErrorAlert({
+          title: 'You are blocked',
+          message: `${shownName} has blocked calls from you. Your call cannot ring.`,
+          onConfirm: () => setAlertConfig(null),
+        })
+      );
+      return;
+    }
     if (!chatId) {
       setAlertConfig(
         showErrorAlert({
@@ -717,13 +781,15 @@ export default function ChatScreen({ navigation, route }) {
       return;
     }
     setDraft(value);
+    if (data?.code === 'MESSAGES_BLOCKED') setBlockedBy((prev) => ({ ...prev, messages: true }));
+    if (data?.code === 'YOU_BLOCKED_MESSAGES') setBlock((prev) => ({ ...prev, messages: true }));
     const serverMsg =
       (typeof data?.message === 'string' && data.message) ||
       (typeof error === 'string' && error) ||
       'Could not send message. Please try again.';
     setAlertConfig(
       showErrorAlert({
-        title: 'Message not sent',
+        title: data?.code === 'MESSAGES_BLOCKED' ? 'You are blocked' : 'Message not sent',
         message: serverMsg,
         onConfirm: () => setAlertConfig(null),
       })
@@ -937,6 +1003,7 @@ export default function ChatScreen({ navigation, route }) {
   };
 
   const dealBanner = dealBannerContent(deal);
+  const messagesBlocked = block.messages || blockedBy.messages;
   const shownListing = chatListing || listing;
   const peerShop = peer?.shop;
   const shownName = peerShop?.name || peer?.name || contactName;
@@ -993,11 +1060,7 @@ export default function ChatScreen({ navigation, route }) {
             <Pressable
               hitSlop={10}
               style={styles.iconBtn}
-              onPress={() => navigation.navigate(ROUTES.REPORT_BLOCK, {
-                userId: otherUserId,
-                listingId: listingId ? String(listingId) : undefined,
-                listingTitle: listing?.title,
-              })}
+              onPress={() => setBlockSheet('menu')}
             >
               <Icon name="ellipsis-vertical" size={22} color={colors.onGradient} />
             </Pressable>
@@ -1304,7 +1367,22 @@ export default function ChatScreen({ navigation, route }) {
           </Pressable>
         </View>
       ) : null}
-      {loaded && chatId && !recording && !editing && !draft.trim() ? (
+      {messagesBlocked ? (
+        <View style={[styles.blockedBar, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+          <Icon name="ban" size={18} color="#F87171" />
+          <Text style={styles.blockedText}>
+            {block.messages
+              ? `You blocked messages from ${shownName}.`
+              : `${shownName} has blocked messages from you. You can't send messages in this chat.`}
+          </Text>
+          {block.messages ? (
+            <Pressable hitSlop={8} onPress={() => setBlockSheet('block')}>
+              <Text style={styles.blockedAction}>Manage</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      {!messagesBlocked && loaded && chatId && !recording && !editing && !draft.trim() ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -1323,49 +1401,51 @@ export default function ChatScreen({ navigation, route }) {
           ))}
         </ScrollView>
       ) : null}
-      <View
-        style={[
-          styles.inputBar,
-          { paddingBottom: Math.max(insets.bottom, 6) + (Platform.OS === 'android' ? keyboardOverlap : 0) },
-        ]}
-      >
-        <View style={styles.inputPill}>
-          {recording ? (
-            <>
-              <Pressable onPress={cancelRecording} hitSlop={10} disabled={sendingVoice}>
-                <Icon name="trash-outline" size={22} color="#EF4444" />
-              </Pressable>
-              <View style={styles.recordMeta}>
-                <View style={styles.recordDot} />
-                <Text style={styles.recordTime}>{formatDuration(recordMs / 1000)}</Text>
-                <Text style={styles.recordHint}>{sendingVoice ? 'Sending…' : 'Recording'}</Text>
-              </View>
-            </>
-          ) : (
-            <TextInput
-              value={draft}
-              onChangeText={onDraftChange}
-              placeholder="Message"
-              placeholderTextColor="#8696A0"
-              style={styles.textInput}
-              multiline
-              enablesReturnKeyAutomatically
-            />
-          )}
-        </View>
-        <Pressable
-          hitSlop={8}
-          style={styles.roundBtn}
-          disabled={sendingVoice}
-          onPress={recording ? sendRecording : draft.trim() || editing ? () => send(draft) : handleMic}
+      {messagesBlocked ? null : (
+        <View
+          style={[
+            styles.inputBar,
+            { paddingBottom: Math.max(insets.bottom, 6) + (Platform.OS === 'android' ? keyboardOverlap : 0) },
+          ]}
         >
-          {sendingVoice ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Icon name={recording || draft.trim() || editing ? 'send' : 'mic'} size={22} color="#FFFFFF" />
-          )}
-        </Pressable>
-      </View>
+          <View style={styles.inputPill}>
+            {recording ? (
+              <>
+                <Pressable onPress={cancelRecording} hitSlop={10} disabled={sendingVoice}>
+                  <Icon name="trash-outline" size={22} color="#EF4444" />
+                </Pressable>
+                <View style={styles.recordMeta}>
+                  <View style={styles.recordDot} />
+                  <Text style={styles.recordTime}>{formatDuration(recordMs / 1000)}</Text>
+                  <Text style={styles.recordHint}>{sendingVoice ? 'Sending…' : 'Recording'}</Text>
+                </View>
+              </>
+            ) : (
+              <TextInput
+                value={draft}
+                onChangeText={onDraftChange}
+                placeholder="Message"
+                placeholderTextColor="#8696A0"
+                style={styles.textInput}
+                multiline
+                enablesReturnKeyAutomatically
+              />
+            )}
+          </View>
+          <Pressable
+            hitSlop={8}
+            style={styles.roundBtn}
+            disabled={sendingVoice}
+            onPress={recording ? sendRecording : draft.trim() || editing ? () => send(draft) : handleMic}
+          >
+            {sendingVoice ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Icon name={recording || draft.trim() || editing ? 'send' : 'mic'} size={22} color="#FFFFFF" />
+            )}
+          </Pressable>
+        </View>
+      )}
       {recording ? (
         <VoiceCapture
           captureRef={captureRef}
@@ -1429,6 +1509,26 @@ export default function ChatScreen({ navigation, route }) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <ChatBlockSheet
+        visible={Boolean(blockSheet)}
+        startMode={blockSheet || 'menu'}
+        name={shownName}
+        block={block}
+        busy={blockBusy}
+        bottomInset={insets.bottom}
+        onClose={() => setBlockSheet(null)}
+        onApply={applyBlock}
+        onUnblock={() => applyBlock(null)}
+        onReport={() => {
+          setBlockSheet(null);
+          navigation.navigate(ROUTES.REPORT_BLOCK, {
+            userId: peer?.id || otherUserId,
+            listingId: listingId ? String(listingId) : undefined,
+            listingTitle: listing?.title,
+          });
+        }}
+      />
 
       <AlertModal
         visible={Boolean(linkAlert)}
@@ -1835,6 +1935,25 @@ const createStyles = (colors) => ({
     color: '#E9EDEF',
     fontSize: 13,
     marginTop: 2,
+  },
+  blockedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: '#1F2C34',
+  },
+  blockedText: {
+    flex: 1,
+    color: '#D1D7DB',
+    fontSize: 14,
+    lineHeight: 19,
+  },
+  blockedAction: {
+    color: '#00A884',
+    fontSize: 14.5,
+    fontWeight: '800',
   },
   menuBackdrop: {
     flex: 1,

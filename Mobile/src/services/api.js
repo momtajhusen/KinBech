@@ -621,6 +621,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ join }),
     }),
+  reportCallFailure: (chatId, { accountId, reason }) =>
+    request(`/chats/${chatId}/call/failure`, {
+      method: 'POST',
+      body: JSON.stringify({ accountId, reason }),
+    }),
   getIncomingCall: () => request('/chats/incoming-call'),
   getCallStatus: (chatId) => request(`/chats/${chatId}/call`),
   markCallDelivered: (chatId) =>
@@ -651,8 +656,8 @@ export const api = {
     request('/notifications/clear', { method: 'POST', body: JSON.stringify(scope || {}) }),
   createReport: (payload) =>
     request('/reports', { method: 'POST', body: JSON.stringify(payload) }),
-  blockUser: (userId) =>
-    request(`/reports/users/${userId}/block`, { method: 'POST' }),
+  blockUser: (userId, { messages = true, calls = true } = {}) =>
+    request(`/reports/users/${userId}/block`, { method: 'POST', body: JSON.stringify({ messages, calls }) }),
   unblockUser: (userId) =>
     request(`/reports/users/${userId}/block`, { method: 'DELETE' }),
   getMyReports: () => request('/reports/my'),

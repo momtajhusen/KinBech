@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { RtcRole, RtcTokenBuilder } = require('agora-token');
+const { accountById, pickCallAccount } = require('./callSettings');
 
 const TOKEN_TTL_SECONDS = 60 * 60;
 
@@ -13,14 +14,15 @@ function channelForChat(chatId) {
   return `c${String(chatId)}`;
 }
 
-function createRtcToken({ chatId, userId }) {
-  const appId = String(process.env.AGORA_APP_ID || '').trim();
-  const appCertificate = String(process.env.AGORA_APP_CERTIFICATE || '').trim();
-  if (!appId || !appCertificate) {
-    const error = new Error('Voice calls are not configured');
-    error.status = 503;
-    throw error;
-  }
+/**
+ * Voice session on an Agora account from the admin panel. Pass `accountId` when joining a call
+ * that is already ringing so both people land in the same Agora project.
+ */
+async function createRtcToken({ chatId, userId, accountId, ttlSeconds }) {
+  const account = (accountId && await accountById(accountId)) || await pickCallAccount();
+  const { appId, appCertificate } = account;
+  // Agora drops the person from the channel when the token runs out, which enforces the daily limit.
+  const ttl = ttlSeconds > 0 ? Math.min(TOKEN_TTL_SECONDS, Math.ceil(ttlSeconds)) : TOKEN_TTL_SECONDS;
 
   const channel = channelForChat(chatId);
   const uid = uidForUser(userId);
@@ -30,8 +32,8 @@ function createRtcToken({ chatId, userId }) {
     channel,
     uid,
     RtcRole.PUBLISHER,
-    TOKEN_TTL_SECONDS,
-    TOKEN_TTL_SECONDS
+    ttl,
+    ttl
   );
 
   return {
@@ -39,7 +41,8 @@ function createRtcToken({ chatId, userId }) {
     channel,
     uid,
     token,
-    expiresIn: TOKEN_TTL_SECONDS,
+    expiresIn: ttl,
+    accountId: account.id,
   };
 }
 

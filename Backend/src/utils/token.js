@@ -104,7 +104,10 @@ function publicUser(user, options = {}) {
     preferences: prefs,
     location: includePrivate || prefs.showLocation !== false ? user.location || '' : '',
     coordinates: includePrivate || prefs.showLocation !== false ? user.coordinates || null : null,
-    blockedCount: Array.isArray(user.blockedUserIds) ? user.blockedUserIds.length : 0,
+    blockedCount: new Set([
+      ...(user.blockedUserIds || []).map(String),
+      ...(user.blocks || []).map((block) => String(block.user)),
+    ]).size,
     profileComplete: Boolean(user.profileComplete),
     joinedAt: user.createdAt || null,
     createdAt: user.createdAt || null,

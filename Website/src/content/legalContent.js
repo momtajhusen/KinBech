@@ -1,28 +1,39 @@
-export const LEGAL_LAST_UPDATED = 'March 2026';
+export const LEGAL_LAST_UPDATED = 'October 2026';
 
 export const LEGAL_COMPANY = {
   name: 'KinBech Pvt. Ltd.',
   address: 'Gairidhara - 2, Kathmandu 44600, Bagmati Province, Nepal',
-  supportEmail: 'support@kinbech.app',
-  privacyEmail: 'privacy@kinbech.app',
-  legalEmail: 'legal@kinbech.app',
-  website: 'https://kinbech.app',
-  appPackage: 'com.codersalpha1.kinbech',
+  supportEmail: 'support@kinbech.com',
+  privacyEmail: 'support@kinbech.com',
+  legalEmail: 'support@kinbech.com',
+  website: 'https://kinbech.codersalpha.com',
+  appPackage: 'com.codersalpha.kinbech',
   minAge: 16,
 };
 
 /** Play Store / Data safety aligned permission disclosures */
 export const APP_PERMISSIONS = [
   {
-    id: 'phone',
-    name: 'Phone number',
-    android: 'Not a device permission — collected when you sign up',
-    ios: 'Not a device permission — collected when you sign up',
+    id: 'account',
+    name: 'Google account (name, email, profile photo)',
+    android: 'Not a device permission — shared by Google when you sign in',
+    ios: 'Not a device permission — shared by Google when you sign in',
     required: true,
-    when: 'Account creation & OTP login',
-    why: 'To create your account, verify your identity via SMS OTP, and secure login.',
-    data: 'Phone number stored on our servers while your account is active.',
+    when: 'Sign in with Google',
+    why: 'To create your account, sign you in securely, and show your name and photo to people you deal with.',
+    data: 'Your Google account ID, email, name, and profile photo are stored on our servers while your account is active. We never see your Google password.',
     optional: false,
+  },
+  {
+    id: 'phone',
+    name: 'Phone number (optional)',
+    android: 'Not a device permission — typed by you',
+    ios: 'Not a device permission — typed by you',
+    required: false,
+    when: 'If you add a phone number to your profile',
+    why: 'Lets buyers call you directly, only if you turn on "Show phone number" in Privacy settings.',
+    data: 'Stored on your profile. Hidden from other users unless you choose to show it.',
+    optional: true,
   },
   {
     id: 'location',
@@ -38,23 +49,45 @@ export const APP_PERMISSIONS = [
   {
     id: 'photos',
     name: 'Photos & media library',
-    android: 'READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE (Android version dependent)',
+    android: 'Android photo picker (no gallery permission on Android 13+); READ_EXTERNAL_STORAGE on Android 12 and below',
     ios: 'NSPhotoLibraryUsageDescription',
     required: false,
-    when: 'Profile photo, listing photos, shop logo',
-    why: 'Let you upload images for your profile and product listings.',
-    data: 'Selected images are uploaded to our servers and linked to your account/listings. We do not scan your entire gallery.',
+    when: 'Profile photo, listing photos, shop logo, shop verification documents',
+    why: 'Let you upload images for your profile, product listings, and shop.',
+    data: 'Only the images you pick are uploaded and linked to your account or listings. We do not scan your gallery.',
     optional: true,
   },
   {
-    id: 'video',
-    name: 'Videos (media library)',
-    android: 'READ_MEDIA_VIDEO (when supported)',
-    ios: 'Photo library video access',
+    id: 'camera',
+    name: 'Camera',
+    android: 'CAMERA',
+    ios: 'NSCameraUsageDescription',
     required: false,
-    when: 'Optional listing video upload',
-    why: 'Allow sellers to attach one short product video to a listing.',
-    data: 'Only the video you explicitly select is uploaded.',
+    when: 'When you take a listing or profile photo, or record a short listing video (max 30 seconds)',
+    why: 'Let you photograph items and record one short product video inside the app.',
+    data: 'Only the photos and video you capture and choose to post are uploaded.',
+    optional: true,
+  },
+  {
+    id: 'microphone',
+    name: 'Microphone',
+    android: 'RECORD_AUDIO, MODIFY_AUDIO_SETTINGS',
+    ios: 'NSMicrophoneUsageDescription, NSSpeechRecognitionUsageDescription',
+    required: false,
+    when: 'Voice calls, voice messages in chat, voice search, and listing video sound',
+    why: 'Let you talk to buyers and sellers, send voice notes, and search by speaking.',
+    data: 'Call audio is streamed live through our calling provider (Agora) and is never recorded. Voice messages are uploaded and kept with the chat. Voice search is turned into text by your device speech service (Google); only the text reaches KinBech.',
+    optional: true,
+  },
+  {
+    id: 'calls',
+    name: 'Incoming calls & background calling',
+    android: 'MANAGE_OWN_CALLS, FOREGROUND_SERVICE_PHONE_CALL, FOREGROUND_SERVICE_MICROPHONE, USE_FULL_SCREEN_INTENT, WAKE_LOCK, VIBRATE, SYSTEM_ALERT_WINDOW, DISABLE_KEYGUARD, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
+    ios: 'Not applicable',
+    required: false,
+    when: 'When someone calls you on KinBech, and while a call is active',
+    why: 'Ring and show the incoming call screen even when the phone is locked or the app is closed, and keep the call connected when you switch apps. Battery optimisation is turned off only if you approve it.',
+    data: 'No extra data is collected. These permissions only control how calls ring and stay connected.',
     optional: true,
   },
   {
@@ -64,8 +97,8 @@ export const APP_PERMISSIONS = [
     ios: 'Push notification permission (when enabled)',
     required: false,
     when: 'If you enable notifications in Settings',
-    why: 'Send chat replies, listing activity, and safety alerts.',
-    data: 'Device push token stored to deliver notifications. You can disable anytime in Settings.',
+    why: 'Send incoming calls, chat replies, listing activity, and safety alerts.',
+    data: 'A device push token is stored and used through Firebase Cloud Messaging (Google) to deliver notifications. You can disable them anytime in Settings.',
     optional: true,
   },
   {
@@ -82,11 +115,10 @@ export const APP_PERMISSIONS = [
 ];
 
 export const PERMISSIONS_NOT_USED = [
-  'Microphone / audio recording (RECORD_AUDIO) — not used by KinBech',
+  'Call recording — calls are never recorded',
   'Background location — not collected',
   'Contacts / address book — not accessed',
-  'SMS read/send — OTP is entered manually; we do not read your SMS inbox',
-  'Camera capture — currently only photo library picker is used; camera opens only if enabled in a future update',
+  'SMS and call logs — not accessed',
   'Calendar, Bluetooth, body sensors — not used',
 ];
 
@@ -96,7 +128,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Data requests',
-      body: `To export, correct, or delete your personal data, email ${LEGAL_COMPANY.privacyEmail} from your registered contact or include your verified phone number. We respond within 30 days.`,
+      body: `To export, correct, or delete your personal data, use Settings → Privacy & Security in the app, or email ${LEGAL_COMPANY.privacyEmail} from the email address of the Google account you sign in with. We respond within 30 days.`,
     },
     sections: [
       {
@@ -105,11 +137,11 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '2. Information We Collect',
-        body: 'Account data: verified phone number, display name, optional profile photo, optional city/district location, seller type (individual/shop), and preferences (language, currency, notification toggles, visibility settings). Listing data: titles, descriptions, prices, categories, photos, optional video, meetup preferences, and listing location. Communication data: in-app chat messages and support tickets. Technical data: device model, OS version, app version, IP address, crash logs, and interaction events. We do not collect payment card numbers inside the app — payments happen directly between users at meetup.',
+        body: 'Account data: from Google sign-in — your Google account ID, email, name, and profile photo; plus an optional phone number, optional city/district location, seller type (individual/shop), referral code, and preferences (language, currency, notification toggles, visibility settings). Shop data: shop name, logo, address, and — if you request a verified badge — PAN/VAT number and business documents. Listing data: titles, descriptions, prices, categories, photos, optional video, meetup preferences, and listing location. Communication data: chat messages, voice messages, call history (who called, when, and how long — never the call audio), reviews, reports, and support tickets. Saved payment details: eSewa, Khalti, IME Pay, or bank details you choose to save so buyers can pay you. Technical data: device model, OS version, app version, push token, IP address, crash logs, and interaction events. We do not collect card numbers and we do not process payments — deals are paid directly between users.',
       },
       {
         title: '3. App Permissions & Device Access',
-        body: 'KinBech requests device permissions only when needed for a feature you use. Optional permissions can be denied — core browsing still works. Required: network access and phone number at signup. Optional: location (when in use), photo library, video library, and push notifications. A full permission table is available in Settings → App Permissions & Data Use. We do not use microphone/audio recording, background location, contacts, or SMS inbox access.',
+        body: 'KinBech requests device permissions only when needed for a feature you use. Optional permissions can be denied — core browsing still works. Required: network access and a Google account to sign in. Optional: location (when in use), camera, photo library, microphone (voice calls, voice messages, voice search, listing video), incoming-call permissions, and push notifications. A full permission table is available in Settings → App Permissions & Data Use. We never record calls, and we do not use background location, contacts, SMS, or call logs.',
       },
       {
         title: '4. Location Data',
@@ -117,38 +149,42 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '5. How We Use Information',
-        body: 'We use data to: create and secure your account (OTP); show and rank listings; enable buyer–seller chat; send notifications you opt into; prevent fraud, spam, and policy violations; provide customer support; comply with law; and improve the service using aggregated analytics.',
+        body: 'We use data to: create and secure your account (Google sign-in); show and rank listings; enable buyer–seller chat, voice messages, and voice calls; ring incoming calls and send notifications you opt into; suggest listing details from your photos when you use auto-fill; check listings and documents for prohibited content and fraud; verify shops; provide customer support; comply with law; and improve the service using aggregated analytics.',
       },
       {
         title: '6. Sharing & Disclosure',
-        body: 'We do not sell your personal data. We share: (a) with other users — your public profile, listings, and chat messages with people you contact; phone number only if you enable "Show phone number" in Privacy settings; (b) with service providers — cloud hosting, SMS OTP delivery, error monitoring — under confidentiality agreements; (c) when required by law or to protect safety.',
+        body: 'We do not sell your personal data. We share: (a) with other users — your public profile, listings, reviews, and messages with people you contact; phone number only if you enable "Show phone number" in Privacy settings; (b) with service providers who process data for us under contract (see "Service providers" below); (c) when required by law or to protect safety.',
       },
       {
-        title: '7. Data Retention & Deletion',
-        body: 'Active account data is kept while your account exists. After account deletion (Settings → Privacy & Security → Delete Account, or email privacy@kinbech.app), we delete or anonymize personal data within 90 days except where law requires longer retention (e.g. safety reports, tax records). See Account Deletion Policy in Settings for step-by-step instructions required by Google Play.',
+        title: '7. Service providers',
+        body: 'Google — Google Sign-In, Firebase Cloud Messaging (push notifications and incoming calls), and Gemini AI (the listing photos and text you submit when you use auto-fill). Agora — streams voice call audio in real time; calls are not recorded. Cloudflare R2 — stores photos, videos, voice messages, and documents you upload. MongoDB Atlas — our database. Cloud server hosting for the KinBech API. Error monitoring (Sentry, when enabled) — crash and error reports. Each provider receives only what it needs to perform its service.',
       },
       {
-        title: '8. Security',
-        body: 'We use HTTPS/TLS for API traffic, encrypted storage for auth tokens on device, access controls on production systems, and role-based admin access. No method is 100% secure; report concerns to privacy@kinbech.app.',
+        title: '8. Data Retention & Deletion',
+        body: 'Active account data is kept while your account exists. When you delete your account (Settings → Privacy & Security → Delete account, or email support@kinbech.com), it is hidden right away and permanently deleted after a 30-day grace period. Signing in during those 30 days cancels the request. Backups are purged within 90 days after that, except where law requires longer retention (e.g. safety reports, tax records). See the Account Deletion Policy for step-by-step instructions.',
       },
       {
-        title: '9. Your Rights',
-        body: 'You may request access, correction, deletion, or restriction of your data. Update profile fields in-app. For full export or erasure, contact privacy@kinbech.app with your verified phone number. Nepal and India users may lodge complaints with relevant data protection authorities if unsatisfied with our response.',
+        title: '9. Security',
+        body: 'We use HTTPS/TLS for API traffic, encrypted storage for auth tokens on device, access controls on production systems, and role-based admin access. No method is 100% secure; report concerns to support@kinbech.com.',
       },
       {
-        title: '10. Children',
+        title: '10. Your Rights',
+        body: 'You may request access, correction, deletion, or restriction of your data. Update profile fields in-app, and use "Download my data" in Settings → Privacy & Security for a copy. For anything else, email support@kinbech.com from the email of the Google account you sign in with. Nepal and India users may lodge complaints with relevant data protection authorities if unsatisfied with our response.',
+      },
+      {
+        title: '11. Children',
         body: `KinBech is not for children under ${LEGAL_COMPANY.minAge}. We do not knowingly collect data from minors. Contact us to request deletion if a child created an account.`,
       },
       {
-        title: '11. International Transfers',
-        body: 'Data is primarily processed in Nepal. Some backup or analytics subprocessors may process data in other countries with appropriate safeguards (standard contractual clauses where applicable).',
+        title: '12. International Transfers',
+        body: 'Our servers and the service providers listed above may store or process data outside Nepal. We use providers that protect data with industry-standard safeguards.',
       },
       {
-        title: '12. Changes',
-        body: 'We may update this policy. Material changes will be notified in-app or by SMS/email at least 30 days before taking effect. Continued use after the effective date means acceptance.',
+        title: '13. Changes',
+        body: 'We may update this policy. Material changes will be notified in-app or by email at least 30 days before taking effect. Continued use after the effective date means acceptance.',
       },
       {
-        title: '13. Contact',
+        title: '14. Contact',
         body: `Data Protection Officer: ${LEGAL_COMPANY.privacyEmail}. Postal: ${LEGAL_COMPANY.name}, Attn: DPO, ${LEGAL_COMPANY.address}.`,
       },
     ],
@@ -168,7 +204,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '2. Eligibility',
-        body: `You must be at least ${LEGAL_COMPANY.minAge} years old and able to form a binding contract in Nepal or India. One account per person. You are responsible for activity on your account and keeping OTP login secure.`,
+        body: `You must be at least ${LEGAL_COMPANY.minAge} years old and able to form a binding contract in Nepal or India. One account per person. You are responsible for activity on your account and keeping the Google account you sign in with secure.`,
       },
       {
         title: '3. Marketplace Role',
@@ -216,7 +252,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '14. Changes',
-        body: 'Material Term changes will be notified at least 30 days in advance via in-app notice, SMS, or email. Continued use means acceptance.',
+        body: 'Material Term changes will be notified at least 30 days in advance via in-app notice or email. Continued use means acceptance.',
       },
     ],
   },
@@ -226,7 +262,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Google Play Data safety',
-      body: 'This page matches our Google Play Data safety form: we collect account info, user content, and approximate location (optional). We do not sell data. Deletion is available in-app and by email.',
+      body: 'This page matches our Google Play Data safety form: we collect account info (name, email, optional phone), photos and videos, messages and voice messages, location (optional), saved payment details (optional), device push token, and crash logs. Call audio is streamed, never stored. Data is encrypted in transit and we do not sell it. Deletion is available in-app and by email.',
     },
     sections: [
       {
@@ -250,7 +286,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '5. Data collected without a pop-up',
-        body: 'Phone number and profile info you type, listing content, chat messages, and basic device/network metadata sent automatically with API requests.',
+        body: 'Name, email, and photo from Google sign-in, profile info you type, listing content, chat messages, and basic device/network metadata sent automatically with API requests.',
       },
     ],
   },
@@ -260,7 +296,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Report violations',
-      body: 'Open a listing or chat → Report, or email support@kinbech.app. Repeat offenders are suspended.',
+      body: 'Open a listing or chat → Report, or email support@kinbech.com. Repeat offenders are suspended.',
     },
     sections: [
       {
@@ -299,7 +335,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Need help deleting?',
-      body: `Email ${LEGAL_COMPANY.privacyEmail} with subject "Delete my account" and your registered phone number. We confirm within 7 business days.`,
+      body: `Email ${LEGAL_COMPANY.privacyEmail} with subject "Delete my account" from the email of the Google account you sign in with. We confirm within 7 business days.`,
     },
     sections: [
       {
@@ -312,11 +348,11 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '3. Delete by email',
-        body: `Email ${LEGAL_COMPANY.privacyEmail} from your registered number's contact if possible. Include: full name, phone number (+977…), and "Please delete my account". We verify ownership before processing.`,
+        body: `No app? Email ${LEGAL_COMPANY.privacyEmail} from the email address of the Google account you use on KinBech. Include your full name and "Please delete my account". We verify ownership before processing.`,
       },
       {
         title: '4. What is deleted',
-        body: 'Profile name, photo, phone (after retention window), saved preferences, active listings, and shop profile linked to your account. Chat may be anonymized for the other party.',
+        body: 'Your Google account link, email, name, photo, phone number, saved addresses and payment details, preferences, listings, shop profile, and shop verification documents. In chats, your messages and voice messages are replaced with "Message removed" and your name shows as "Deleted user". Reviews you wrote stay, also shown as "Deleted user".',
       },
       {
         title: '5. What may be retained',
@@ -324,11 +360,11 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '6. Timeline',
-        body: 'Account hidden immediately after confirmation. Full deletion from active systems within 90 days. Encrypted backups purged within 6 additional months.',
+        body: 'Your account is hidden as soon as you confirm. It is permanently deleted from our live systems after the 30-day grace period. Backups are purged within 90 days after that.',
       },
       {
         title: '7. Re-registration',
-        body: 'After deletion you may create a new account with the same phone number once deletion is complete, subject to our anti-abuse checks.',
+        body: 'After deletion is complete you may create a new account with the same Google account, subject to our anti-abuse checks.',
       },
     ],
   },
@@ -365,7 +401,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Report urgently',
-      body: 'Report child safety concerns immediately via in-app Report or email legal@kinbech.app.',
+      body: 'Report child safety concerns immediately via in-app Report or email support@kinbech.com.',
     },
     sections: [
       {
@@ -378,7 +414,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '3. Parental notice',
-        body: 'If you believe a minor is using KinBech, contact privacy@kinbech.app and we will investigate and delete the account.',
+        body: 'If you believe a minor is using KinBech, contact support@kinbech.com and we will investigate and delete the account.',
       },
       {
         title: '4. Moderation',

@@ -7,6 +7,7 @@ const Report = require('../models/Report');
 const Shop = require('../models/Shop');
 const { normalizePhone } = require('../utils/phone');
 const { phoneVisible, publicUser } = require('../utils/token');
+const { blockOf, blockedUserIdsOf } = require('../utils/blocks');
 const { applySellerModeChange, checkSellerModeChange, sellerModeStatus } = require('../utils/sellerMode');
 const { ensureReferralCode, applyReferralCode } = require('../utils/referral');
 const { computeLiveMetrics, detectAndAlertAnomalies } = require('../utils/platformBI');
@@ -561,7 +562,7 @@ async function updatePreferences(req, res, next) {
 
 async function getBlockedUsers(req, res, next) {
   try {
-    const ids = Array.isArray(req.user.blockedUserIds) ? req.user.blockedUserIds : [];
+    const ids = blockedUserIdsOf(req.user);
     const users = ids.length
       ? await User.find({ _id: { $in: ids } }, 'name avatarUrl phone preferences')
       : [];
@@ -571,6 +572,7 @@ async function getBlockedUsers(req, res, next) {
         name: u.name,
         avatarUrl: u.avatarUrl,
         phone: phoneVisible(u) ? u.phone || '' : '',
+        block: blockOf(req.user, u._id),
       })),
     });
   } catch (error) {

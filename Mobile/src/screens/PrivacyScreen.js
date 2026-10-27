@@ -15,6 +15,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { AlertModal, showErrorAlert, showSuccessAlert } from '../components/AlertModal';
+import { blockSummary } from '../components/ChatBlockSheet';
 import HeroHeader, { HeroStat } from '../components/HeroHeader';
 import { PressableScale, Reanimated, enterUp } from '../components/Motion';
 import { useAuth } from '../context/AuthContext';
@@ -317,7 +318,7 @@ export default function PrivacyScreen({ navigation }) {
   const handleUnblock = (userId, userName) => {
     Alert.alert(
       'Unblock User?',
-      `${userName || 'This user'} will be able to see your listings and message you again.`,
+      `${userName || 'This user'} will be able to message and call you again.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -656,7 +657,7 @@ export default function PrivacyScreen({ navigation }) {
           icon="ban-outline"
           tint={TINT.blocked}
           title="Blocked users"
-          subtitle="They can't message you or see your listings"
+          subtitle="They can't reach you with what you blocked"
           count={blocked.length}
         >
           {blockedLoading ? (
@@ -669,7 +670,7 @@ export default function PrivacyScreen({ navigation }) {
               icon="shield-outline"
               tint={TINT.blocked}
               title="No blocked users"
-              body="Block someone from the chat ⋮ menu or their profile. They won't be able to message you."
+              body="Open a chat, tap ⋮ and choose Block. You can block messages, calls, or both."
             />
           ) : (
             blocked.map((u) => (
@@ -686,7 +687,7 @@ export default function PrivacyScreen({ navigation }) {
                 </View>
                 <View style={styles.flex1}>
                   <Text style={styles.itemName} numberOfLines={1}>{u.name || 'Unknown User'}</Text>
-                  {u.phone ? <Text style={styles.itemMeta}>{u.phone}</Text> : null}
+                  <Text style={styles.itemMeta}>{blockSummary(u.block) || 'Messages & calls blocked'}</Text>
                 </View>
                 <Pressable
                   onPress={() => handleUnblock(u.id, u.name)}

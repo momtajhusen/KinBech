@@ -113,6 +113,7 @@
       "./plugins/withIncomingCall",
       "./plugins/withCertificatePinning",
       "./plugins/withGradleMemory",
+      "./plugins/withAgoraSlim",
       [
         "expo-speech-recognition",
         {

@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState, useRef } from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from '../components/Icon';
 import EmptyState from '../components/EmptyState';
+import CallMinutesPill from '../components/CallMinutesPill';
 import { ChatItemSkeleton } from '../components/SkeletonLoader';
 import { PressableScale, enterUp } from '../components/Motion';
 import { ROUTES } from '../navigation/helpers';
@@ -41,31 +42,14 @@ function formatChatTime(dateValue) {
   return date.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
-function waitingFor(dateValue) {
-  const ms = Date.now() - new Date(dateValue || 0).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return '';
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
-function callIconColor(chat) {
-  const status = chat.lastCallStatus;
-  const missed = status === 'missed' || (status === 'cancelled' && !chat.lastMessageMine) || !status;
-  if (status === 'answered') return '#22C55E';
-  if (missed) return '#EF4444';
-  return '#F59E0B';
-}
-
-function previewMeta(chat) {
+function previewMeta(chat, colors) {
   const kind = chat.lastMessageKind || 'text';
   const text = String(chat.lastMessage || '').trim();
   if (!text) return { icon: null, color: null, text: 'No messages yet' };
   if (kind === 'call') {
-    return { icon: 'call', color: callIconColor(chat), text: text || 'Voice call' };
+    const status = chat.lastCallStatus;
+    const missed = status === 'missed' || (status === 'cancelled' && !chat.lastMessageMine) || !status;
+    return { icon: 'call', color: missed ? colors.error : colors.textMuted, text: text || 'Voice call' };
   }
   if (kind === 'voice') return { icon: 'mic-outline', color: null, text: 'Voice message' };
   if (chat.lastMessageMine) return { icon: 'checkmark-done', color: null, text };
@@ -100,28 +84,50 @@ function chatKey(chat) {
   return `${chat.otherUser?.id || chat.id}:${chat.listing?.id || chat.listing?._id || chat.id}`;
 }
 
-function ChatAvatar({ uri, name, isShop, stateColor, styles, colors }) {
+const FILTERS = [
+  { id: 'all', label: 'All', test: () => true },
+  { id: 'unread', label: 'Unread', test: (chat) => chat.unreadCount > 0 },
+  { id: 'reply', label: 'Needs reply', test: needsReplyFrom },
+  { id: 'buying', label: 'Buying', test: (chat) => chat.myRole === 'buyer', optional: true },
+  { id: 'selling', label: 'Selling', test: (chat) => chat.myRole === 'seller', optional: true },
+  { id: 'shops', label: 'Shops', test: (chat) => Boolean(chat.otherUser?.shop), optional: true },
+  { id: 'blocked', label: 'Blocked', test: (chat) => Boolean(blockLabel(chat)), optional: true },
+];
+
+function blockLabel(chat) {
+  const block = chat.block;
+  if (block?.messages && block?.calls) return 'Blocked';
+  if (block?.messages) return 'Messages blocked';
+  if (block?.calls) return 'Calls blocked';
+  return '';
+}
+
+const EMPTY_FILTER_TEXT = {
+  unread: 'You have read every message.',
+  reply: 'You are all caught up. Nobody is waiting on you.',
+  buying: 'Chats about items you want to buy show up here.',
+  selling: 'Chats from buyers on your listings show up here.',
+  shops: 'Chats with shops show up here.',
+  blocked: 'People you block show up here.',
+};
+
+function ChatAvatar({ uri, name, thumb, styles }) {
   const initial = String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
   return (
     <View style={styles.avatarWrap}>
       {uri ? (
-        <Image source={{ uri }} style={[styles.avatar, stateColor && { borderColor: stateColor }]} />
+        <Image source={{ uri }} style={styles.avatar} />
       ) : (
-        <View style={[styles.avatar, styles.avatarFallback, stateColor && { borderColor: stateColor }]}>
+        <View style={[styles.avatar, styles.avatarFallback]}>
           <Text style={styles.avatarInitial}>{initial}</Text>
         </View>
       )}
-      {isShop ? (
-        <View style={styles.avatarShop}>
-          <Icon name="storefront" size={10} color="#fff" />
-        </View>
-      ) : null}
-      {stateColor ? <View style={[styles.avatarDot, { backgroundColor: stateColor, borderColor: colors.surface }]} /> : null}
+      {thumb && thumb !== uri ? <Image source={{ uri: thumb }} style={styles.avatarThumb} /> : null}
     </View>
   );
 }
 
-function ChatCard({ chat, index, styles, colors, onPress }) {
+function ChatRow({ chat, index, styles, colors, onPress }) {
   const peerShop = chat.otherUser?.shop;
   const name = peerShop?.name || chat.otherUser?.name || 'Seller';
   const listingTitle = chat.listing?.title;
@@ -129,103 +135,83 @@ function ChatCard({ chat, index, styles, colors, onPress }) {
   const avatarUri = resolveMediaUrl(peerShop?.logo || chat.otherUser?.avatarUrl || '');
   const listingThumb = resolveMediaUrl(chat.listing?.photos?.[0] || '');
   const timeLabel = formatChatTime(chat.lastMessageAt);
-  const preview = previewMeta(chat);
+  const preview = previewMeta(chat, colors);
   const unread = Number(chat.unreadCount) || 0;
   const needsReply = needsReplyFrom(chat);
-  const isNew = needsReply && (unread > 0 || chat.lastMessageViewed === false);
-  const stateColor = isNew ? colors.primary : needsReply ? colors.warning : null;
+  const blocked = blockLabel(chat);
   const mineText = chat.lastMessageMine && preview.icon !== 'call' && preview.icon !== 'mic-outline';
-  const tickColor = chat.lastMessageViewed ? '#53BDEB' : colors.textMuted;
   const iconColor =
-    preview.color || (preview.icon === 'checkmark-done' ? tickColor : needsReply ? colors.text : colors.textMuted);
+    preview.color ||
+    (preview.icon === 'checkmark-done'
+      ? chat.lastMessageViewed
+        ? colors.chatRead
+        : colors.textMuted
+      : colors.textMuted);
 
   return (
     <PressableScale
-      scaleTo={0.98}
-      entering={enterUp(index, 40)}
-      style={styles.cardWrap}
-      contentStyle={[styles.card, isNew ? styles.cardNew : needsReply ? styles.cardWaiting : null]}
+      scaleTo={0.985}
+      entering={enterUp(index, 30)}
+      contentStyle={styles.row}
       onPress={() => onPress({ chat, name, image: avatarUri || listingThumb })}
     >
-      {stateColor ? <View style={[styles.accent, { backgroundColor: stateColor }]} /> : null}
+      <ChatAvatar uri={avatarUri} name={name} thumb={listingThumb} styles={styles} />
 
-      <View style={styles.cardTop}>
-        <ChatAvatar
-          uri={avatarUri}
-          name={name}
-          isShop={Boolean(peerShop)}
-          stateColor={stateColor}
-          styles={styles}
-          colors={colors}
-        />
-
-        <View style={styles.copy}>
-          <View style={styles.nameRow}>
-            <Text style={[styles.name, needsReply && styles.nameStrong]} numberOfLines={1}>
+      <View style={styles.body}>
+        <View style={styles.line}>
+          <View style={styles.nameWrap}>
+            <Text style={[styles.name, unread > 0 && styles.nameUnread]} numberOfLines={1}>
               {name}
             </Text>
-            {timeLabel ? (
-              <Text style={[styles.time, stateColor && { color: stateColor, fontWeight: '800' }]}>{timeLabel}</Text>
-            ) : null}
+            {peerShop ? <Icon name="storefront-outline" size={13} color={colors.textMuted} /> : null}
           </View>
-          {listingTitle ? (
-            <View style={styles.listingRow}>
-              <Icon name="pricetag-outline" size={12} color={colors.textMuted} />
-              <Text style={styles.listingTitle} numberOfLines={1}>
-                {listingTitle}
-              </Text>
-            </View>
-          ) : null}
-          {listingPrice ? <Text style={styles.listingPrice}>{listingPrice}</Text> : null}
+          {timeLabel ? <Text style={[styles.time, unread > 0 && styles.timeUnread]}>{timeLabel}</Text> : null}
         </View>
 
-        {listingThumb ? <Image source={{ uri: listingThumb }} style={styles.thumb} /> : null}
-      </View>
-
-      <View
-        style={[
-          styles.previewBox,
-          needsReply && styles.previewBoxIncoming,
-          isNew && { borderColor: `${colors.primary}55` },
-        ]}
-      >
-        {preview.icon ? <Icon name={preview.icon} size={15} color={iconColor} /> : null}
-        <Text
-          style={[styles.preview, needsReply && styles.previewIncoming, isNew && styles.previewNew]}
-          numberOfLines={1}
-        >
-          {mineText ? `You: ${preview.text}` : preview.text}
-        </Text>
-        {unread > 0 ? (
-          <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>{unread > 99 ? '99+' : unread} new</Text>
-          </View>
-        ) : needsReply ? (
-          <View style={styles.replyPill}>
-            <Icon name="return-down-back" size={12} color="#fff" />
-            <Text style={styles.replyPillText}>Reply · {waitingFor(chat.lastMessageAt)}</Text>
-          </View>
-        ) : chat.lastMessageMine && preview.icon === 'checkmark-done' ? (
-          <Text style={[styles.statusText, chat.lastMessageViewed && { color: '#53BDEB' }]}>
-            {chat.lastMessageViewed ? 'Seen' : 'Sent'}
+        {listingTitle ? (
+          <Text style={styles.listing} numberOfLines={1}>
+            {listingTitle}
+            {listingPrice ? <Text style={styles.listingPrice}>{`  ·  ${listingPrice}`}</Text> : null}
           </Text>
         ) : null}
+
+        <View style={styles.line}>
+          <View style={styles.previewWrap}>
+            {preview.icon ? <Icon name={preview.icon} size={15} color={iconColor} /> : null}
+            <Text style={[styles.preview, unread > 0 && styles.previewUnread]} numberOfLines={1}>
+              {mineText ? `You: ${preview.text}` : preview.text}
+            </Text>
+          </View>
+          {blocked ? (
+            <View style={styles.blockedTag}>
+              <Icon name="ban" size={11} color={colors.error} />
+              <Text style={styles.blockedTagText}>{blocked}</Text>
+            </View>
+          ) : unread > 0 ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
+            </View>
+          ) : needsReply ? (
+            <Text style={styles.replyHint}>Reply</Text>
+          ) : null}
+        </View>
       </View>
     </PressableScale>
   );
 }
 
-function SectionTitle({ icon, color, title, count, styles }) {
+function FilterChip({ label, count, active, onPress, styles }) {
   return (
-    <View style={styles.sectionRow}>
-      <View style={[styles.sectionIcon, { backgroundColor: `${color}22` }]}>
-        <Icon name={icon} size={13} color={color} />
-      </View>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={[styles.sectionCount, { backgroundColor: `${color}22` }]}>
-        <Text style={[styles.sectionCountText, { color }]}>{count}</Text>
-      </View>
-    </View>
+    <Pressable onPress={onPress} style={[styles.chip, active && styles.chipActive]}>
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+      {count > 0 ? (
+        <View style={[styles.chipCount, active && styles.chipCountActive]}>
+          <Text style={[styles.chipCountText, active && styles.chipCountTextActive]}>
+            {count > 99 ? '99+' : count}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -235,12 +221,22 @@ export default function ChatListScreen({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [onlyAwaiting, setOnlyAwaiting] = useState(false);
+  const [filterId, setFilterId] = useState('all');
+  const [callAllowance, setCallAllowance] = useState(null);
   const hasLoadedRef = useRef(false);
   const people = useMemo(() => peopleFromChats(chats), [chats]);
-  const waiting = useMemo(() => people.filter(needsReplyFrom), [people]);
-  const others = useMemo(() => people.filter((chat) => !needsReplyFrom(chat)), [people]);
-  const showAwaitingOnly = onlyAwaiting && waiting.length > 0;
+
+  const filters = useMemo(
+    () =>
+      FILTERS.map((filter) => ({
+        ...filter,
+        count: filter.id === 'all' ? 0 : people.filter(filter.test).length,
+      })).filter((filter) => !filter.optional || filter.count > 0 || filter.id === filterId),
+    [people, filterId]
+  );
+  const activeFilter = filters.find((filter) => filter.id === filterId) || filters[0];
+  const visible = useMemo(() => people.filter(activeFilter.test), [people, activeFilter]);
+  const unreadTotal = useMemo(() => people.reduce((sum, chat) => sum + (chat.unreadCount || 0), 0), [people]);
 
   const loadChats = useCallback(async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
@@ -250,6 +246,7 @@ export default function ChatListScreen({ navigation }) {
       if (!hasLoadedRef.current) setChats([]);
     } else {
       setChats(data?.chats || []);
+      setCallAllowance(data?.callAllowance || null);
       hasLoadedRef.current = true;
     }
     if (!silent) setLoading(false);
@@ -275,49 +272,43 @@ export default function ChatListScreen({ navigation }) {
     });
   };
 
-  const renderCards = (list, offset = 0) =>
-    list.map((chat, index) => (
-      <ChatCard
-        key={chatKey(chat)}
-        chat={chat}
-        index={offset + index}
-        styles={styles}
-        colors={colors}
-        onPress={openChat}
-      />
-    ));
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ThemeStatusBar />
       <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
-        <View style={styles.subtitleRow}>
-          <Text style={styles.subtitle}>
-            {people.length > 0
-              ? `${people.length} chat${people.length === 1 ? '' : 's'}`
-              : 'Message sellers about items you like'}
+        <View style={styles.headerText}>
+          <Text style={styles.title}>Chats</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {people.length === 0
+              ? 'Message sellers about items you like'
+              : unreadTotal > 0
+                ? `${unreadTotal} unread message${unreadTotal === 1 ? '' : 's'}`
+                : `${people.length} conversation${people.length === 1 ? '' : 's'}`}
           </Text>
-          {waiting.length > 0 ? (
-            <Pressable
-              hitSlop={6}
-              onPress={() => setOnlyAwaiting((value) => !value)}
-              style={[styles.awaitingChip, showAwaitingOnly && styles.awaitingChipActive]}
-            >
-              <View style={[styles.awaitingDot, showAwaitingOnly && styles.awaitingDotActive]} />
-              <Text style={[styles.awaitingText, showAwaitingOnly && styles.awaitingTextActive]}>
-                {waiting.length} waiting for your reply
-              </Text>
-              {showAwaitingOnly ? <Icon name="close" size={13} color="#fff" /> : null}
-            </Pressable>
-          ) : people.length > 0 ? (
-            <View style={styles.doneChip}>
-              <Icon name="checkmark-done" size={13} color={colors.primary} />
-              <Text style={styles.doneText}>All replied</Text>
-            </View>
-          ) : null}
         </View>
+        <CallMinutesPill allowance={callAllowance} />
       </View>
+
+      {people.length > 0 ? (
+        <View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chips}
+          >
+            {filters.map((filter) => (
+              <FilterChip
+                key={filter.id}
+                label={filter.label}
+                count={filter.count}
+                active={filter.id === activeFilter.id}
+                onPress={() => setFilterId(filter.id)}
+                styles={styles}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
 
       <ScrollView
         contentContainerStyle={[styles.list, people.length === 0 && styles.listEmpty]}
@@ -335,40 +326,35 @@ export default function ChatListScreen({ navigation }) {
             title="No conversations yet"
             body="Open an item and message the seller. Your chats will show up here."
           />
-        ) : (
-          <View>
-            {waiting.length > 0 ? (
-              <>
-                <SectionTitle
-                  icon="return-down-back"
-                  color={colors.warning}
-                  title="Waiting for your reply"
-                  count={waiting.length}
-                  styles={styles}
-                />
-                {renderCards(waiting)}
-              </>
-            ) : null}
-            {!showAwaitingOnly && others.length > 0 ? (
-              <>
-                {waiting.length > 0 ? (
-                  <SectionTitle
-                    icon="chatbubbles"
-                    color={colors.textSecondary}
-                    title="Other chats"
-                    count={others.length}
-                    styles={styles}
-                  />
-                ) : null}
-                {renderCards(others, waiting.length)}
-              </>
-            ) : null}
+        ) : visible.length === 0 ? (
+          <View style={styles.filterEmpty}>
+            <View style={styles.filterEmptyIcon}>
+              <Icon name="checkmark-done" size={22} color={colors.primary} />
+            </View>
+            <Text style={styles.filterEmptyTitle}>Nothing here</Text>
+            <Text style={styles.filterEmptyBody}>{EMPTY_FILTER_TEXT[activeFilter.id]}</Text>
+            <Pressable hitSlop={8} onPress={() => setFilterId('all')}>
+              <Text style={styles.filterEmptyLink}>Show all chats</Text>
+            </Pressable>
           </View>
+        ) : (
+          visible.map((chat, index) => (
+            <ChatRow
+              key={chatKey(chat)}
+              chat={chat}
+              index={index}
+              styles={styles}
+              colors={colors}
+              onPress={openChat}
+            />
+          ))
         )}
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const AVATAR = 54;
 
 const createStyles = (colors) => ({
   container: {
@@ -376,9 +362,16 @@ const createStyles = (colors) => ({
     backgroundColor: colors.background,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
     paddingHorizontal: 20,
     paddingTop: 6,
-    paddingBottom: 8,
+    paddingBottom: 4,
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: 30,
@@ -386,283 +379,230 @@ const createStyles = (colors) => ({
     color: colors.text,
     letterSpacing: -0.6,
   },
-  subtitleRow: {
-    marginTop: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   subtitle: {
+    marginTop: 2,
     fontSize: 13,
     color: colors.textMuted,
   },
-  awaitingChip: {
+  chips: {
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: `${colors.warning}1F`,
+    gap: 6,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  awaitingChipActive: {
-    backgroundColor: colors.warning,
+  chipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  awaitingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.warning,
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
-  awaitingDotActive: {
-    backgroundColor: '#fff',
-  },
-  awaitingText: {
-    fontSize: 12,
+  chipTextActive: {
+    color: colors.onPrimary,
     fontWeight: '700',
-    color: colors.warning,
   },
-  awaitingTextActive: {
-    color: '#fff',
-  },
-  doneChip: {
-    flexDirection: 'row',
+  chipCount: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
+    justifyContent: 'center',
     backgroundColor: colors.glow,
   },
-  doneText: {
-    fontSize: 12,
-    fontWeight: '700',
+  chipCountActive: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  chipCountText: {
+    fontSize: 11,
+    fontWeight: '800',
     color: colors.primary,
   },
+  chipCountTextActive: {
+    color: colors.onPrimary,
+  },
   list: {
-    paddingHorizontal: 12,
     paddingBottom: 28,
   },
   listEmpty: {
     flexGrow: 1,
     paddingHorizontal: 16,
   },
-  sectionRow: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 4,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  sectionIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sectionTitle: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-    textTransform: 'uppercase',
-    color: colors.textSecondary,
-  },
-  sectionCount: {
-    minWidth: 24,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 999,
-    alignItems: 'center',
-  },
-  sectionCountText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  cardWrap: {
-    marginBottom: 10,
-  },
-  card: {
-    padding: 12,
-    paddingLeft: 14,
-    gap: 10,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  cardWaiting: {
-    backgroundColor: `${colors.warning}10`,
-    borderColor: `${colors.warning}66`,
-  },
-  cardNew: {
-    backgroundColor: colors.glow,
-    borderColor: `${colors.primary}88`,
-  },
-  accent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    gap: 14,
+    paddingLeft: 16,
   },
   avatarWrap: {
-    width: 52,
-    height: 52,
+    width: AVATAR,
+    height: AVATAR,
   },
   avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: 'transparent',
-    backgroundColor: colors.iconBackground || colors.background,
+    width: AVATAR,
+    height: AVATAR,
+    borderRadius: AVATAR / 2,
+    backgroundColor: colors.iconBackground,
   },
   avatarFallback: {
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.glow,
   },
   avatarInitial: {
-    fontSize: 20,
+    fontSize: 21,
     fontWeight: '800',
     color: colors.primary,
   },
-  avatarShop: {
+  avatarThumb: {
     position: 'absolute',
-    left: -3,
-    bottom: -3,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#3B82F6',
+    right: -4,
+    bottom: -4,
+    width: 26,
+    height: 26,
+    borderRadius: 8,
     borderWidth: 2,
-    borderColor: colors.surface,
+    borderColor: colors.background,
+    backgroundColor: colors.iconBackground,
   },
-  avatarDot: {
-    position: 'absolute',
-    right: -3,
-    top: -3,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-  },
-  copy: {
+  body: {
     flex: 1,
     minWidth: 0,
     gap: 3,
+    paddingVertical: 13,
+    paddingRight: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
-  nameRow: {
+  line: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  name: {
+  nameWrap: {
     flex: 1,
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.textSecondary,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
-  nameStrong: {
-    fontWeight: '800',
+  name: {
+    flexShrink: 1,
+    fontSize: 16,
+    fontWeight: '600',
     color: colors.text,
+  },
+  nameUnread: {
+    fontWeight: '800',
   },
   time: {
     fontSize: 12,
-    fontWeight: '600',
     color: colors.textMuted,
   },
-  listingRow: {
+  timeUnread: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  listing: {
+    fontSize: 12.5,
+    color: colors.textMuted,
+  },
+  listingPrice: {
+    fontWeight: '700',
+    color: colors.price,
+  },
+  previewWrap: {
+    flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-  },
-  listingTitle: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  listingPrice: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.price || colors.primary,
-  },
-  thumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: colors.iconBackground || colors.background,
-  },
-  previewBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    minHeight: 38,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 12,
-    backgroundColor: colors.background,
-    borderWidth: 1,
-    borderColor: 'transparent',
-  },
-  previewBoxIncoming: {
-    borderColor: `${colors.warning}40`,
   },
   preview: {
     flex: 1,
     fontSize: 14,
-    lineHeight: 18,
-    color: colors.textMuted,
+    color: colors.textSecondary,
   },
-  previewIncoming: {
+  previewUnread: {
     color: colors.text,
     fontWeight: '600',
   },
-  previewNew: {
-    fontWeight: '800',
-  },
-  newBadge: {
-    paddingHorizontal: 9,
-    height: 24,
-    borderRadius: 12,
+  badge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primary,
   },
-  newBadgeText: {
-    color: '#fff',
-    fontSize: 11,
+  badgeText: {
+    fontSize: 11.5,
     fontWeight: '800',
+    color: colors.onPrimary,
   },
-  replyPill: {
+  blockedTag: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 9,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.warning,
+    height: 22,
+    paddingHorizontal: 8,
+    borderRadius: 11,
+    backgroundColor: colors.dangerBackground,
   },
-  replyPillText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  statusText: {
+  blockedTagText: {
     fontSize: 11,
     fontWeight: '700',
+    color: colors.error,
+  },
+  replyHint: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  filterEmpty: {
+    alignItems: 'center',
+    paddingTop: 64,
+    paddingHorizontal: 40,
+    gap: 6,
+  },
+  filterEmptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.glow,
+    marginBottom: 6,
+  },
+  filterEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  filterEmptyBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
     color: colors.textMuted,
+  },
+  filterEmptyLink: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
   },
 });

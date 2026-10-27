@@ -9,6 +9,7 @@ const {
   setTyping,
   confirmMeetup,
   createCall,
+  reportCallFailure,
   getIncomingCall,
   getCallStatus,
   markCallDelivered,
@@ -50,6 +51,7 @@ router.post('/:id/typing', setTyping);
 router.post('/:id/meetup', confirmMeetup);
 router.post('/:id/deal', setDealOutcome);
 router.post('/:id/call', createCall);
+router.post('/:id/call/failure', reportCallFailure);
 router.get('/:id/call', getCallStatus);
 router.post('/:id/call/delivered', markCallDelivered);
 router.post('/:id/call/end', endCall);

@@ -22,6 +22,7 @@ export const PAGE_SCOPES = {
   reviews: 'reviews',
   notifications: 'notifications',
   'ai-models': 'ai',
+  'voice-calls': 'settings',
   settings: 'settings',
   activity: 'audit',
 };

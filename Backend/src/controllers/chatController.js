@@ -15,12 +15,15 @@ const {
   chatRestrictionPayload,
 } = require('../utils/userRestriction');
 const { createRtcToken } = require('../utils/agora');
+const { recordCallMinutes, reportAccountFailure } = require('../utils/callSettings');
+const { addCallSeconds, callAllowanceFor } = require('../utils/callAllowance');
 const { sendIncomingCallPush, sendUserPush } = require('../utils/callPush');
 const { scheduleDeal, noteChatMessage, recordDealOutcome } = require('../utils/deals');
 const { detectScamRisk } = require('../utils/chatIntent');
 const { sameAudienceUser } = require('../utils/audience');
 const { isAdminRole } = require('../utils/adminScopes');
 const { SUPPORT_NAME, SUPPORT_AVATAR } = require('../utils/support');
+const { blockOf, blockStatus, messageBlockError, callBlockError } = require('../utils/blocks');
 
 const MESSAGE_PAGE_MAX = 100;
 
@@ -188,7 +191,7 @@ async function getChats(req, res, next) {
   try {
     const chats = (await Chat.find({ participants: req.user._id })
       .populate('participants', 'name phone avatarUrl rating preferences location isTester role')
-      .populate('listing', 'title photos price shopId')
+      .populate('listing', 'title photos price shopId seller')
       .sort({ lastMessageAt: -1 }))
       .filter((chat) => {
         const other = otherParticipant(chat, req.user._id);
@@ -257,8 +260,13 @@ async function getChats(req, res, next) {
           lastMessageMine,
           lastMessageViewed: latest ? Boolean(latest.viewedAt) : true,
           unreadCount: unreadById.get(String(chat._id)) || 0,
+          myRole: chat.listing
+            ? String(chat.listing.seller || '') === String(req.user._id) ? 'seller' : 'buyer'
+            : null,
+          block: other ? blockOf(req.user, other._id) : null,
         };
       }),
+      callAllowance: await callAllowanceFor(req.user),
     });
   } catch (error) {
     next(error);
@@ -406,7 +414,10 @@ async function getMessages(req, res, next) {
     );
     if (before) return res.json({ messages, hasMore });
 
+    const blocks = await blockStatus(req.user, other?._id);
     res.json({
+      block: blocks.mine,
+      blockedBy: blocks.theirs,
       presence: {
         online,
         typing,
@@ -495,6 +506,9 @@ async function sendMessage(req, res, next) {
     if (!chat) {
       return res.status(404).json({ message: 'Chat not found' });
     }
+
+    const blocked = messageBlockError(await blockStatus(req.user, otherParticipant(chat, req.user._id)));
+    if (blocked) return res.status(403).json(blocked);
 
     let replyTo = null;
     if (req.body?.replyTo) {
@@ -733,20 +747,53 @@ async function createCall(req, res, next) {
       return res.status(404).json({ message: 'Chat not found' });
     }
 
-    const session = createRtcToken({
-      chatId: chat._id,
-      userId: req.user._id,
-    });
-
     const joining = req.body?.join === true;
     const otherId = (chat.participants || []).find(
       (person) => String(person._id || person) !== String(req.user._id)
     );
+
+    let maxSeconds = null;
+    const peer = otherId ? await User.findById(otherId).select('name role').lean() : null;
+    if (!isAdminRole(peer?.role)) {
+      const mine = await callAllowanceFor(req.user);
+      if (mine.remainingSeconds === 0) {
+        return res.status(429).json({
+          code: 'CALL_LIMIT_REACHED',
+          message: `You have used your ${mine.limitMinutes} free call minutes for today. Calls open again at midnight. You can still send messages.`,
+        });
+      }
+      maxSeconds = mine.remainingSeconds;
+      if (joining) {
+        const ringMax = chat.ringingCall?.maxSeconds;
+        if (ringMax > 0) maxSeconds = maxSeconds == null ? ringMax : Math.min(maxSeconds, ringMax);
+      } else if (peer) {
+        const theirs = await callAllowanceFor(peer);
+        if (theirs.remainingSeconds === 0) {
+          return res.status(429).json({
+            code: 'PEER_CALL_LIMIT',
+            message: `${peer.name || 'This person'} has used today's call minutes. Try again tomorrow, or send a message.`,
+          });
+        }
+        if (theirs.remainingSeconds != null) {
+          maxSeconds = maxSeconds == null ? theirs.remainingSeconds : Math.min(maxSeconds, theirs.remainingSeconds);
+        }
+      }
+    }
+
+    const session = await createRtcToken({
+      chatId: chat._id,
+      userId: req.user._id,
+      accountId: joining ? chat.ringingCall?.agoraAccountId : undefined,
+      // The caller waits in the channel while it rings, so their token also covers ringing.
+      ttlSeconds: maxSeconds == null ? undefined : maxSeconds + (joining ? 15 : RING_MS / 1000 + 15),
+    });
     if (joining && chat.ringingCall?.startedAt) {
       chat.ringingCall.answeredAt = chat.ringingCall.answeredAt || new Date();
       chat.markModified('ringingCall');
       await chat.save();
     } else if (!joining && otherId) {
+      const blocked = callBlockError(await blockStatus(req.user, otherId));
+      if (blocked) return res.status(403).json(blocked);
       const guardCutoff = new Date(Date.now() - 5000);
       const placed = await Chat.findOneAndUpdate(
         {
@@ -778,6 +825,8 @@ async function createCall(req, res, next) {
               callerName: req.user.name || 'KinBech user',
               callerImage: req.user.avatarUrl || '',
               startedAt: new Date(),
+              agoraAccountId: session.accountId,
+              maxSeconds,
             },
           },
         }
@@ -810,7 +859,24 @@ async function createCall(req, res, next) {
       }).catch(() => {});
     }
 
-    res.json(session);
+    res.json({ ...session, maxSeconds });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** POST /chats/:id/call/failure: the app saw Agora reject the account (bad App ID, token, or project). */
+async function reportCallFailure(req, res, next) {
+  try {
+    const accountId = String(req.body?.accountId || '').slice(0, 64);
+    const reason = String(req.body?.reason || '').replace(/[^\w:. -]/g, '').slice(0, 40);
+    if (!accountId) return res.status(400).json({ message: 'accountId is required' });
+    const chat = await Chat.findOne({ _id: req.params.id, participants: req.user._id }).select('ringingCall');
+    if (!chat) return res.status(404).json({ message: 'Chat not found' });
+    const ringAccount = chat.ringingCall?.agoraAccountId;
+    if (ringAccount && ringAccount !== accountId) return res.json({ paused: false });
+    const paused = await reportAccountFailure(accountId, req.user._id, reason);
+    res.json({ paused });
   } catch (error) {
     next(error);
   }
@@ -872,6 +938,21 @@ async function recordCallHistory(chat, endedBy, forcedStatus) {
     } else {
       status = 'rejected';
     }
+  }
+
+  // Agora bills each person in the channel per started minute; the caller sits in it while ringing.
+  const ringEnd = ring.answeredAt ? new Date(ring.answeredAt).getTime() : Date.now();
+  const ringSec = Math.min(RING_MS / 1000, Math.max(0, (ringEnd - new Date(ring.startedAt).getTime()) / 1000));
+  const talkSec = status === 'answered' ? durationSec : 0;
+  recordCallMinutes(
+    ring.agoraAccountId,
+    Math.max(1, Math.ceil(ringSec / 60)) + 2 * Math.ceil(talkSec / 60)
+  );
+  if (talkSec > 0) {
+    addCallSeconds(
+      [ring.caller, otherParticipant(chat, ring.caller)].filter(Boolean).map((person) => person._id || person),
+      ring.maxSeconds > 0 ? Math.min(talkSec, ring.maxSeconds) : talkSec
+    );
   }
 
   const text = callPreview(status, durationSec);
@@ -1131,6 +1212,7 @@ module.exports = {
   setTyping,
   confirmMeetup,
   createCall,
+  reportCallFailure,
   getIncomingCall,
   getCallStatus,
   markCallDelivered,

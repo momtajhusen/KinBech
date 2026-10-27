@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Report = require('../models/Report');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
@@ -8,6 +9,8 @@ const listingQueryCache = require('../utils/listingQueryCache');
 const { statusChange } = require('../utils/listing');
 const { emitActivity } = require('../utils/realtime');
 const { reportActivityEvent } = require('../utils/activityEvents');
+const { setBlock } = require('../utils/blocks');
+const { isAdminRole } = require('../utils/adminScopes');
 
 async function createReport(req, res, next) {
   try {
@@ -66,14 +69,8 @@ async function createReport(req, res, next) {
     emitActivity(reportActivityEvent(report));
     if (reason === 'not-available') evaluateListingNow(listingId);
 
-    // Block user if requested
-    if (blockUser) {
-      await User.findByIdAndUpdate(req.user._id, {
-        $addToSet: { blockedUserIds: reportedUserId }
-      });
-      await User.findByIdAndUpdate(reportedUserId, {
-        $addToSet: { blockedUserIds: req.user._id }
-      });
+    if (blockUser && !isAdminRole(reportedUser.role)) {
+      await setBlock(req.user._id, reportedUser._id, { messages: true, calls: true });
     }
 
     // 3+ distinct reporters in 14 days → temporary chat restriction
@@ -105,20 +102,28 @@ async function blockUser(req, res, next) {
       return res.status(400).json({ message: 'You cannot block yourself' });
     }
 
-    const targetUser = await User.findById(userId);
+    if (!mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    const targetUser = await User.findById(userId).select('role');
     if (!targetUser) {
       return res.status(404).json({ message: 'User not found' });
     }
+    if (isAdminRole(targetUser.role)) {
+      return res.status(400).json({ message: 'KinBech Support cannot be blocked.' });
+    }
 
-    // Add to both users' blocked lists
-    await User.findByIdAndUpdate(req.user._id, {
-      $addToSet: { blockedUserIds: userId }
-    });
-    await User.findByIdAndUpdate(userId, {
-      $addToSet: { blockedUserIds: req.user._id }
-    });
+    const messages = req.body?.messages !== false;
+    const calls = req.body?.calls !== false;
+    if (!messages && !calls) {
+      return res.status(400).json({ message: 'Choose messages, calls, or both to block.' });
+    }
+    await setBlock(req.user._id, targetUser._id, { messages, calls });
 
-    res.json({ message: 'User blocked successfully' });
+    res.json({
+      message: messages && calls ? 'Messages and calls blocked' : messages ? 'Messages blocked' : 'Calls blocked',
+      block: { messages, calls },
+    });
   } catch (error) {
     next(error);
   }
@@ -132,15 +137,12 @@ async function unblockUser(req, res, next) {
       return res.status(400).json({ message: 'You cannot unblock yourself' });
     }
 
-    // Remove from both users' blocked lists
-    await User.findByIdAndUpdate(req.user._id, {
-      $pull: { blockedUserIds: userId }
-    });
-    await User.findByIdAndUpdate(userId, {
-      $pull: { blockedUserIds: req.user._id }
-    });
+    if (!mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({ message: 'Invalid user' });
+    }
+    await setBlock(req.user._id, userId, { messages: false, calls: false });
 
-    res.json({ message: 'User unblocked successfully' });
+    res.json({ message: 'User unblocked successfully', block: { messages: false, calls: false } });
   } catch (error) {
     next(error);
   }

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 
 /**
  * KYC / business documents. Never under /uploads: stored outside the public folder
@@ -93,6 +93,18 @@ async function readPrivate(ref) {
   }
 }
 
+async function deletePrivate(ref) {
+  const parsed = parseRef(ref);
+  if (!parsed) return;
+  await fs.promises.unlink(path.join(privateRoot(), parsed.folder, parsed.filename)).catch(() => {});
+  const conn = r2();
+  if (!conn) return;
+  await conn.client.send(new DeleteObjectCommand({
+    Bucket: conn.bucket,
+    Key: `private/${parsed.folder}/${parsed.filename}`,
+  }));
+}
+
 function signingKey() {
   return crypto
     .createHash('sha256')
@@ -140,6 +152,7 @@ module.exports = {
   privateFilename,
   putPrivate,
   readPrivate,
+  deletePrivate,
   signedPrivateUrl,
   verifySignature,
   withViewUrls,

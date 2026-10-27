@@ -1,5 +1,3 @@
-const fs = require('fs');
-const path = require('path');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Listing = require('../models/Listing');
@@ -22,13 +20,10 @@ const FlaggedMedia = require('../models/FlaggedMedia');
 const listingQueryCache = require('../utils/listingQueryCache');
 const { forgetViewer } = require('../utils/audience');
 const { recordAudit } = require('../utils/audit');
-const r2 = require('../utils/r2');
-const { getUploadsRoot } = require('../config/uploads');
+const { removeOrphanUploads } = require('../utils/mediaCleanup');
 const { refreshRatings } = require('./reviewController');
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const UPLOAD_KEY = /(?:^|\/)uploads\/([a-z0-9_-]+)\/([^/?#]+)/i;
-
 async function sellerCounts(userIds) {
   if (!userIds.length) return { listings: new Map(), shops: new Map() };
   const [rows, shops] = await Promise.all([
@@ -163,39 +158,6 @@ async function makeTester(req, res, next) {
   } catch (error) {
     next(error);
   }
-}
-
-function uploadKeyOf(url) {
-  const match = String(url || '').match(UPLOAD_KEY);
-  if (!match || match[2] === '..' || match[2] === '.') return null;
-  return `uploads/${match[1]}/${match[2]}`;
-}
-
-async function removeUpload(key) {
-  try {
-    if (r2.isEnabled()) await r2.deleteUpload(key);
-    await fs.promises.unlink(path.join(getUploadsRoot(), key.slice('uploads/'.length))).catch(() => {});
-  } catch {
-    // Media cleanup is best effort; the records are already gone.
-  }
-}
-
-/** Files still used by someone else (a copied photo URL) are kept. */
-async function removeOrphanUploads(urls) {
-  let removed = 0;
-  for (const url of [...new Set(urls.filter(Boolean))].slice(0, 500)) {
-    const key = uploadKeyOf(url);
-    if (!key) continue;
-    const stillUsed = await Promise.all([
-      Listing.exists({ $or: [{ photos: url }, { 'variants.photo': url }] }),
-      Shop.exists({ $or: [{ logo: url }, { coverImage: url }] }),
-      User.exists({ avatarUrl: url }),
-    ]);
-    if (stillUsed.some(Boolean)) continue;
-    await removeUpload(key);
-    removed += 1;
-  }
-  return removed;
 }
 
 /** Hard delete: the tester, their listings, shops, chats, reviews, reports and media. */

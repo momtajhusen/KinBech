@@ -313,7 +313,7 @@ async function callUser(req, res, next) {
     });
     if (busy) return res.status(409).json({ message: 'They are on another call right now' });
 
-    const session = createRtcToken({ chatId: chat._id, userId: req.user._id });
+    const session = await createRtcToken({ chatId: chat._id, userId: req.user._id });
     await Chat.updateOne(
       { _id: chat._id },
       {
@@ -323,6 +323,7 @@ async function callUser(req, res, next) {
             callerName: SUPPORT_NAME,
             callerImage: SUPPORT_AVATAR,
             startedAt: new Date(),
+            agoraAccountId: session.accountId,
           },
         },
         $unset: { callGuard: 1 },

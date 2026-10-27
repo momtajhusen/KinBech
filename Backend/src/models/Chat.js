@@ -43,6 +43,10 @@ const chatSchema = new mongoose.Schema(
       startedAt: { type: Date, default: null },
       deliveredAt: { type: Date, default: null },
       answeredAt: { type: Date, default: null },
+      // CallSettings account the caller joined on; the callee must use the same Agora project.
+      agoraAccountId: { type: String, default: '' },
+      // Talk time left today for the person with less; null when the call has no daily limit.
+      maxSeconds: { type: Number, default: null },
     },
     callGuard: {
       user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },

@@ -17,6 +17,7 @@ const mapRoutes = require('./routes/map');
 const mediaRoutes = require('./routes/media');
 const aiRoutes = require('./routes/ai');
 const errorRoutes = require('./routes/errors');
+const callRoutes = require('./routes/calls');
 const { notFound, errorHandler } = require('./middleware/error');
 const { serveUploads } = require('./utils/serveUploads');
 const { initSentry } = require('./utils/monitoring');
@@ -92,6 +93,7 @@ api.use('/map', mapRoutes);
 api.use('/media', mediaRoutes);
 api.use('/ai', aiRoutes);
 api.use('/errors', errorRoutes);
+api.use('/calls', callRoutes);
 
 app.use('/v1', api);
 app.use(api);

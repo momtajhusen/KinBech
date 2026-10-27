@@ -69,6 +69,8 @@ export default function CallScreen({ navigation, route }) {
   const [callPlaced, setCallPlaced] = useState(false);
   const [detail, setDetail] = useState('');
   const [callDuration, setCallDuration] = useState('00:00');
+  const [timeLeft, setTimeLeft] = useState(null);
+  const maxSecondsRef = useRef(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const engineRef = useRef(null);
@@ -93,6 +95,25 @@ export default function CallScreen({ navigation, route }) {
       joinedRef.current = false;
     }
     if (navigation.canGoBack()) navigation.goBack();
+  };
+
+  const endForLimitRef = useRef(() => {});
+  endForLimitRef.current = () => {
+    if (closingRef.current || phase === 'failed') return;
+    stopCallSounds();
+    callHaptic('remoteEnd');
+    if (chatId) api.endCall(chatId).catch(() => {});
+    const engine = engineRef.current;
+    if (engine && joinedRef.current) {
+      try {
+        engine.leaveChannel();
+      } catch {
+        /* already left */
+      }
+      joinedRef.current = false;
+    }
+    setPhase('failed');
+    setDetail("Today's free call time is over. Calls open again at midnight.");
   };
 
   useEffect(() => {
@@ -157,6 +178,14 @@ export default function CallScreen({ navigation, route }) {
     } = agora;
     const engine = createAgoraRtcEngine();
     engineRef.current = engine;
+    let accountId = '';
+    let rejectionReported = false;
+    // Agora rejected the App ID or token: the server switches new calls to the next account.
+    const reportRejected = (reason) => {
+      if (rejectionReported || !accountId) return;
+      rejectionReported = true;
+      api.reportCallFailure(chatId, { accountId, reason });
+    };
 
     const handler = {
       onJoinChannelSuccess: () => {
@@ -175,8 +204,22 @@ export default function CallScreen({ navigation, route }) {
       },
       onError: (errorCode) => {
         if (cancelled || joinedRef.current) return;
+        if ([101, 110].includes(errorCode)) reportRejected(`error:${errorCode}`);
         setPhase('failed');
         setDetail(`Agora could not start the call (${errorCode}).`);
+      },
+      onConnectionStateChanged: (_connection, _state, reason) => {
+        if (cancelled) return;
+        // The server sizes the token to today's remaining call time.
+        if (reason === 9 && maxSecondsRef.current) {
+          endForLimitRef.current();
+          return;
+        }
+        if (![6, 8].includes(reason)) return;
+        reportRejected(`reason:${reason}`);
+        if (joinedRef.current) return;
+        setPhase('failed');
+        setDetail('Voice calling is busy right now. Please try again in a moment.');
       },
     };
 
@@ -208,6 +251,9 @@ export default function CallScreen({ navigation, route }) {
         return;
       }
       if (!isIncoming) setCallPlaced(true);
+      accountId = data.accountId || '';
+      maxSecondsRef.current = data.maxSeconds > 0 ? data.maxSeconds : null;
+      setTimeLeft(maxSecondsRef.current);
 
       engine.registerEventHandler(handler);
       const initialized = engine.initialize({
@@ -331,6 +377,10 @@ export default function CallScreen({ navigation, route }) {
     const interval = setInterval(() => {
       seconds += 1;
       setCallDuration(formatDuration(seconds));
+      const max = maxSecondsRef.current;
+      if (!max) return;
+      setTimeLeft(Math.max(0, max - seconds));
+      if (seconds >= max) endForLimitRef.current();
     }, 1000);
     return () => clearInterval(interval);
   }, [phase]);
@@ -448,9 +498,16 @@ export default function CallScreen({ navigation, route }) {
 
         <Reanimated.View key={phase} entering={FadeIn.duration(280)} style={styles.statusRow}>
           {connected ? (
-            <View style={styles.timerPill}>
-              <Ping size={6} color="#4ADE80" />
-              <Text style={styles.timer}>{callDuration}</Text>
+            <View style={styles.timerWrap}>
+              <View style={styles.timerPill}>
+                <Ping size={6} color="#4ADE80" />
+                <Text style={styles.timer}>{callDuration}</Text>
+              </View>
+              {timeLeft != null ? (
+                <Text style={[styles.timeLeft, timeLeft <= 60 && styles.timeLeftLow]}>
+                  {`${formatDuration(timeLeft)} call time left today`}
+                </Text>
+              ) : null}
             </View>
           ) : (
             <AnimatedDots
@@ -608,6 +665,19 @@ const styles = StyleSheet.create({
   },
   statusError: {
     color: CALL_PALETTE.danger,
+  },
+  timerWrap: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  timeLeft: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: CALL_PALETTE.faint,
+    fontVariant: ['tabular-nums'],
+  },
+  timeLeftLow: {
+    color: '#FBBF24',
   },
   timerPill: {
     flexDirection: 'row',

@@ -11,6 +11,7 @@ const SupportTicket = require('../models/SupportTicket');
 const listingQueryCache = require('./listingQueryCache');
 const { revokeAllSessions, presentSession } = require('./sessions');
 const { openField } = require('./fieldCrypto');
+const { removeOrphanUploads } = require('./mediaCleanup');
 
 /**
  * Self-service account deletion (Google Play requirement).
@@ -71,6 +72,18 @@ async function purgeUser(userId) {
   const user = await User.findById(userId);
   if (!user || user.deletedAt) return;
 
+  const [listings, shops, voiceNotes] = await Promise.all([
+    Listing.find({ seller: userId }).select('photos variants.photo').lean(),
+    Shop.find({ owner: userId }).select('logo coverImage businessDocuments').lean(),
+    Message.find({ sender: userId, kind: 'voice', 'audio.url': { $ne: '' } }).select('audio.url').lean(),
+  ]);
+  const media = [
+    user.avatarUrl,
+    ...listings.flatMap((l) => [...(l.photos || []), ...(l.variants || []).map((v) => v.photo)]),
+    ...shops.flatMap((s) => [s.logo, s.coverImage, ...(s.businessDocuments || []).map((d) => d.url)]),
+    ...voiceNotes.map((m) => m.audio?.url),
+  ];
+
   await Listing.deleteMany({ seller: userId });
   await Shop.deleteMany({ owner: userId });
   await Wishlist.deleteMany({ user: userId });
@@ -78,6 +91,10 @@ async function purgeUser(userId) {
   await Session.deleteMany({ user: userId });
   await SupportTicket.deleteMany({ user: userId });
   await Message.updateMany({ sender: userId, kind: 'text' }, { $set: { text: 'Message removed' } });
+  await Message.updateMany(
+    { sender: userId, kind: 'voice' },
+    { $set: { text: 'Voice message removed', 'audio.url': '', 'audio.durationSec': 0 } }
+  );
   listingQueryCache.invalidateAll();
 
   await User.updateOne(
@@ -92,15 +109,19 @@ async function purgeUser(userId) {
         addresses: [],
         paymentMethods: [],
         blockedUserIds: [],
+        blocks: [],
         pinnedStores: [],
         fcmToken: '',
         deletionHidden: [],
         deletedAt: new Date(),
       },
-      $unset: { phone: 1, email: 1, password: 1, coordinates: 1, referralCode: 1 },
+      $unset: { phone: 1, email: 1, googleId: 1, password: 1, coordinates: 1, referralCode: 1 },
       $inc: { tokenVersion: 1 },
     }
   );
+
+  const files = await removeOrphanUploads(media);
+  if (files) console.log(`Removed ${files} media file(s) for deleted account ${userId}`);
 }
 
 async function purgeDueAccounts() {

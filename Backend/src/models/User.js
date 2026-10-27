@@ -89,7 +89,20 @@ const userSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    /** Legacy full blocks (messages + calls); new blocks go in `blocks`. See utils/blocks. */
     blockedUserIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    blocks: {
+      type: [
+        {
+          _id: false,
+          user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          messages: { type: Boolean, default: true },
+          calls: { type: Boolean, default: true },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     // 'both' is a retired mode kept only so old documents still validate; it is read as 'shop'.
     sellerTypePreference: { 
       type: String, 

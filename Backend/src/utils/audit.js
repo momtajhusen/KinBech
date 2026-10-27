@@ -1,6 +1,6 @@
 const AuditLog = require('../models/AuditLog');
 
-const SECRET_KEYS = /pass(word)?|secret|token|key|otp/i;
+const SECRET_KEYS = /pass(word)?|secret|token|key|otp|certificate/i;
 
 function scrub(meta) {
   if (!meta || typeof meta !== 'object') return {};

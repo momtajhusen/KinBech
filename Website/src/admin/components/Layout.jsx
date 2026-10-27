@@ -24,6 +24,7 @@ import {
   MessageSquareWarning,
   Moon,
   Package,
+  Phone,
   Search,
   Settings,
   ShieldCheck,
@@ -84,6 +85,7 @@ const navSections = [
     items: [
       { path: adminPath('notifications'), label: 'Notifications', icon: Bell },
       { path: adminPath('ai-models'), label: 'AI Models', icon: Sparkles },
+      { path: adminPath('voice-calls'), label: 'Voice Calls', icon: Phone },
       { path: adminPath('settings'), label: 'Settings & Roles', icon: Settings },
       { path: adminPath('activity'), label: 'Activity', icon: History },
       { path: adminPath('account-security'), label: 'My Security', icon: KeyRound },
@@ -165,6 +167,7 @@ const pageTitleMap = {
   [adminPath('reviews')]: 'Reviews',
   [adminPath('notifications')]: 'Notifications',
   [adminPath('ai-models')]: 'AI Models',
+  [adminPath('voice-calls')]: 'Voice Calls',
   [adminPath('settings')]: 'Settings & Roles',
   [adminPath('activity')]: 'Activity',
   [adminPath('account-security')]: 'My Security',
