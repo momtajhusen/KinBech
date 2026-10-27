@@ -398,14 +398,25 @@ async function revokeMySession(req, res, next) {
   }
 }
 
-/** Sign out this device only. */
+/** An expired access token still names its session, so signing out never needs a refresh first. */
+function sessionFromHeader(req) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) return null;
+  try {
+    return jwt.verify(header.slice(7), process.env.JWT_SECRET, { ignoreExpiration: true });
+  } catch {
+    return null;
+  }
+}
+
+/** Sign out this device only. Open route: the app may call it after the access token expired. */
 async function logoutCurrent(req, res, next) {
   try {
-    if (req.sessionId) await revokeSession(req.user._id, req.sessionId);
-    const deviceToken = String(req.body?.deviceToken || '').trim();
-    if (deviceToken) {
-      await User.updateOne({ _id: req.user._id, fcmToken: deviceToken }, { $set: { fcmToken: '' } });
-    }
+    const payload = sessionFromHeader(req);
+    if (payload?.userId && payload.sid) await revokeSession(payload.userId, payload.sid);
+    const deviceToken = String(req.body?.deviceToken || '').trim().slice(0, 4096);
+    // Holding the FCM token means this is that phone, so no account keeps ringing it after sign-out.
+    if (deviceToken) await User.updateMany({ fcmToken: deviceToken }, { $set: { fcmToken: '' } });
     res.json({ message: 'Signed out' });
   } catch (error) {
     next(error);

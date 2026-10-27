@@ -77,6 +77,10 @@ class KinBechCallModule : Module() {
       if (base.startsWith("http://") || base.startsWith("https://")) IncomingCallNotifier.setMediaBase(context, base)
     }
 
+    Function("setSignedIn") { signedIn: Boolean ->
+      IncomingCallNotifier.setSignedIn(context, signedIn)
+    }
+
     Function("getCallReadiness") {
       CallReadiness.read(context)
     }

@@ -494,9 +494,11 @@ export const api = {
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
   logoutAllDevices: () => request('/auth/logout-all', { method: 'POST' }),
-  logout: (deviceToken = '') =>
+  // The caller clears the session right after this, so the header is fixed now rather than read later.
+  logout: (deviceToken = '', token = authToken) =>
     request('/auth/logout', {
       method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       body: JSON.stringify({ deviceToken }),
       timeoutMs: 4000,
       skipAuthRefresh: true,

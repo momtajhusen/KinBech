@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, onAuthTokenChange, setAuthToken } from '../services/api';
+import { api, getAuthToken, onAuthTokenChange, setAuthToken } from '../services/api';
+import { shareSignedInWithNative } from '../services/callReadiness';
 import { signOutGoogle } from '../services/googleAuth';
-import { forgetDeviceTokenSync, getDeviceToken } from '../services/notifications';
+import { forgetDeviceTokenSync, getDeviceToken, getFCMToken } from '../services/notifications';
 import { clearToken, readToken, writeToken } from '../services/tokenStorage';
 import { resetToLogin } from '../navigation/navigationRef';
 import { setDisplayCurrency } from '../utils/currency';
@@ -72,6 +73,17 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    shareSignedInWithNative(Boolean(token));
+    // Phones signed out by older builds stayed linked to the last account and kept getting its calls.
+    if (!token) {
+      getFCMToken()
+        .then((deviceToken) => deviceToken && api.logout(deviceToken, null))
+        .catch(() => {});
+    }
+  }, [ready, token]);
+
+  useEffect(() => {
     setDisplayCurrency(user?.preferences?.currency);
   }, [user?.preferences?.currency]);
 
@@ -87,6 +99,8 @@ export function AuthProvider({ children }) {
           setToken(nextToken);
           return;
         }
+        const deviceToken = getDeviceToken();
+        if (deviceToken) api.logout(deviceToken, null).catch(() => {});
         setToken(null);
         setUser(null);
         clearToken().catch(() => {});
@@ -125,8 +139,12 @@ export function AuthProvider({ children }) {
         return { user: null, error };
       },
       async logout() {
-        // Header is captured synchronously, before the token is cleared below.
-        api.logout(getDeviceToken()).catch(() => {});
+        const sessionToken = getAuthToken();
+        const knownDevice = getDeviceToken();
+        // The server unlinks this phone only when it gets the FCM token; otherwise calls keep ringing here.
+        (knownDevice ? Promise.resolve(knownDevice) : getFCMToken())
+          .then((deviceToken) => api.logout(deviceToken || '', sessionToken))
+          .catch(() => {});
         forgetDeviceTokenSync();
         signOutGoogle();
         setAuthToken(null);

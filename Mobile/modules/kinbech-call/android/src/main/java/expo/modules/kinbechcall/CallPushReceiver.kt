@@ -20,6 +20,7 @@ class CallPushReceiver : BroadcastReceiver() {
       "call_ended" -> IncomingCallNotifier.cancel(context, chatId)
       "incoming_call" -> {
         if (KinBechCallModule.appVisible) return
+        if (!IncomingCallNotifier.isSignedIn(context)) return
         val ringMs = remainingRing(intent.getStringExtra("sentAt")) ?: return
         val app = context.applicationContext
         val callerName = intent.getStringExtra("callerName").orEmpty()

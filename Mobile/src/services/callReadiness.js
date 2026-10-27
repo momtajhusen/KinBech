@@ -36,6 +36,15 @@ export function shareMediaBaseWithNative() {
   }
 }
 
+/** The native push receiver rings without JS, so it needs to know when nobody is signed in. */
+export function shareSignedInWithNative(signedIn) {
+  try {
+    KinBechCall?.setSignedIn?.(Boolean(signedIn));
+  } catch {
+    /* builds without the call module */
+  }
+}
+
 export function readCallReadiness() {
   if (Platform.OS !== 'android' || !KinBechCall?.getCallReadiness) return null;
   try {

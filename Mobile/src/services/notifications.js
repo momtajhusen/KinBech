@@ -12,6 +12,7 @@ import { api, getAuthToken } from './api';
 import { ensureCallChannel } from './callNotifications';
 import { endRingingCall, presentIncomingCallFromRemoteMessage } from './CallKeepManager';
 import { alertFromMessage, displayAlert, ensureAlertChannel } from './pushAlerts';
+import { readToken } from './tokenStorage';
 
 let messagingInstance;
 let messagingChecked = false;
@@ -134,6 +135,7 @@ export function setupForegroundMessageListener() {
       endRingingCall(remoteMessage.data.chatId);
       return;
     }
+    if (!getAuthToken() && !(await readToken().catch(() => null))) return;
     const handled = await presentIncomingCallFromRemoteMessage(remoteMessage, { mode: 'foreground' });
     if (handled) return;
     const alert = alertFromMessage(remoteMessage);

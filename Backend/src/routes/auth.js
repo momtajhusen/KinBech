@@ -71,7 +71,7 @@ router.post('/refresh', refreshLimiter, refreshTokens);
 router.post('/complete-signup', requireAuth, completeSignup);
 router.get('/me', requireAuth, me);
 router.post('/logout-all', requireAuth, logoutAllDevices);
-router.post('/logout', requireAuth, logoutCurrent);
+router.post('/logout', logoutCurrent);
 router.get('/call-watch-token', requireAuth, callWatchToken);
 router.post('/integrity/nonce', requireAuth, twoFactorLimiter, integrityNonce);
 router.post('/integrity/verify', requireAuth, twoFactorLimiter, integrityVerify);

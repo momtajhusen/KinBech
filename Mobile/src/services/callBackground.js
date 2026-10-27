@@ -7,6 +7,7 @@ import {
   presentIncomingCall,
 } from './CallKeepManager';
 import { alertFromMessage, displayAlert } from './pushAlerts';
+import { readToken } from './tokenStorage';
 
 function loadNotifee() {
   try {
@@ -42,6 +43,8 @@ try {
         endRingingCall(remoteMessage.data.chatId);
         return;
       }
+      // A signed-out phone can still hold an old account's FCM token; never ring or alert there.
+      if (!(await readToken().catch(() => null))) return;
       if (remoteMessage?.data?.type === 'incoming_call') {
         const call = callFromData(remoteMessage.data);
         if (!call) return;

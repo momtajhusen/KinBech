@@ -187,6 +187,13 @@ object IncomingCallNotifier {
     prefs(context).edit().putString(KEY_MEDIA_BASE, base.trimEnd('/')).apply()
   }
 
+  fun setSignedIn(context: Context, signedIn: Boolean) {
+    prefs(context).edit().putBoolean(KEY_SIGNED_IN, signedIn).apply()
+  }
+
+  /** Installs that have not opened the app since this flag existed count as signed in. */
+  fun isSignedIn(context: Context): Boolean = prefs(context).getBoolean(KEY_SIGNED_IN, true)
+
   /** Pushes carry server paths like /uploads/...; JS saves the API host so they load before JS starts. */
   fun resolveMedia(context: Context, path: String): String {
     val value = path.trim()
@@ -199,6 +206,7 @@ object IncomingCallNotifier {
 
   private const val PREFS = "kinbech-call"
   private const val KEY_MEDIA_BASE = "mediaBase"
+  private const val KEY_SIGNED_IN = "signedIn"
 
   private fun requestCode(chatId: String, slot: Int) = (chatId.hashCode() and 0x0FFFFFFF) * 4 + slot
 
