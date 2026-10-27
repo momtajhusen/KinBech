@@ -851,11 +851,15 @@ async function createCall(req, res, next) {
       } catch {
         /* notification is best-effort */
       }
+      const listing = chat.listing
+        ? await Listing.findById(chat.listing).select('title photos price location').lean().catch(() => null)
+        : null;
       sendIncomingCallPush({
         userId: otherId,
         chatId: chat._id,
         callerName: req.user.name || 'KinBech user',
         callerImage: req.user.avatarUrl || '',
+        listing,
       }).catch(() => {});
     }
 

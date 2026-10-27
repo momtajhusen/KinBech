@@ -5,6 +5,7 @@ const SupportTicket = require('../models/SupportTicket');
 const User = require('../models/User');
 const Message = require('../models/Message');
 const ErrorEvent = require('../models/ErrorEvent');
+const SubscriptionRequest = require('../models/SubscriptionRequest');
 const { hasScope } = require('../utils/adminScopes');
 
 const SCAM_OPEN = { safetyFlag: 'scam_words', 'safetyReview.status': { $nin: ['dismissed', 'actioned'] } };
@@ -54,6 +55,10 @@ const QUEUES = {
       severity: { $in: ['fatal', 'error'] },
       ...(since ? { createdAt: { $gt: since } } : {}),
     }),
+  },
+  subscriptions: {
+    scope: 'settings',
+    count: (since) => SubscriptionRequest.countDocuments({ status: 'pending', ...(since ? { createdAt: { $gt: since } } : {}) }),
   },
 };
 

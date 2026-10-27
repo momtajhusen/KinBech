@@ -35,6 +35,9 @@ export const ROUTES = {
   ADDRESSES: 'SavedAddresses',
   PAYMENT_METHODS: 'PaymentMethods',
   WALLET: 'Wallet',
+  SUBSCRIPTION: 'Subscription',
+  PAYMENT_HISTORY: 'PaymentHistory',
+  TESTER_MODE: 'TesterMode',
   CONTACT_US: 'ContactUs',
   // Seller type routes
   SELLER_TYPE_SELECTION: 'SellerTypeSelection',

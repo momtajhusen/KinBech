@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { StackActions } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Animated, Easing, Text, View } from 'react-native';
 import BrandLogo from '../components/BrandLogo';
@@ -7,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
-export default function SplashScreen({ navigation }) {
+export default function SplashScreen({ navigation, route }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { ready, isLoggedIn, onboarded, user } = useAuth();
@@ -56,20 +57,30 @@ export default function SplashScreen({ navigation }) {
       return undefined;
     }
 
+    // A call answered from the lock screen or banner opens on top of Splash, and a plain
+    // replace() swaps the focused route, which would close that call. Replace only Splash.
+    const leaveSplash = (name) => {
+      navigation.dispatch({
+        ...StackActions.replace(name),
+        source: route.key,
+        target: navigation.getState().key,
+      });
+    };
+
     const timer = setTimeout(() => {
       if (isLoggedIn) {
         if (!user?.profileComplete) {
-          navigation.replace(ROUTES.PROFILE_SETUP);
+          leaveSplash(ROUTES.PROFILE_SETUP);
           return;
         }
-        navigation.replace(ROUTES.MAIN_TABS);
+        leaveSplash(ROUTES.MAIN_TABS);
         return;
       }
-      navigation.replace(onboarded ? ROUTES.MAIN_TABS : ROUTES.ONBOARDING);
+      leaveSplash(onboarded ? ROUTES.MAIN_TABS : ROUTES.ONBOARDING);
     }, 1400);
 
     return () => clearTimeout(timer);
-  }, [ready, isLoggedIn, onboarded, user, navigation]);
+  }, [ready, isLoggedIn, onboarded, user, navigation, route.key]);
 
   return (
     <LinearGradient

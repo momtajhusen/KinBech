@@ -3,6 +3,7 @@ import Icon from '../components/Icon';
 import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import {
+  BackHandler,
   Image,
   PermissionsAndroid,
   Platform,
@@ -16,7 +17,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ping, PressableScale, Reanimated } from '../components/Motion';
 import {
   AnimatedDots,
-  AnswerHint,
   CALL_PALETTE,
   CallAvatar,
   CallBackdrop,
@@ -30,6 +30,10 @@ import {
   declineIncomingCall,
   dismissIncomingCallNotification,
   isCallDeclined,
+  setOngoingCallSpeaker,
+  startOngoingCallService,
+  stopOngoingCallService,
+  subscribeOngoingCallHangUp,
 } from '../services/callNotifications';
 import { startIncomingRing, startOutgoingRing, stopCallSounds } from '../services/sounds';
 import { dismissNativeIncomingUi } from '../services/callWatch';
@@ -112,6 +116,7 @@ export default function CallScreen({ navigation, route }) {
       }
       joinedRef.current = false;
     }
+    stopOngoingCallService();
     setPhase('failed');
     setDetail("Today's free call time is over. Calls open again at midnight.");
   };
@@ -191,6 +196,7 @@ export default function CallScreen({ navigation, route }) {
       onJoinChannelSuccess: () => {
         if (cancelled) return;
         joinedRef.current = true;
+        startOngoingCallService({ chatId, callerName: name, callerImage: image });
         if (!isIncoming) return;
         setPhase((current) => (current === 'connected' ? current : 'connecting'));
       },
@@ -290,6 +296,7 @@ export default function CallScreen({ navigation, route }) {
 
     return () => {
       cancelled = true;
+      stopOngoingCallService();
       try {
         engine.unregisterEventHandler(handler);
         if (joinedRef.current) engine.leaveChannel();
@@ -421,6 +428,31 @@ export default function CallScreen({ navigation, route }) {
     navigation.goBack();
   };
 
+  const endCallRef = useRef(endCall);
+  endCallRef.current = endCall;
+  const answerCallRef = useRef(answerCall);
+  answerCallRef.current = answerCall;
+  const finishedRef = useRef(false);
+  finishedRef.current = phase === 'failed' || phase === 'ended';
+
+  useEffect(() => subscribeOngoingCallHangUp(chatId, () => endCallRef.current()), [chatId]);
+
+  useEffect(() => {
+    if (route?.params?.autoAnswer && isIncoming && phase === 'incoming' && !isCallDeclined(chatId)) {
+      answerCallRef.current();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route?.params?.autoAnswer]);
+
+  // Leaving this screen leaves the voice channel, so Back must not end a live call by accident.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => navigation.isFocused() && !finishedRef.current
+    );
+    return () => subscription.remove();
+  }, [navigation]);
+
   const toggleMute = () => {
     const next = !isMuted;
     callHaptic(next ? 'toggleOn' : 'toggleOff');
@@ -433,6 +465,7 @@ export default function CallScreen({ navigation, route }) {
     callHaptic(next ? 'toggleOn' : 'toggleOff');
     setIsSpeakerOn(next);
     engineRef.current?.setEnableSpeakerphone(next);
+    setOngoingCallSpeaker(next);
   };
 
   const listingId = listing?.id || listing?._id;
@@ -455,14 +488,13 @@ export default function CallScreen({ navigation, route }) {
     });
   };
 
-  const ringing = ['incoming', 'calling', 'ringing', 'connecting'].includes(phase);
   const connected = phase === 'connected';
   const finished = phase === 'failed' || phase === 'ended';
-  const dotted = phase === 'calling' || phase === 'ringing' || phase === 'connecting';
+  const dotted = ['incoming', 'calling', 'ringing', 'connecting'].includes(phase);
 
   const statusLabel =
     phase === 'incoming'
-      ? 'Incoming voice call'
+      ? 'Incoming call'
       : phase === 'ringing'
         ? 'Ringing'
         : phase === 'calling'
@@ -476,21 +508,20 @@ export default function CallScreen({ navigation, route }) {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-      <CallBackdrop image={image} />
+      <CallBackdrop />
 
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <PressableScale onPress={endCall} hitSlop={12} contentStyle={styles.headerBtn}>
           <Icon name="chevron-down" size={26} color={CALL_PALETTE.text} />
         </PressableScale>
         <Reanimated.View entering={FadeInDown.duration(420)} style={styles.brandPill}>
-          <Ping size={7} color={connected ? '#4ADE80' : CALL_PALETTE.mint} />
-          <Text style={styles.brandText}>KinBech voice call</Text>
+          <Text style={styles.brandText}>KinBech · Voice call</Text>
         </Reanimated.View>
         <View style={styles.headerSpacer} />
       </View>
 
       <View style={styles.content}>
-        <CallAvatar image={image} name={name} ringing={ringing} connected={connected} />
+        <CallAvatar image={image} name={name} waving={!finished} />
 
         <Reanimated.Text entering={FadeInDown.delay(140).duration(420)} style={styles.name} numberOfLines={1}>
           {name || 'Unknown'}
@@ -556,38 +587,47 @@ export default function CallScreen({ navigation, route }) {
       >
         {phase === 'incoming' ? (
           <View style={styles.incomingRow}>
-            <CallButton tone="decline" icon="call" iconRotate={135} label="Decline" size={74} onPress={endCall} />
             <View style={styles.answerCol}>
-              <AnswerHint />
-              <CallButton tone="answer" icon="call" label="Answer" size={74} onPress={answerCall} />
+              <CallButton tone="decline" icon="call" iconRotate={135} label="Decline" size={76} onPress={endCall} />
+            </View>
+            <View style={styles.answerCol}>
+              <CallButton tone="answer" icon="call" label="Answer" size={76} onPress={answerCall} />
             </View>
           </View>
         ) : (
           <View style={styles.panel}>
             {finished ? null : (
-              <View style={styles.toggleRow}>
+              <View style={styles.panelCol}>
                 <CallButton
                   icon={isMuted ? 'mic-off' : 'mic'}
                   label={isMuted ? 'Unmute' : 'Mute'}
                   active={isMuted}
+                  size={58}
                   onPress={toggleMute}
                 />
+              </View>
+            )}
+            {finished ? null : (
+              <View style={styles.panelCol}>
                 <CallButton
                   icon={isSpeakerOn ? 'volume-high' : 'volume-medium'}
                   label="Speaker"
                   active={isSpeakerOn}
+                  size={58}
                   onPress={toggleSpeaker}
                 />
               </View>
             )}
-            <CallButton
-              tone="decline"
-              icon={finished ? 'close' : 'call'}
-              iconRotate={finished ? 0 : 135}
-              label={finished ? 'Close' : 'End call'}
-              size={70}
-              onPress={endCall}
-            />
+            <View style={styles.panelCol}>
+              <CallButton
+                tone="decline"
+                icon={finished ? 'close' : 'call'}
+                iconRotate={finished ? 0 : 135}
+                label={finished ? 'Close' : 'End call'}
+                size={58}
+                onPress={endCall}
+              />
+            </View>
           </View>
         )}
       </Reanimated.View>
@@ -631,10 +671,10 @@ const styles = StyleSheet.create({
     borderColor: CALL_PALETTE.glassBorder,
   },
   brandText: {
-    fontSize: 12.5,
-    fontWeight: '700',
-    color: CALL_PALETTE.text,
-    letterSpacing: 0.4,
+    fontSize: 13,
+    fontWeight: '500',
+    color: CALL_PALETTE.muted,
+    letterSpacing: 0.5,
   },
   content: {
     flex: 1,
@@ -782,25 +822,26 @@ const styles = StyleSheet.create({
   incomingRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingHorizontal: 22,
+    paddingBottom: 16,
   },
   answerCol: {
+    flex: 1,
     alignItems: 'center',
   },
   panel: {
-    alignItems: 'center',
-    gap: 26,
-    paddingTop: 22,
-    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 6,
     borderRadius: 32,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
-  toggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 56,
+  panelCol: {
+    flex: 1,
+    alignItems: 'center',
   },
 });

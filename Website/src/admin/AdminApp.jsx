@@ -26,6 +26,7 @@ import RestrictedKeywords from './pages/RestrictedKeywords';
 import ErrorLog from './pages/ErrorLog';
 import AiModels from './pages/AiModels';
 import CallAccounts from './pages/CallAccounts';
+import Subscriptions from './pages/Subscriptions';
 import ChangePassword from './pages/ChangePassword';
 import Activity from './pages/Activity';
 import Security from './pages/Security';
@@ -82,6 +83,7 @@ const PAGES = [
   ['notifications', Notifications],
   ['ai-models', AiModels],
   ['voice-calls', CallAccounts],
+  ['subscriptions', Subscriptions],
   ['settings', Settings],
   ['activity', Activity],
 ];

@@ -378,6 +378,7 @@ async function request(path, options = {}) {
   if (!skipAuthRefresh) await ensureFreshToken();
 
   let lastData = null;
+  let lastStatus = null;
   let lastNonNetworkError = null;
 
   for (let pass = 0; pass < 1; pass++) {
@@ -421,6 +422,7 @@ async function request(path, options = {}) {
           }
 
           lastData = result.data;
+          lastStatus = result.status;
 
           if (isTransientHttpStatus(result.status) && attempt < attemptsPerUrl - 1) {
             const backoff = 400 * Math.pow(2, attempt) + Math.random() * 200;
@@ -431,7 +433,7 @@ async function request(path, options = {}) {
 
           // Don't retry for 404 errors (endpoint not found)
           if (result.status === 404) {
-            return { data: result.data, error: result.error || 'Not found' };
+            return { data: result.data, error: result.error || 'Not found', status: 404 };
           }
 
           lastNonNetworkError = result.error;
@@ -474,6 +476,7 @@ async function request(path, options = {}) {
   return {
     data: lastData,
     error: lastNonNetworkError || 'Request failed after multiple attempts. Please try again shortly.',
+    status: lastStatus,
   };
 }
 
@@ -560,6 +563,17 @@ export const api = {
   },
   createListing: (payload) =>
     request('/listings', { method: 'POST', body: JSON.stringify(payload) }),
+  getPostQuota: (sellerType, shopId) => request(`/subscriptions/quota${toQuery({ sellerType, shopId })}`),
+  getSubscriptionPlans: () => request('/subscriptions/plans'),
+  getMySubscription: () => request('/subscriptions/me'),
+  requestSubscription: (payload) =>
+    request('/subscriptions/requests', { method: 'POST', body: JSON.stringify(payload) }),
+  cancelSubscriptionRequest: (id) => request(`/subscriptions/requests/${id}/cancel`, { method: 'POST' }),
+  getPaymentHistory: (page = 1) => request(`/subscriptions/payments${toQuery({ page })}`),
+  startEsewaPayment: (planId) =>
+    request('/subscriptions/esewa/start', { method: 'POST', body: JSON.stringify({ planId, flow: 'intent' }) }),
+  verifyEsewaPayment: (id, payload = {}) =>
+    request(`/subscriptions/esewa/payments/${id}/verify`, { method: 'POST', body: JSON.stringify(payload) }),
   suggestListingDetails: (payload) =>
     request('/ai/listing-suggest', {
       method: 'POST',

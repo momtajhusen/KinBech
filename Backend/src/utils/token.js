@@ -121,6 +121,7 @@ function publicUser(user, options = {}) {
           trustTier: user.trustTier || 'new',
           strikeCount: Array.isArray(user.strikes) ? user.strikes.length : 0,
           isTester: Boolean(user.isTester),
+          testerSince: user.isTester ? user.testerSince || null : null,
           referralCode: user.referralCode || '',
           featuredCredits: Math.max(0, Number(user.featuredCredits) || 0),
           referredBy: user.referredBy ? String(user.referredBy) : null,

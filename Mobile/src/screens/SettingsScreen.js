@@ -17,6 +17,8 @@ const ACCOUNT_ROWS = [
   { label: 'Saved Addresses', subtitle: 'Manage your saved locations', icon: 'location-outline', screen: ROUTES.ADDRESSES },
   { label: 'Payment Methods', subtitle: 'Manage your payment options', icon: 'card-outline', screen: ROUTES.PAYMENT_METHODS },
   { label: 'Wallet', subtitle: 'Sales, purchases, and deal history', icon: 'wallet-outline', screen: ROUTES.WALLET },
+  { label: 'Plans & Post Limits', subtitle: 'Posts left today and seller plans', icon: 'rocket-outline', screen: ROUTES.SUBSCRIPTION },
+  { label: 'Plan Bills', subtitle: 'Payment history and receipts', icon: 'receipt-outline', screen: ROUTES.PAYMENT_HISTORY },
   { label: 'My Listings', subtitle: 'View and manage your posted items', icon: 'list-outline', screen: ROUTES.MY_LISTINGS },
   { label: 'Seller Preference', subtitle: 'Choose how you want to sell', icon: 'storefront-outline', screen: ROUTES.SELLER_TYPE_SELECTION, params: { fromSettings: true } },
   { label: 'Invite Friends', subtitle: 'Earn a free 24-hour boost per friend', icon: 'gift-outline', screen: ROUTES.INVITE_FRIENDS },

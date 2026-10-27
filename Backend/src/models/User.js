@@ -129,6 +129,23 @@ const userSchema = new mongoose.Schema(
     referralRewardGranted: { type: Boolean, default: false },
     /** Each credit = 1 day featured listing */
     featuredCredits: { type: Number, default: 0, min: 0 },
+    /**
+     * Admin override of new listings per 24 hours, by seller type. null = platform default
+     * (and the new-account / watch-tier caps); 0 = no limit; N = exactly N.
+     */
+    postLimits: {
+      individual: { type: Number, default: null, min: 0 },
+      shop: { type: Number, default: null, min: 0 },
+    },
+    /** Approved posting plan, copied from the plan at approval. Ignored once endsAt has passed. */
+    subscription: {
+      plan: { type: mongoose.Schema.Types.ObjectId, ref: 'SubscriptionPlan', default: null },
+      name: { type: String, default: '' },
+      individualDailyListings: { type: Number, default: null },
+      shopDailyListings: { type: Number, default: null },
+      startsAt: { type: Date, default: null },
+      endsAt: { type: Date, default: null },
+    },
     fcmToken: { type: String, default: '', index: true },
     /** Pinned stores - synced across devices */
     pinnedStores: [

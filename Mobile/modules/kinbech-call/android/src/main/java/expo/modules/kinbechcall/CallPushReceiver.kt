@@ -25,11 +25,17 @@ class CallPushReceiver : BroadcastReceiver() {
         val app = context.applicationContext
         val callerName = intent.getStringExtra("callerName").orEmpty()
         val callerImage = IncomingCallNotifier.resolveMedia(app, intent.getStringExtra("callerImage").orEmpty())
+        val item = CallItem(
+          title = intent.getStringExtra("itemTitle").orEmpty(),
+          price = intent.getStringExtra("itemPrice").orEmpty(),
+          place = intent.getStringExtra("itemPlace").orEmpty(),
+          image = IncomingCallNotifier.resolveMedia(app, intent.getStringExtra("itemImage").orEmpty())
+        )
         val pending = goAsync()
         // The avatar download needs the network, which is not allowed on the main thread.
         thread(name = "kinbech-call-push") {
           try {
-            IncomingCallNotifier.show(app, chatId, callerName, callerImage, ringMs)
+            IncomingCallNotifier.show(app, chatId, callerName, callerImage, ringMs, item)
           } catch (error: Exception) {
             // JS still gets the same push and retries the notification.
           } finally {

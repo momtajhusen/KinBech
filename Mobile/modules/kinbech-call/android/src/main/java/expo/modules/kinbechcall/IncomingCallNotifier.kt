@@ -23,6 +23,9 @@ import androidx.core.graphics.drawable.IconCompat
 import java.net.HttpURLConnection
 import java.net.URL
 
+/** The listing the call is about, shown as a card on the lock-screen ringing screen. */
+class CallItem(val title: String, val price: String, val place: String, val image: String)
+
 object IncomingCallNotifier {
   const val CHANNEL_ID = "kinbech-incoming-call-v2"
   const val ACTION_DECLINE = "expo.modules.kinbechcall.DECLINE"
@@ -66,12 +69,14 @@ object IncomingCallNotifier {
     chatId: String,
     callerName: String,
     callerImage: String,
-    timeoutMs: Long
+    timeoutMs: Long,
+    item: CallItem? = null
   ): Boolean {
     if (!canPost(context)) return false
     ensureChannel(context)
     val name = callerName.ifBlank { "KinBech user" }
     downloadAvatar(callerImage)?.let { lastAvatar = callerImage to it }
+    rememberItem(chatId, item)
     if (IncomingCallService.start(context, chatId, name, callerImage, timeoutMs)) return true
 
     // Android refused the background service start: post the notification and ring from this process.
@@ -170,6 +175,17 @@ object IncomingCallNotifier {
 
   fun cachedAvatar(url: String): Bitmap? = lastAvatar?.takeIf { url.isNotEmpty() && it.first == url }?.second
 
+  fun itemFor(chatId: String): CallItem? = ringItem?.takeIf { it.first == chatId }?.second
+
+  /** The JS fallback can repeat a ring without item extras; that must not wipe the card the push gave. */
+  private fun rememberItem(chatId: String, item: CallItem?) {
+    if (item == null || item.title.isBlank()) {
+      if (ringItem?.first != chatId) ringItem = null
+      return
+    }
+    ringItem = chatId to item
+  }
+
   fun launchIntent(context: Context, chatId: String, name: String, image: String, action: String): Intent =
     (context.packageManager.getLaunchIntentForPackage(context.packageName) ?: Intent()).apply {
       setPackage(context.packageName)
@@ -182,6 +198,9 @@ object IncomingCallNotifier {
 
   @Volatile
   private var lastAvatar: Pair<String, Bitmap>? = null
+
+  @Volatile
+  private var ringItem: Pair<String, CallItem>? = null
 
   fun setMediaBase(context: Context, base: String) {
     prefs(context).edit().putString(KEY_MEDIA_BASE, base.trimEnd('/')).apply()

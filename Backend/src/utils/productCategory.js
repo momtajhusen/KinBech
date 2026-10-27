@@ -31,7 +31,8 @@ const ICON_RULES = [
 const TYPE_KEYWORDS = {
   Mobiles: [
     'phone', 'iphone', 'smartphone', 'mobile', 'android', 'redmi', 'xiaomi',
-    'samsung galaxy', 'oneplus', 'pixel', 'nokia', 'cover', 'charger', 'earphone',
+    'samsung galaxy', 'oneplus', 'pixel', 'nokia', 'phone cover', 'phone case',
+    'mobile cover', 'back cover', 'charger', 'earphone',
   ],
   Laptops: ['laptop', 'macbook', 'notebook', 'thinkpad', 'chromebook', 'ultrabook'],
   Electronics: [
@@ -97,7 +98,6 @@ const ALIASES = {
   ssd: 'Electronics',
   inverter: 'Electronics',
   charger: 'Mobiles',
-  cover: 'Mobiles',
 };
 
 function fold(value) {
@@ -189,6 +189,20 @@ async function listProductCategories() {
   return Category.find({ type: 'product', isActive: true }).sort({ sortOrder: 1, name: 1 });
 }
 
+/** Whole words only, so "cover" does not match "hardcover" and "fan" does not match "fantasy". */
+function wordText(value) {
+  return ` ${fold(value).split(' ').filter(Boolean).map(singularize).join(' ')} `;
+}
+
+function hasPhrase(text, phrase) {
+  const words = wordText(phrase).trim();
+  return Boolean(words) && text.includes(` ${words} `);
+}
+
+/**
+ * `named` is true when the category relates to the AI's own category name; a match found only
+ * in the title or description is weaker and must not override an explicit new class like "Books".
+ */
 function scoreCategory(doc, { suggested, title, description }) {
   const nameFold = fold(doc.name);
   const nameSing = singularize(nameFold);
@@ -196,7 +210,8 @@ function scoreCategory(doc, { suggested, title, description }) {
   const suggestedSing = singularize(suggestedFold);
   const catTokens = tokens(doc.name);
   const sugTokens = tokens(suggested);
-  const blob = fold(`${title} ${description}`);
+  const suggestedWords = wordText(suggested);
+  const blobWords = wordText(`${title} ${description}`);
   let score = 0;
 
   if (suggestedFold && suggestedFold === nameFold) score += 120;
@@ -223,17 +238,20 @@ function scoreCategory(doc, { suggested, title, description }) {
   }
 
   const keywords = TYPE_KEYWORDS[doc.name] || [];
+  let namedHits = 0;
   let keywordHits = 0;
   keywords.forEach((word) => {
-    if (suggestedFold.includes(word) || blob.includes(word)) keywordHits += 1;
+    if (hasPhrase(suggestedWords, word)) namedHits += 1;
+    else if (hasPhrase(blobWords, word)) keywordHits += 1;
   });
-  if (keywordHits) score += 40 + keywordHits * 12;
-  if (nameFold.length >= 4 && blob.includes(nameFold)) score += 20;
+  const named = score > 0 || namedHits > 0;
+  if (namedHits + keywordHits) score += 40 + (namedHits + keywordHits) * 12;
+  if (nameFold.length >= 4 && hasPhrase(blobWords, nameFold)) score += 20;
   catTokens.forEach((t) => {
-    if (t.length >= 4 && blob.includes(t)) score += 10;
+    if (t.length >= 4 && hasPhrase(blobWords, t)) score += 10;
   });
 
-  return score;
+  return { score, named };
 }
 
 async function createProductCategory(name) {
@@ -284,19 +302,26 @@ async function resolveProductCategory({
   const docs = await listProductCategories();
   const suggested = String(name || '').trim();
   const ranked = docs
-    .map((doc) => ({ doc, score: scoreCategory(doc, { suggested, title, description }) }))
+    .map((doc) => ({ doc, ...scoreCategory(doc, { suggested, title, description }) }))
     .sort((a, b) => b.score - a.score);
 
   const best = ranked[0];
   const second = ranked[1];
-  const clearWinner = best && best.score >= 50 && (!second || best.score >= second.score + 8 || best.score >= 90);
+  // When the AI named a class (e.g. "Books") that no existing category relates to, create it
+  // rather than letting stray words in the description pick an unrelated category.
+  const explicitNewClass = Boolean(toDisplayName(suggested)) && !best?.named;
+  const clearWinner =
+    best &&
+    !explicitNewClass &&
+    best.score >= 50 &&
+    (!second || best.score >= second.score + 8 || best.score >= 90);
 
   if (clearWinner) {
     return { ...toRecord(best.doc), created: false };
   }
 
   if (!createIfMissing) {
-    return best?.score >= 30 ? { ...toRecord(best.doc), created: false } : null;
+    return !explicitNewClass && best?.score >= 30 ? { ...toRecord(best.doc), created: false } : null;
   }
 
   const display = toDisplayName(suggested);

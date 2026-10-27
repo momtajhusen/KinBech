@@ -158,6 +158,7 @@ class IncomingCallActivity : Activity() {
     val column = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
+      clipChildren = false
     }
     root.addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
     ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
@@ -181,8 +182,11 @@ class IncomingCallActivity : Activity() {
     column.addView(pill, LinearLayout.LayoutParams(WRAP, WRAP))
     column.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
 
+    val item = IncomingCallNotifier.itemFor(chatId)
     val avatar = avatarBlock()
-    column.addView(avatar, LinearLayout.LayoutParams(dp(250), dp(250)))
+    // With the item card the waves may spill past their box instead of pushing the buttons off short screens.
+    val avatarBox = if (item != null) dp(216) else dp(250)
+    column.addView(avatar, LinearLayout.LayoutParams(dp(250), avatarBox))
 
     val name = TextView(this).apply {
       text = callerName
@@ -203,6 +207,9 @@ class IncomingCallActivity : Activity() {
     }
     statusView = status
     column.addView(status, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(8) })
+
+    val card = item?.let { itemCard(it) }
+    if (card != null) column.addView(card, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(22) })
     column.addView(View(this), LinearLayout.LayoutParams(1, 0, 1.3f))
 
     val actions = actionsRow()
@@ -211,7 +218,7 @@ class IncomingCallActivity : Activity() {
     setContentView(root)
     ViewCompat.requestApplyInsets(root)
 
-    listOf(pill, avatar, name, status, actions).forEachIndexed { index, view ->
+    listOfNotNull(pill, avatar, name, status, card, actions).forEachIndexed { index, view ->
       view.alpha = 0f
       view.translationY = dp(22).toFloat()
       view.animate()
@@ -228,7 +235,7 @@ class IncomingCallActivity : Activity() {
   }
 
   private fun avatarBlock(): FrameLayout {
-    val block = FrameLayout(this)
+    val block = FrameLayout(this).apply { clipChildren = false }
     repeat(3) { index ->
       val ring = View(this).apply {
         background = GradientDrawable().apply {
@@ -293,6 +300,73 @@ class IncomingCallActivity : Activity() {
     frame.scaleY = 0.85f
     frame.animate().scaleX(1f).scaleY(1f).setDuration(520).setInterpolator(OvershootInterpolator(1.6f)).start()
     return block
+  }
+
+  private fun itemCard(item: CallItem): LinearLayout {
+    val card = LinearLayout(this).apply {
+      orientation = LinearLayout.HORIZONTAL
+      gravity = Gravity.CENTER_VERTICAL
+      setPadding(dp(12), dp(12), dp(14), dp(12))
+      background = GradientDrawable().apply {
+        cornerRadius = dp(22).toFloat()
+        setColor(GLASS)
+        setStroke(dp(1), GLASS_BORDER)
+      }
+    }
+
+    val radius = dp(14).toFloat()
+    val photo = ImageView(this).apply {
+      scaleType = ImageView.ScaleType.CENTER_CROP
+      background = GradientDrawable().apply {
+        cornerRadius = radius
+        setColor(0x14FFFFFF)
+      }
+      outlineProvider = object : ViewOutlineProvider() {
+        override fun getOutline(view: View, outline: Outline) {
+          outline.setRoundRect(0, 0, view.width, view.height, radius)
+        }
+      }
+      clipToOutline = true
+      contentDescription = item.title
+    }
+    card.addView(photo, LinearLayout.LayoutParams(dp(54), dp(54)))
+    if (item.image.startsWith("http")) {
+      val wanted = item.image
+      Thread {
+        val bitmap = IncomingCallNotifier.downloadAvatar(wanted) ?: return@Thread
+        runOnUiThread { if (!isDestroyed) photo.setImageBitmap(bitmap) }
+      }.start()
+    }
+
+    val copy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    copy.addView(TextView(this).apply {
+      text = item.title
+      setTextColor(Color.WHITE)
+      setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+      typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+      maxLines = 2
+      ellipsize = TextUtils.TruncateAt.END
+    }, LinearLayout.LayoutParams(MATCH, WRAP))
+    if (item.price.isNotBlank()) {
+      copy.addView(TextView(this).apply {
+        text = item.price
+        setTextColor(MINT)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        maxLines = 1
+      }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(3) })
+    }
+    if (item.place.isNotBlank()) {
+      copy.addView(TextView(this).apply {
+        text = item.place
+        setTextColor(MUTED)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+      }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(2) })
+    }
+    card.addView(copy, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(12) })
+    return card
   }
 
   private fun actionsRow(): LinearLayout {
@@ -471,6 +545,7 @@ class IncomingCallActivity : Activity() {
     private const val GLASS_BORDER = 0x29FFFFFF
     private val ANSWER = 0xFF22C55E.toInt()
     private val DECLINE = 0xFFEF4444.toInt()
+    private val MINT = 0xFF6EE7B7.toInt()
 
     private var current: WeakReference<IncomingCallActivity>? = null
 

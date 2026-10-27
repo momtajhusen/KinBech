@@ -32,6 +32,10 @@ import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import { useListingAiFill } from '../hooks/useListingAiFill';
+import PostQuotaBanner from '../components/PostQuotaBanner';
+import TesterModeButton from '../components/TesterModeButton';
+import PostLimitModal from '../components/PostLimitModal';
+import { usePostQuota } from '../hooks/usePostQuota';
 import {
   EXTRA_PHOTO_SLOTS,
   hydrateMediaSlotsFromUris,
@@ -104,7 +108,9 @@ function CompactHeader({ insets, onBack, colors, styles, title }) {
           <Icon name="chevron-back" size={22} color={colors.onGradient} />
         </Pressable>
         <Text style={styles.headerTitle}>{title}</Text>
-        <View style={styles.backBtn} />
+        <View style={styles.headerSpacer}>
+          <TesterModeButton style={styles.testerBtn} />
+        </View>
       </View>
     </LinearGradient>
   );
@@ -188,6 +194,21 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const [variantOptions, setVariantOptions] = useState(editListing?.variantOptions || []);
   const [variants, setVariants] = useState(() => variantsFromListing(editListing));
   const [markSold, setMarkSold] = useState(editListing?.status === 'sold');
+  const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota } = usePostQuota('shop', {
+    shopId: selectedShopId,
+    enabled: !isEdit && !loadingShop && Boolean(selectedShopId),
+  });
+  const [limitModal, setLimitModal] = useState(false);
+
+  /** True when today's posts are used up; opens the limit modal instead of the picker. */
+  const checkPostLimit = useCallback(async () => {
+    if (isEdit || !quotaBlocked) return false;
+    const fresh = await reloadQuota();
+    if (fresh && (fresh.unlimited || fresh.remaining > 0)) return false;
+    Keyboard.dismiss();
+    setLimitModal(true);
+    return true;
+  }, [isEdit, quotaBlocked, reloadQuota]);
 
   useEffect(() => {
     let active = true;
@@ -248,6 +269,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   }, [categories]);
 
   const handleBack = () => {
+    if (limitModal) {
+      setLimitModal(false);
+      return;
+    }
     if (alertConfig) {
       setAlertConfig(null);
       return;
@@ -318,6 +343,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
 
   const pickPhoto = useCallback(async (index) => {
     if (index !== 0 && !requireCover()) return;
+    if (index === 0 && !mainPhoto && (await checkPostLimit())) return;
     setPickingIndex(index);
     let pickedUri = null;
     try {
@@ -359,7 +385,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         });
       }
     }
-  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, isEdit]);
+  }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, isEdit, mainPhoto, checkPostLimit]);
 
   const removePhoto = (index) => {
     setPhotos((prev) => prev.filter((_, i) => i !== index));
@@ -403,6 +429,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
 
   const publish = async () => {
     if (submitting) return;
+    if (await checkPostLimit()) return;
     if (!validateStep1()) return;
     const next = {};
     if (!title.trim()) next.title = 'Enter a title';
@@ -505,6 +532,12 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     const { data, error } = await api.createListing(payload);
 
     setSubmitting(false);
+    if (data?.code === 'DAILY_LISTING_LIMIT') {
+      if (data.quota) setQuota(data.quota);
+      Keyboard.dismiss();
+      setLimitModal(true);
+      return;
+    }
     if (error) {
       const isProhibited = /prohibited|weapon|gun|restricted/i.test(String(error));
       setAlertConfig(
@@ -520,6 +553,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     }
     noteUserListedCategory(category);
     refreshUserCategoryRank({ force: true }).catch(() => {});
+    reloadQuota();
     const openSuccess = () =>
       navigation.navigate(ROUTES.LISTING_SUCCESS, {
         listing: {
@@ -601,6 +635,9 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
               <Icon name="chevron-forward" size={16} color={colors.textSecondary} />
             </Pressable>
           )}
+          {!isEdit ? (
+            <PostQuotaBanner quota={quota} onUpgrade={() => navigation.navigate(ROUTES.SUBSCRIPTION)} />
+          ) : null}
 
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Photos</Text>
@@ -962,6 +999,19 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         onClose={() => setAlertConfig(null)}
         {...(alertConfig || {})}
       />
+      <PostLimitModal
+        visible={limitModal}
+        quota={quota}
+        onClose={() => setLimitModal(false)}
+        onSeePlans={() => {
+          setLimitModal(false);
+          navigation.navigate(ROUTES.SUBSCRIPTION, { reason: 'limit' });
+        }}
+        onContact={() => {
+          setLimitModal(false);
+          navigation.navigate(ROUTES.CONTACT_US);
+        }}
+      />
     </View>
   );
 }
@@ -990,6 +1040,11 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.14)',
   },
+  headerSpacer: {
+    width: 36,
+    height: 36,
+  },
+  testerBtn: { width: 36, height: 36, borderRadius: 18 },
   headerTitle: {
     flex: 1,
     textAlign: 'center',

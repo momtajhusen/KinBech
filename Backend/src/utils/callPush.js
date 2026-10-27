@@ -100,7 +100,8 @@ async function sendUserPush(options) {
 }
 
 /** Resolves to { sent, reason } so callers can tell the caller whether the phone was reached. */
-async function sendIncomingCallPush({ userId, chatId, callerName, callerImage }) {
+async function sendIncomingCallPush({ userId, chatId, callerName, callerImage, listing }) {
+  const price = Number(listing?.price);
   return deliverPush({
     userId,
     title: 'Incoming call',
@@ -112,6 +113,11 @@ async function sendIncomingCallPush({ userId, chatId, callerName, callerImage })
       callerName: callerName || 'KinBech user',
       callerImage: callerImage || '',
       sentAt: Date.now(),
+      // The lock-screen ringing screen shows the item card before the app (and its API calls) start.
+      itemTitle: listing?.title ? String(listing.title).slice(0, 120) : null,
+      itemPrice: listing?.title && Number.isFinite(price) ? `Rs ${price.toLocaleString('en-IN')}` : null,
+      itemImage: listing?.photos?.[0] || null,
+      itemPlace: listing?.location ? String(listing.location).slice(0, 80) : null,
     },
   });
 }

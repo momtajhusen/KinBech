@@ -44,8 +44,10 @@ export function AuthProvider({ children }) {
             }
           }
 
-          const { data, error } = await api.me();
+          const { data, error, status } = await api.me();
           if (cancelled) return;
+          // A phone woken by a call push often has no network yet; only a server rejection ends the session.
+          const rejected = status >= 400 && status < 500 && ![408, 425, 429].includes(status);
           if (data?.user) {
             if (data.token) {
               setAuthToken(data.token);
@@ -54,7 +56,7 @@ export function AuthProvider({ children }) {
             }
             setUser(data.user);
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(data.user));
-          } else if (error) {
+          } else if (error && rejected) {
             setAuthToken(null);
             setToken(null);
             setUser(null);

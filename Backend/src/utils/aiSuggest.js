@@ -61,7 +61,7 @@ function buildPrompt(categories, shop) {
     'that helps you identify the exact model.',
     '',
     'Reply with JSON only, in exactly this shape:',
-    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
+    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
     '',
     'Safety rules (check first):',
     '- KinBech is a family marketplace. Set safety.allowed to false when the photo shows nudity,',
@@ -75,6 +75,9 @@ function buildPrompt(categories, shop) {
     '- priceNpr: a realistic selling price in Nepal, in Nepali rupees (NPR), for this exact item',
     '  in the condition you see. Think of current second-hand prices in Nepal for used items and',
     '  Nepal retail prices for new ones. Whole number only, no currency text. Use 0 only if unknown.',
+    '- newPriceNpr: the current retail price in Nepal, in NPR, of this exact item bought brand new',
+    '  today (same brand and model; nearest current model if it is discontinued). Whole number only.',
+    '  Use 0 only if unknown.',
     '',
     'Title rules (most important):',
     '- Choose the single best search title a buyer would type into a search box.',
@@ -112,7 +115,8 @@ function buildPrompt(categories, shop) {
   lines.push('- Put the same product type in the same category every time.');
   lines.push('- Use a product class, never a brand, model, colour, or condition.');
   lines.push('- Examples of wrong names: "Apple", "iPhone 13", "Gaming Laptop", "Red Sofa".');
-  lines.push('- Phone, charger, and cover → Mobiles. MacBook and notebooks → Laptops.');
+  lines.push('- Phone, charger, and phone case or phone cover → Mobiles. MacBook and notebooks → Laptops.');
+  lines.push('- Books, novels and textbooks → Books. A book cover is a book, never Mobiles.');
   lines.push('- TV, fan, SSD, power supply, headphones → Electronics.');
   if (shop?.type) {
     lines.push(`- This seller runs a "${shop.type}" store.`);
@@ -162,7 +166,7 @@ function parseSuggestion(rawText) {
     reason: String(safetyRaw.reason || '').trim().slice(0, 240),
   };
   if (!safety.allowed) {
-    return { title: '', description: '', category: null, condition: null, priceNpr: null, searchWords: [], safety };
+    return { title: '', description: '', category: null, condition: null, priceNpr: null, newPriceNpr: null, searchWords: [], safety };
   }
 
   const titleWords = String(parsed.title || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
@@ -170,6 +174,7 @@ function parseSuggestion(rawText) {
   const description = String(parsed.description || '').trim();
   if (!title && !description) return null;
   const priceNpr = Math.round(Number(parsed.priceNpr));
+  const newPriceNpr = Math.round(Number(parsed.newPriceNpr));
 
   const conditionRaw = String(parsed.condition || '').trim().toLowerCase();
   const searchWords = Array.isArray(parsed.searchWords)
@@ -185,6 +190,7 @@ function parseSuggestion(rawText) {
     category: String(parsed.category || '').trim() || null,
     condition: CONDITIONS.find((c) => c.toLowerCase() === conditionRaw) || null,
     priceNpr: Number.isFinite(priceNpr) && priceNpr > 0 ? priceNpr : null,
+    newPriceNpr: Number.isFinite(newPriceNpr) && newPriceNpr > 0 ? newPriceNpr : null,
     searchWords,
     safety,
   };

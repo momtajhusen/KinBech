@@ -9,11 +9,14 @@ const Notification = require('../models/Notification');
 const SupportTicket = require('../models/SupportTicket');
 const AuditLog = require('../models/AuditLog');
 const Message = require('../models/Message');
+const SubscriptionRequest = require('../models/SubscriptionRequest');
+const { paidTotals, presentRequest } = require('./subscriptionController');
 const { linkedAccounts } = require('../utils/fraudSignals');
 const { ADMIN_ROLES } = require('../utils/adminScopes');
 const { listSessions, revokeAllSessions } = require('../utils/sessions');
 const { cancelDeletion, GRACE_DAYS } = require('../utils/accountDeletion');
 const { recordAudit } = require('../utils/audit');
+const { MAX_DAILY_LISTINGS, getPlatformSettings } = require('../utils/platformSettings');
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX_DAYS = 365;
@@ -280,6 +283,16 @@ async function getUserDetail(req, res, next) {
       linkedAccounts(id),
       Message.countDocuments({ sender: id, safetyFlag: 'scam_words', createdAt: { $gte: new Date(Date.now() - 30 * DAY) } }),
     ]);
+    const [platform, postsToday, planPayments, paid] = await Promise.all([
+      getPlatformSettings(),
+      Listing.aggregate([
+        { $match: { seller: id, createdAt: { $gte: new Date(Date.now() - DAY) } } },
+        { $group: { _id: '$sellerType', count: { $sum: 1 } } },
+      ]),
+      SubscriptionRequest.find({ user: id, status: { $ne: 'initiated' } }).sort({ createdAt: -1 }).limit(10).lean(),
+      paidTotals({ user: id }),
+    ]);
+    const todayByType = Object.fromEntries(postsToday.map((row) => [row._id, row.count]));
 
     const countMap = (rows) => Object.fromEntries(rows.map((row) => [row._id, row.count]));
     const listingCounts = countMap(listingStatus);
@@ -308,6 +321,22 @@ async function getUserDetail(req, res, next) {
         trustTier: user.trustTier || 'new',
         rankBoost: user.rankBoost || 0,
         featuredCredits: user.featuredCredits || 0,
+        postLimits: {
+          individual: user.postLimits?.individual ?? null,
+          shop: user.postLimits?.shop ?? null,
+          defaults: { individual: platform.individualDailyListings, shop: platform.shopDailyListings },
+          used24h: { individual: todayByType.individual || 0, shop: todayByType.shop || 0 },
+        },
+        subscription: user.subscription?.endsAt && new Date(user.subscription.endsAt).getTime() > now
+          ? {
+              name: user.subscription.name,
+              startsAt: user.subscription.startsAt || null,
+              endsAt: user.subscription.endsAt,
+              daysLeft: Math.max(0, Math.ceil((new Date(user.subscription.endsAt).getTime() - now) / DAY)),
+              individualDailyListings: user.subscription.individualDailyListings ?? null,
+              shopDailyListings: user.subscription.shopDailyListings ?? null,
+            }
+          : null,
         referralCode: user.referralCode || '',
         referredBy: user.referredBy
           ? { id: String(user.referredBy._id), name: displayName(user.referredBy) }
@@ -377,6 +406,12 @@ async function getUserDetail(req, res, next) {
         createdAt: report.createdAt,
       })),
       tickets: tickets.map(presentTicket),
+      payments: {
+        rows: planPayments.map(presentRequest),
+        paid: paid.amount,
+        test: paid.test,
+        plansBought: paid.count,
+      },
       sessions,
       audit: audit.map((row) => ({
         id: String(row._id),
@@ -401,7 +436,7 @@ function clampDays(value) {
 /**
  * One endpoint for every account action on the User 360 page. Each action is audited.
  * suspend {days?, reason} | reinstate | restrict_chat {days, reason} | lift_chat
- * | force_logout | set_credits {credits}
+ * | force_logout | set_credits {credits} | set_post_limits {individual, shop} (null = default)
  */
 async function moderateUser(req, res, next) {
   try {
@@ -409,7 +444,7 @@ async function moderateUser(req, res, next) {
     if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ message: 'Invalid user' });
     const action = String(req.body.action || '');
     const reason = String(req.body.reason || '').trim().slice(0, 300);
-    const allowed = ['suspend', 'reinstate', 'restrict_chat', 'lift_chat', 'force_logout', 'set_credits'];
+    const allowed = ['suspend', 'reinstate', 'restrict_chat', 'lift_chat', 'force_logout', 'set_credits', 'set_post_limits'];
     if (!allowed.includes(action)) return res.status(400).json({ message: 'Unknown action' });
 
     const user = await User.findById(userId);
@@ -464,6 +499,25 @@ async function moderateUser(req, res, next) {
       meta.to = credits;
       user.featuredCredits = credits;
       summary = `Featured credits for ${displayName(user)}: ${meta.from} → ${credits}`;
+    } else if (action === 'set_post_limits') {
+      const describe = (value) => (value == null ? 'default' : value === 0 ? 'no limit' : `${value}/day`);
+      const next_ = {};
+      for (const key of ['individual', 'shop']) {
+        const raw = req.body[key];
+        if (raw === null || raw === '' || raw === undefined) {
+          next_[key] = null;
+          continue;
+        }
+        const value = Number(raw);
+        if (!Number.isInteger(value) || value < 0 || value > MAX_DAILY_LISTINGS) {
+          return res.status(400).json({ message: `Post limit must be a whole number from 0 to ${MAX_DAILY_LISTINGS}` });
+        }
+        next_[key] = value;
+      }
+      meta.from = { individual: user.postLimits?.individual ?? null, shop: user.postLimits?.shop ?? null };
+      meta.to = next_;
+      user.postLimits = next_;
+      summary = `Daily post limit for ${displayName(user)}: individual ${describe(next_.individual)}, store ${describe(next_.shop)}`;
     }
 
     await user.save();

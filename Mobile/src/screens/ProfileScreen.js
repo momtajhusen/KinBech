@@ -10,10 +10,14 @@ import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import GradientButton from '../components/GradientButton';
 import LogoutConfirmModal from '../components/LogoutConfirmModal';
+import { AlertModal } from '../components/AlertModal';
 import { resolveMediaUrl } from '../utils/listing';
 import { openCallSetup, readCallReadiness } from '../services/callReadiness';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import { useAccountStatus } from '../hooks/useAccountStatus';
+import AccountStatusCard from '../components/AccountStatusCard';
+import TesterModeButton from '../components/TesterModeButton';
 
 const SELLER_LEVELS = {
   top: { label: 'Top Seller', icon: 'trophy-outline', tint: 'success', tip: 'You are one of the most trusted sellers on KinBech. Your badge shows on your listings.' },
@@ -23,6 +27,34 @@ const SELLER_LEVELS = {
   watch: { label: 'Needs attention', icon: 'alert-circle-outline', tint: 'warning', tip: 'Some buyers had a poor experience. Reply faster and keep listings accurate. For now you can post up to 3 listings a day.' },
   restricted: { label: 'Limited', icon: 'lock-closed-outline', tint: 'deleteRed', tip: 'New listings are checked by our team before going live. Reply to buyers and keep listings accurate to lift this.' },
 };
+
+const INDIVIDUAL_LOOK = {
+  label: 'Individual seller',
+  icon: 'person',
+  tint: '#047857',
+  accent: '#6EE7B7',
+  accentSoft: 'rgba(110,231,183,0.18)',
+  overlay: ['rgba(0,0,0,0.45)', 'rgba(6,78,59,0.9)'],
+};
+
+const STORE_LOOK = {
+  label: 'Store account',
+  icon: 'storefront',
+  tint: '#0E7490',
+  accent: '#FBBF24',
+  accentSoft: 'rgba(251,191,36,0.16)',
+  gradient: ['#0B1324', '#12324F', '#0E7490'],
+  overlay: ['rgba(11,19,36,0.55)', 'rgba(14,116,144,0.92)'],
+};
+
+function SectionTitle({ title, tint, styles }) {
+  return (
+    <View style={styles.sectionHead}>
+      <View style={[styles.sectionBar, { backgroundColor: tint }]} />
+      <Text style={styles.sectionHeadText}>{title}</Text>
+    </View>
+  );
+}
 
 function resolveColor(colorRef, colors) {
   if (typeof colorRef === 'string' && colorRef.startsWith('colors.')) {
@@ -197,9 +229,11 @@ function MemberProfile({ navigation }) {
   const [listings, setListings] = useState([]);
   const [purchaseCount, setPurchaseCount] = useState(0);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showLevelInfo, setShowLevelInfo] = useState(false);
   const [myShop, setMyShop] = useState(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [statsLoaded, setStatsLoaded] = useState(false);
+  const { status: accountStatus, reload: reloadAccountStatus } = useAccountStatus();
 
   const isShopAccount = user?.sellerTypePreference === 'shop';
 
@@ -223,7 +257,7 @@ function MemberProfile({ navigation }) {
     setStatsLoaded(true);
   }, [isShopAccount]);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => loadProfile());
+  const { refreshing, onRefresh } = usePullRefresh(() => Promise.all([loadProfile(), reloadAccountStatus()]));
 
   useFocusEffect(
     useCallback(() => {
@@ -399,6 +433,22 @@ function MemberProfile({ navigation }) {
           bg: resolveColor('colors.iconBackground', colors),
           onPress: () => navigation.navigate(ROUTES.PAYMENT_METHODS),
         },
+        {
+          label: 'Plans & post limits',
+          hint: 'Posts left today and seller plans',
+          icon: 'rocket-outline',
+          tint: colors.primary,
+          bg: resolveColor('colors.pastelGreen', colors),
+          onPress: () => navigation.navigate(ROUTES.SUBSCRIPTION),
+        },
+        {
+          label: 'Plan bills',
+          hint: 'Payment history and receipts',
+          icon: 'receipt-outline',
+          tint: resolveColor('colors.menuOrange', colors),
+          bg: resolveColor('colors.pastelOrange', colors),
+          onPress: () => navigation.navigate(ROUTES.PAYMENT_HISTORY),
+        },
       ],
     },
     {
@@ -462,6 +512,8 @@ function MemberProfile({ navigation }) {
   const joined = user?.joinedAt
     ? new Date(user.joinedAt).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
     : '';
+  const look = isShopAccount ? STORE_LOOK : { ...INDIVIDUAL_LOOK, gradient: ['#064E3B', colors.gradientStart, colors.gradientEnd] };
+  const sectionTint = isShopAccount ? STORE_LOOK.tint : colors.primary;
 
   return (
     <View style={styles.root}>
@@ -471,9 +523,9 @@ function MemberProfile({ navigation }) {
         contentContainerStyle={{ paddingBottom: 96 }}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <View style={[styles.header, styles.memberHeader, { paddingTop: insets.top + 6, backgroundColor: look.gradient[0] }]}>
           <LinearGradient
-            colors={[colors.gradientStart, colors.gradientEnd]}
+            colors={look.gradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.headerCover}
@@ -482,18 +534,17 @@ function MemberProfile({ navigation }) {
           {hasShop && myShop.coverImage ? (
             <>
               <Image source={{ uri: resolveMediaUrl(myShop.coverImage) }} style={styles.headerCover} resizeMode="cover" />
-              <LinearGradient
-                colors={['rgba(0,0,0,0.45)', 'rgba(6,78,59,0.9)']}
-                style={styles.headerCover}
-                pointerEvents="none"
-              />
+              <LinearGradient colors={look.overlay} style={styles.headerCover} pointerEvents="none" />
             </>
           ) : null}
           <View style={styles.headerGlow} pointerEvents="none" />
+          <View style={[styles.headerGlowSm, { backgroundColor: look.accentSoft }]} pointerEvents="none" />
+          {isShopAccount ? <View style={styles.storeStripe} pointerEvents="none" /> : null}
 
           <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>My Profile</Text>
+            <Text style={styles.headerTitle}>{isShopAccount ? 'My Store' : 'My Profile'}</Text>
             <View style={styles.headerActions}>
+              <TesterModeButton style={styles.testerBtn} />
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.NOTIFICATIONS)}
                 hitSlop={8}
@@ -501,7 +552,7 @@ function MemberProfile({ navigation }) {
                 accessibilityLabel="Notifications"
               >
                 <Icon name="notifications-outline" size={18} color={colors.white} />
-                {unreadCount > 0 ? <View style={styles.iconDot} /> : null}
+                {unreadCount > 0 ? <View style={[styles.iconDot, { borderColor: look.gradient[1] }]} /> : null}
               </Pressable>
               <Pressable
                 onPress={() => navigation.navigate(ROUTES.SETTINGS)}
@@ -514,78 +565,93 @@ function MemberProfile({ navigation }) {
             </View>
           </View>
 
-          <View style={styles.identity}>
-            <Pressable onPress={() => navigation.navigate(editRoute)} style={styles.avatarWrap}>
-              <View style={[styles.avatarRing, isShopAccount && styles.avatarRingStore]}>
-                <View style={[styles.avatar, isShopAccount && styles.avatarStore]}>
+          <View style={styles.identityRow}>
+            <Pressable onPress={() => navigation.navigate(editRoute)}>
+              <LinearGradient
+                colors={[look.accent, 'rgba(255,255,255,0.35)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.idRing, isShopAccount && styles.idRingStore]}
+              >
+                <View style={[styles.idAvatar, isShopAccount && styles.idAvatarStore]}>
                   {headerImage ? (
                     <Image source={{ uri: resolveMediaUrl(headerImage) }} style={styles.avatarImage} />
                   ) : (
-                    <Icon name={isShopAccount ? 'storefront' : 'person'} size={34} color={colors.textMuted} />
+                    <Icon name={look.icon} size={30} color={look.tint} />
                   )}
                 </View>
-              </View>
-              <View style={styles.editBadge}>
-                <Icon name="pencil" size={11} color={colors.gradientStart} />
+              </LinearGradient>
+              <View style={[styles.editBadge, styles.idEditBadge]}>
+                <Icon name="pencil" size={10} color={look.tint} />
               </View>
             </Pressable>
 
-            <View style={styles.nameRow}>
-              <Text style={styles.name} numberOfLines={1}>
-                {headerName}
-              </Text>
-              {isVerified ? (
-                <Icon name={hasShop ? 'shield-checkmark' : 'checkmark-circle'} size={17} color={colors.white} />
+            <View style={styles.identityCopy}>
+              <View style={styles.chipRow}>
+                <View style={[styles.typeChip, { backgroundColor: look.accentSoft, borderColor: `${look.accent}88` }]}>
+                  <Icon name={look.icon} size={11} color={look.accent} />
+                  <Text style={[styles.typeChipText, { color: look.accent }]}>{look.label}</Text>
+                </View>
+                {level ? (
+                  <Pressable
+                    onPress={() => setShowLevelInfo(true)}
+                    hitSlop={6}
+                    style={({ pressed }) => [styles.levelPill, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Seller level: ${level.label}. Tap for details.`}
+                  >
+                    <Icon name={level.icon} size={11} color={colors.white} />
+                    <Text style={styles.levelPillText} numberOfLines={1}>{level.label}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              <View style={[styles.nameRow, styles.idNameRow]}>
+                <Text style={[styles.name, styles.idName]} numberOfLines={1}>
+                  {headerName}
+                </Text>
+                {isVerified ? (
+                  <Icon name={hasShop ? 'shield-checkmark' : 'checkmark-circle'} size={17} color={look.accent} />
+                ) : null}
+              </View>
+              {contactLine ? (
+                <Text style={styles.contactText} numberOfLines={1}>
+                  {contactLine}
+                </Text>
               ) : null}
             </View>
-            {contactLine ? (
-              <Text style={styles.contactText} numberOfLines={1}>
-                {contactLine}
-              </Text>
-            ) : null}
+          </View>
 
-            <View style={styles.badges}>
-              <View style={styles.badge}>
-                <Icon name={isShopAccount ? 'storefront-outline' : 'person-outline'} size={11} color={colors.white} />
-                <Text style={styles.badgeText}>{isShopAccount ? 'Store' : 'Individual'}</Text>
-              </View>
-              {user?.isTester ? (
-                <View style={styles.badge}>
-                  <Icon name="flask-outline" size={11} color={colors.white} />
-                  <Text style={styles.badgeText}>Tester mode</Text>
-                </View>
-              ) : null}
+          {headerBio ? (
+            <Text style={[styles.bio, styles.idBio]} numberOfLines={2}>
+              {headerBio}
+            </Text>
+          ) : null}
+
+          <View style={[styles.badges, styles.idBadges]}>
               {isVerified ? (
-                <View style={styles.badge}>
+                <View style={[styles.badge, styles.idBadge]}>
                   <Icon name="shield-checkmark-outline" size={11} color={colors.white} />
                   <Text style={styles.badgeText}>Verified</Text>
                 </View>
               ) : null}
               {joined ? (
-                <View style={styles.badge}>
+                <View style={[styles.badge, styles.idBadge]}>
                   <Icon name="calendar-outline" size={11} color={colors.white} />
                   <Text style={styles.badgeText}>Since {joined}</Text>
                 </View>
               ) : null}
-            </View>
-
-            {headerBio ? (
-              <Text style={styles.bio} numberOfLines={2}>
-                {headerBio}
-              </Text>
-            ) : null}
           </View>
         </View>
 
         <View style={styles.statsCard}>
-          {STATS.map((stat, i) => (
+          {STATS.map((stat) => (
             <Pressable
               key={stat.label}
-              style={({ pressed }) => [styles.stat, i > 0 && styles.statDivider, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.stat, { backgroundColor: `${stat.tint}12` }, pressed && styles.pressed]}
               onPress={stat.onPress}
             >
-              <View style={[styles.statIcon, { backgroundColor: `${stat.tint}1F` }]}>
-                <Icon name={stat.icon} size={14} color={stat.tint} />
+              <View style={[styles.statIcon, { backgroundColor: stat.tint }]}>
+                <Icon name={stat.icon} size={12} color="#FFFFFF" />
               </View>
               {statsLoaded ? (
                 <Text style={styles.statValue}>{stat.value}</Text>
@@ -598,6 +664,16 @@ function MemberProfile({ navigation }) {
         </View>
 
         <View style={styles.body}>
+          {accountStatus ? (
+            <View>
+              <SectionTitle title="Account status" tint={sectionTint} styles={styles} />
+              <AccountStatusCard
+                status={accountStatus}
+                user={user}
+                onOpenPlans={() => navigation.navigate(ROUTES.SUBSCRIPTION)}              />
+            </View>
+          ) : null}
+
           {reviewCount > 0 ? (
             <Pressable
               style={({ pressed }) => [styles.reviewBanner, pressed && styles.pressed]}
@@ -616,44 +692,23 @@ function MemberProfile({ navigation }) {
             </Pressable>
           ) : null}
 
-          {level ? (
-            <View>
-              <Text style={styles.sectionTitle}>Your seller level</Text>
-              <View style={[styles.card, styles.levelCard]}>
-                <View style={styles.levelHead}>
-                  <View style={[styles.reviewIcon, { backgroundColor: `${colors[level.tint] || colors.primary}1F` }]}>
-                    <Icon name={level.icon} size={16} color={colors[level.tint] || colors.primary} />
-                  </View>
-                  <View style={styles.reviewCopy}>
-                    <Text style={styles.reviewTitle}>{level.label}</Text>
-                    {levelFacts.length ? <Text style={styles.reviewText}>{levelFacts.join(' · ')}</Text> : null}
-                  </View>
-                </View>
-                <Text style={styles.levelTip}>{level.tip}</Text>
-                {user?.strikeCount ? (
-                  <Text style={[styles.levelTip, { color: colors.deleteRed }]}>
-                    {user.strikeCount === 1 ? '1 warning' : `${user.strikeCount} warnings`} on your account. Another one can pause your account.
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ) : null}
-
           <View>
-            <Text style={styles.sectionTitle}>Quick actions</Text>
-            <View style={[styles.card, styles.qaGrid]}>
+            <SectionTitle title="Quick actions" tint={sectionTint} styles={styles} />
+            <View style={styles.qaGrid}>
               {QUICK_ACTIONS.map((a) => (
                 <Pressable
                   key={a.label}
-                  style={({ pressed }) => [styles.qaItem, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.qaCell, pressed && styles.pressed]}
                   onPress={a.onPress}
                 >
-                  <View style={[styles.qaIcon, { backgroundColor: a.bg }]}>
-                    <Icon name={a.icon} size={20} color={a.tint} />
+                  <View style={[styles.qaItem, { backgroundColor: `${a.tint}10`, borderColor: `${a.tint}26` }]}>
+                    <View style={[styles.qaIcon, { backgroundColor: a.tint }]}>
+                      <Icon name={a.icon} size={15} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.qaLabel} numberOfLines={1}>
+                      {a.label}
+                    </Text>
                   </View>
-                  <Text style={styles.qaLabel} numberOfLines={1}>
-                    {a.label}
-                  </Text>
                 </Pressable>
               ))}
             </View>
@@ -661,7 +716,7 @@ function MemberProfile({ navigation }) {
 
           {MENU_SECTIONS.map((section) => (
             <View key={section.title}>
-              <Text style={styles.sectionTitle}>{section.title}</Text>
+              <SectionTitle title={section.title} tint={sectionTint} styles={styles} />
               <View style={styles.card}>
                 {section.items.map((item, index) => (
                   <Pressable
@@ -674,7 +729,7 @@ function MemberProfile({ navigation }) {
                     onPress={item.onPress}
                   >
                     <View style={[styles.menuIcon, { backgroundColor: item.bg }]}>
-                      <Icon name={item.icon} size={17} color={item.tint} />
+                      <Icon name={item.icon} size={15} color={item.tint} />
                     </View>
                     <View style={styles.menuCopy}>
                       <Text style={styles.menuLabel}>{item.label}</Text>
@@ -687,7 +742,9 @@ function MemberProfile({ navigation }) {
                         <Text style={styles.menuBadgeText}>{item.badge > 9 ? '9+' : item.badge}</Text>
                       </View>
                     ) : null}
-                    <Icon name="chevron-forward" size={16} color={colors.textTertiary} />
+                    <View style={styles.menuChevron}>
+                      <Icon name="chevron-forward" size={13} color={colors.textTertiary} />
+                    </View>
                   </Pressable>
                 ))}
               </View>
@@ -723,6 +780,16 @@ function MemberProfile({ navigation }) {
           navigation.reset({ index: 0, routes: [{ name: ROUTES.MAIN_TABS }] });
         }}
       />
+      {level ? (
+        <AlertModal
+          visible={showLevelInfo}
+          onClose={() => setShowLevelInfo(false)}
+          type={level.tint === 'warning' || level.tint === 'deleteRed' ? 'warning' : 'info'}
+          title={`Seller level: ${level.label}`}
+          message={[levelFacts.join(' · '), level.tip].filter(Boolean).join('\n\n')}
+          primaryButton={{ text: 'OK', onPress: () => setShowLevelInfo(false) }}
+        />
+      ) : null}
     </View>
   );
 }
@@ -756,6 +823,122 @@ const createStyles = (colors) => ({
     borderRadius: 110,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
+  headerGlowSm: {
+    position: 'absolute',
+    bottom: -70,
+    left: -50,
+    width: 170,
+    height: 170,
+    borderRadius: 85,
+  },
+  storeStripe: {
+    position: 'absolute',
+    top: 0,
+    right: 54,
+    width: 26,
+    height: '160%',
+    backgroundColor: 'rgba(251,191,36,0.10)',
+    transform: [{ rotate: '24deg' }],
+  },
+  identityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  identityCopy: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  typeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  levelPill: {
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 9,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+  },
+  levelPillText: {
+    flexShrink: 1,
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.white,
+  },
+  typeChipText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  idRing: {
+    padding: 2.5,
+    borderRadius: 36,
+  },
+  idRingStore: {
+    borderRadius: 20,
+  },
+  idAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.white,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  idAvatarStore: {
+    borderRadius: 17,
+  },
+  idEditBadge: {
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  idNameRow: {
+    maxWidth: '100%',
+  },
+  idName: {
+    fontSize: 20,
+  },
+  memberHeader: {
+    paddingBottom: 38,
+  },
+  idBio: {
+    marginTop: 8,
+    paddingHorizontal: 0,
+    textAlign: 'left',
+  },
+  idBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  idBadges: {
+    justifyContent: 'flex-start',
+    marginTop: 8,
+  },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -781,6 +964,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  testerBtn: { width: 36, height: 36, borderRadius: 18 },
   iconDot: {
     position: 'absolute',
     top: 8,
@@ -891,48 +1075,48 @@ const createStyles = (colors) => ({
   },
   statsCard: {
     flexDirection: 'row',
+    gap: 8,
     marginHorizontal: 16,
-    marginTop: -32,
-    paddingVertical: 12,
-    borderRadius: 18,
+    marginTop: -26,
+    padding: 6,
+    borderRadius: 16,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     shadowColor: colors.shadow,
     shadowOpacity: 0.1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
     elevation: 4,
   },
   stat: {
     flex: 1,
     alignItems: 'center',
-    gap: 3,
-  },
-  statDivider: {
-    borderLeftWidth: 1,
-    borderLeftColor: colors.border,
+    gap: 1,
+    paddingVertical: 7,
+    borderRadius: 12,
   },
   statIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 22,
+    height: 22,
+    borderRadius: 7,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 2,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 15.5,
     fontWeight: '800',
     color: colors.text,
   },
   statSpinner: {
-    height: 24,
+    height: 21,
   },
   statLabel: {
-    fontSize: 11,
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
     color: colors.textSecondary,
+    letterSpacing: 0.2,
   },
   pressed: {
     opacity: 0.7,
@@ -976,23 +1160,24 @@ const createStyles = (colors) => ({
   },
   body: {
     paddingHorizontal: 16,
-    marginTop: 18,
-    gap: 18,
+    marginTop: 14,
+    gap: 14,
   },
   reviewBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    padding: 12,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: `${colors.statusPending}55`,
     backgroundColor: `${colors.statusPending}14`,
   },
   reviewIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: `${colors.statusPending}22`,
@@ -1002,26 +1187,31 @@ const createStyles = (colors) => ({
     gap: 2,
   },
   reviewTitle: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
   },
   reviewText: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: colors.textSecondary,
   },
-  levelCard: {
-    padding: 14,
-    gap: 8,
-  },
-  levelHead: {
+  sectionHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 7,
+    marginBottom: 8,
+    marginLeft: 2,
   },
-  levelTip: {
+  sectionBar: {
+    width: 3,
+    height: 13,
+    borderRadius: 2,
+  },
+  sectionHeadText: {
     fontSize: 12,
-    lineHeight: 17,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
     color: colors.textSecondary,
   },
   sectionTitle: {
@@ -1035,7 +1225,7 @@ const createStyles = (colors) => ({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
@@ -1043,32 +1233,46 @@ const createStyles = (colors) => ({
   qaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingVertical: 8,
+    marginHorizontal: -3,
+  },
+  qaCell: {
+    width: '25%',
+    padding: 3,
   },
   qaItem: {
-    width: '25%',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
+    gap: 5,
+    paddingVertical: 9,
+    paddingHorizontal: 4,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   qaIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 15,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   qaLabel: {
-    fontSize: 11.5,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     color: colors.text,
   },
   menuRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  menuChevron: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted || colors.iconBackground,
   },
   menuRowPressed: {
     backgroundColor: colors.iconBackground,
@@ -1078,24 +1282,24 @@ const createStyles = (colors) => ({
     borderBottomColor: colors.border,
   },
   menuIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
   },
   menuCopy: {
     flex: 1,
-    gap: 2,
+    gap: 1,
   },
   menuLabel: {
-    fontSize: 14.5,
+    fontSize: 13.5,
     fontWeight: '700',
     color: colors.text,
   },
   menuHint: {
-    fontSize: 12,
-    color: colors.textSecondary,
+    fontSize: 11.5,
+    color: colors.textMuted,
   },
   menuBadge: {
     minWidth: 20,
@@ -1116,7 +1320,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    height: 48,
+    height: 44,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: `${colors.danger}40`,

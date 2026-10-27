@@ -18,6 +18,7 @@ const mediaRoutes = require('./routes/media');
 const aiRoutes = require('./routes/ai');
 const errorRoutes = require('./routes/errors');
 const callRoutes = require('./routes/calls');
+const subscriptionRoutes = require('./routes/subscriptions');
 const { notFound, errorHandler } = require('./middleware/error');
 const { serveUploads } = require('./utils/serveUploads');
 const { initSentry } = require('./utils/monitoring');
@@ -94,6 +95,7 @@ api.use('/media', mediaRoutes);
 api.use('/ai', aiRoutes);
 api.use('/errors', errorRoutes);
 api.use('/calls', callRoutes);
+api.use('/subscriptions', subscriptionRoutes);
 
 app.use('/v1', api);
 app.use(api);

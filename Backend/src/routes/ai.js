@@ -26,9 +26,12 @@ const { categoriesForShop, linkCategoryToShop } = require('../utils/shopProductC
 const AiUsageDaily = require('../models/AiUsageDaily');
 const { evaluateListingModeration } = require('../utils/listingModeration');
 const { reserveAiCall, refundAiCall, usedToday } = require('../utils/aiQuota');
-const { blendEstimate, marketPriceFor } = require('../utils/priceCheck');
+const { blendEstimate, marketPriceFor, roundPrice } = require('../utils/priceCheck');
 
 const router = express.Router();
+
+/** Individual sellers sell used items: AI price is this share of the brand-new Nepal price. */
+const USED_PRICE_SHARE = { Good: 0.5, Fair: 0.25 };
 
 /**
  * Analyse an uploaded product photo and suggest listing details plus an NPR price
@@ -131,19 +134,32 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
       }
     }
 
+    const individual = req.body?.forShop !== true;
+    if (individual) {
+      suggestion.condition = suggestion.condition === 'Fair' ? 'Fair' : 'Good';
+    }
+
     if (!suggestion.contentBlocked) {
-      const market = await marketPriceFor({
-        title: suggestion.title,
-        category: suggestion.category,
-      }).catch(() => ({ count: 0 }));
-      const price = blendEstimate(market, suggestion.priceNpr);
-      if (price > 0) {
-        suggestion.price = price;
-        suggestion.priceSource = market?.median ? 'market' : 'ai';
-        suggestion.priceComparables = market?.count || 0;
+      const usedShare = USED_PRICE_SHARE[suggestion.condition];
+      if (individual && usedShare && suggestion.newPriceNpr) {
+        suggestion.price = roundPrice(suggestion.newPriceNpr * usedShare);
+        suggestion.newPrice = roundPrice(suggestion.newPriceNpr);
+        suggestion.priceSource = 'new_price';
+      } else {
+        const market = await marketPriceFor({
+          title: suggestion.title,
+          category: suggestion.category,
+        }).catch(() => ({ count: 0 }));
+        const price = blendEstimate(market, suggestion.priceNpr);
+        if (price > 0) {
+          suggestion.price = price;
+          suggestion.priceSource = market?.median ? 'market' : 'ai';
+          suggestion.priceComparables = market?.count || 0;
+        }
       }
     }
     delete suggestion.priceNpr;
+    delete suggestion.newPriceNpr;
     delete suggestion.safety;
     return res.json({ suggestion, model, aiUsage });
   } catch (error) {

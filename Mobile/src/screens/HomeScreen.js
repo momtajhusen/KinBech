@@ -40,6 +40,9 @@ import { useDisplayCurrency } from '../utils/currency';
 import { loadRecentlyViewed, getRecentlyViewed } from '../utils/recentlyViewed';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import { useAccountStatus } from '../hooks/useAccountStatus';
+import { PlanPill } from '../components/AccountStatusCard';
+import TesterModeButton from '../components/TesterModeButton';
 import { categoriesLoaded, useCategories } from '../utils/categories';
 import { formatCityDistrict } from '../utils/locations';
 import {
@@ -86,6 +89,7 @@ export default function HomeScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const { user } = useAuth();
+  const { status: accountStatus, reload: reloadAccountStatus } = useAccountStatus(Boolean(user));
   const requireLogin = useRequireLogin();
   useDisplayCurrency();
   const productCategories = useCategories('product');
@@ -297,7 +301,9 @@ export default function HomeScreen({ navigation }) {
     setLoading(false);
   }, [loadStores, resolveCoordsQuick]);
 
-  const { refreshing, onRefresh } = usePullRefresh(() => loadListings({ silent: true, force: true }));
+  const { refreshing, onRefresh } = usePullRefresh(() =>
+    Promise.all([loadListings({ silent: true, force: true }), reloadAccountStatus()])
+  );
 
   useEffect(() => {
     if (userCoords.lat == null || userCoords.lng == null) return;
@@ -609,6 +615,7 @@ export default function HomeScreen({ navigation }) {
               </View>
             </View>
             <View style={styles.headerActions}>
+              <TesterModeButton style={styles.testerBtn} />
               <PressableScale contentStyle={styles.headerBtn} hitSlop={6} scaleTo={0.92} onPress={() => requireLogin('save', () => navigation.navigate(ROUTES.WISHLIST))}>
                 <Icon name="heart-outline" size={20} color={colors.onGradient} />
               </PressableScale>
@@ -624,10 +631,23 @@ export default function HomeScreen({ navigation }) {
               </PressableScale>
             </View>
           </View>
-          <Reanimated.Text entering={enterUp(0, 0)} style={styles.greeting}>
-            {greeting}
-            {firstName ? `, ${firstName}` : ''}
-          </Reanimated.Text>
+          <View style={styles.greetingRow}>
+            <Reanimated.Text
+              entering={enterUp(0, 0)}
+              style={[styles.greeting, user && accountStatus && styles.greetingWithPill]}
+              numberOfLines={1}
+            >
+              {greeting}
+              {firstName ? `, ${firstName}` : ''}
+            </Reanimated.Text>
+            {user ? (
+              <PlanPill
+                status={accountStatus}
+                style={styles.planPill}
+                onPress={() => navigation.navigate(ROUTES.SUBSCRIPTION)}
+              />
+            ) : null}
+          </View>
           <Reanimated.Text entering={enterUp(1, 90)} style={styles.headline}>
             What are you looking for today?
           </Reanimated.Text>
@@ -1065,6 +1085,7 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
+  testerBtn: { width: 38, height: 38, borderRadius: 19 },
   badge: {
     position: 'absolute',
     top: 3,
@@ -1082,11 +1103,21 @@ const createStyles = (colors) => ({
     fontSize: 9.5,
     fontWeight: '800',
   },
-  greeting: {
+  greetingRow: {
     marginTop: 8,
+    justifyContent: 'center',
+  },
+  greeting: {
     fontSize: 13.5,
     fontWeight: '600',
     color: 'rgba(255,255,255,0.85)',
+  },
+  greetingWithPill: {
+    paddingRight: 156,
+  },
+  planPill: {
+    position: 'absolute',
+    right: 0,
   },
   headline: {
     marginTop: 2,

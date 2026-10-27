@@ -21,6 +21,18 @@ class IncomingCallOptions : Record {
 
   @Field
   val timeoutMs: Double = 60000.0
+
+  @Field
+  val itemTitle: String = ""
+
+  @Field
+  val itemPrice: String = ""
+
+  @Field
+  val itemPlace: String = ""
+
+  @Field
+  val itemImage: String = ""
 }
 
 class ChatAlertOptions : Record {
@@ -96,12 +108,26 @@ class KinBechCallModule : Module() {
         options.chatId,
         options.callerName,
         options.callerImage,
-        options.timeoutMs.toLong().coerceIn(10000L, 120000L)
+        options.timeoutMs.toLong().coerceIn(10000L, 120000L),
+        CallItem(options.itemTitle, options.itemPrice, options.itemPlace, options.itemImage)
       )
     }
 
     Function("dismissIncomingCall") { chatId: String ->
       if (chatId.isNotBlank()) IncomingCallNotifier.cancel(context, chatId)
+    }
+
+    Function("startOngoingCall") { options: IncomingCallOptions ->
+      if (options.chatId.isBlank()) return@Function false
+      OngoingCallService.start(context, options.chatId, options.callerName, options.callerImage)
+    }
+
+    Function("setOngoingCallSpeaker") { on: Boolean ->
+      OngoingCallService.setSpeaker(context, on)
+    }
+
+    Function("stopOngoingCall") {
+      OngoingCallService.stop(context)
     }
 
     Function("consumeLaunchAction") {

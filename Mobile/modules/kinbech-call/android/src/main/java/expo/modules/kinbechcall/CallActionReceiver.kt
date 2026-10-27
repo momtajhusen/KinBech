@@ -7,9 +7,15 @@ import com.facebook.react.HeadlessJsTaskService
 
 class CallActionReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
-    if (intent.action != IncomingCallNotifier.ACTION_DECLINE) return
     val chatId = intent.getStringExtra(IncomingCallNotifier.EXTRA_CHAT_ID) ?: return
-    decline(context, chatId)
+    when (intent.action) {
+      IncomingCallNotifier.ACTION_DECLINE -> decline(context, chatId)
+      OngoingCallService.ACTION_HANG_UP -> {
+        // The call screen leaves the channel and tells the server; the notification goes either way.
+        KinBechCallModule.emit(mapOf("action" to "hangup", "chatId" to chatId))
+        OngoingCallService.stop(context)
+      }
+    }
   }
 
   companion object {

@@ -23,6 +23,9 @@ import { featuredTimeLeft, formatPrice, resolveMediaUrl, timeAgo } from '../util
 import { isNearEnd } from '../utils/scroll';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
+import { useAccountStatus } from '../hooks/useAccountStatus';
+import AccountStatusCard from '../components/AccountStatusCard';
+import TesterModeButton from '../components/TesterModeButton';
 
 const STATUS_STYLES = {
   active: { color: 'statusActive', label: 'Active', icon: 'radio-button-on' },
@@ -230,7 +233,8 @@ export default function MyListingsScreen({ navigation, route }) {
     setMyShop(shopRes.data?.shop || null);
   }, [isShopAccount]);
 
-  const { refreshing, onRefresh } = usePullRefresh(loadListings);
+  const { status: accountStatus, reload: reloadAccountStatus } = useAccountStatus();
+  const { refreshing, onRefresh } = usePullRefresh(() => Promise.all([loadListings(), reloadAccountStatus()]));
 
   useFocusEffect(
     useCallback(() => {
@@ -850,6 +854,7 @@ export default function MyListingsScreen({ navigation, route }) {
                 {counts.all} {counts.all === 1 ? 'listing' : 'listings'} · {totals.chats} chats
               </Text>
             </View>
+            <TesterModeButton />
             {isShopAccount && myShop ? (
               <Pressable onPress={() => navigation.navigate(ROUTES.SHOP_DASHBOARD)} hitSlop={10} style={styles.navBtn}>
                 <Icon name="analytics-outline" size={19} color={colors.white} />
@@ -982,6 +987,12 @@ export default function MyListingsScreen({ navigation, route }) {
           }
         }}
       >
+        <AccountStatusCard
+          compact
+          status={accountStatus}
+          user={user}
+          onOpenPlans={() => navigation.navigate(ROUTES.SUBSCRIPTION)}
+        />
         {stockCheckCount > 0 ? (
           <View style={styles.stockBanner}>
             <Icon name="cube-outline" size={18} color={colors.warning} />

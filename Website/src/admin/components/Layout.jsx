@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Crown,
   Fingerprint,
   Flag,
   FlaskConical,
@@ -66,6 +67,7 @@ const navSections = [
       { path: adminPath('pending-review'), label: 'Pending Review', icon: ClipboardCheck },
       { path: adminPath('listings'), label: 'Listings', icon: Package },
       { path: adminPath('categories'), label: 'Categories', icon: FolderTree },
+      { path: adminPath('subscriptions'), label: 'Plans & Payments', icon: Crown },
     ],
   },
   {
@@ -168,6 +170,7 @@ const pageTitleMap = {
   [adminPath('notifications')]: 'Notifications',
   [adminPath('ai-models')]: 'AI Models',
   [adminPath('voice-calls')]: 'Voice Calls',
+  [adminPath('subscriptions')]: 'Plans & Payments',
   [adminPath('settings')]: 'Settings & Roles',
   [adminPath('activity')]: 'Activity',
   [adminPath('account-security')]: 'My Security',
@@ -178,7 +181,7 @@ function isActivePath(pathname, path) {
 }
 
 const NAV_SEEN_KEY = 'adminNavSeen';
-const BADGE_PAGES = ['pending-review', 'support', 'shop-verification', 'reports', 'scam-monitor', 'error-log'];
+const BADGE_PAGES = ['pending-review', 'support', 'shop-verification', 'reports', 'scam-monitor', 'error-log', 'subscriptions'];
 const BADGE_POLL_MS = 60000;
 
 /**

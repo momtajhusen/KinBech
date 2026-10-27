@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import Reanimated, {
   Easing,
   cancelAnimation,
@@ -9,12 +10,13 @@ import Reanimated, {
   useSharedValue,
   withDelay,
   withRepeat,
-  withSequence,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
 import Icon from './Icon';
 
+// Same look as the native lock-screen ringing screen (IncomingCallActivity.kt), so a call
+// looks identical whether it rings over the lock screen or inside the app.
 export const CALL_PALETTE = {
   base: '#03130E',
   text: '#FFFFFF',
@@ -29,142 +31,99 @@ export const CALL_PALETTE = {
 };
 
 const PRESS_SPRING = { damping: 14, stiffness: 300, mass: 0.6 };
+const DECELERATE = Easing.out(Easing.quad);
+const GLOW_SIZE = 440;
 
-/** Blurred caller photo (or brand green) with a slow drifting glow behind the call UI. */
-export function CallBackdrop({ image }) {
+/** Deep green gradient with a soft radial glow drifting behind the caller. */
+export function CallBackdrop() {
   const reduced = useReducedMotion();
   const drift = useSharedValue(0);
-  const zoom = useSharedValue(0);
   useEffect(() => {
     if (reduced) return undefined;
-    drift.value = withRepeat(withTiming(1, { duration: 7000, easing: Easing.inOut(Easing.sin) }), -1, true);
-    zoom.value = withRepeat(withTiming(1, { duration: 14000, easing: Easing.inOut(Easing.quad) }), -1, true);
-    return () => {
-      cancelAnimation(drift);
-      cancelAnimation(zoom);
-    };
-  }, [drift, reduced, zoom]);
-  const orb = useAnimatedStyle(() => ({
-    transform: [{ translateX: -40 + drift.value * 80 }, { translateY: -20 + drift.value * 50 }, { scale: 1 + drift.value * 0.15 }],
+    drift.value = withRepeat(withTiming(1, { duration: 5200, easing: Easing.inOut(Easing.sin) }), -1, true);
+    return () => cancelAnimation(drift);
+  }, [drift, reduced]);
+  const glow = useAnimatedStyle(() => ({
+    opacity: 1 - drift.value * 0.35,
+    transform: [{ translateY: drift.value * 36 }],
   }));
-  const photo = useAnimatedStyle(() => ({ transform: [{ scale: 1.15 + zoom.value * 0.12 }] }));
 
   return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: CALL_PALETTE.base }]}>
-      {image ? (
-        <Reanimated.View style={[StyleSheet.absoluteFill, photo]}>
-          <Image source={{ uri: image }} blurRadius={40} style={[StyleSheet.absoluteFill, { opacity: 0.55 }]} />
-        </Reanimated.View>
-      ) : null}
-      <Reanimated.View style={[styles.orb, orb]}>
-        <LinearGradient
-          colors={['rgba(52,211,153,0.42)', 'rgba(16,185,129,0.12)', 'rgba(16,185,129,0)']}
-          start={{ x: 0.5, y: 0 }}
-          end={{ x: 0.5, y: 1 }}
-          style={styles.orbFill}
-        />
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <LinearGradient colors={['#0B3B2C', CALL_PALETTE.base, '#010805']} style={StyleSheet.absoluteFill} />
+      <Reanimated.View style={[styles.glow, glow]}>
+        <Svg width={GLOW_SIZE} height={GLOW_SIZE}>
+          <Defs>
+            <RadialGradient id="callGlow" cx="50%" cy="50%" r="50%">
+              <Stop offset="0" stopColor="#34D399" stopOpacity={0.33} />
+              <Stop offset="1" stopColor="#10B981" stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Circle cx={GLOW_SIZE / 2} cy={GLOW_SIZE / 2} r={GLOW_SIZE / 2} fill="url(#callGlow)" />
+        </Svg>
       </Reanimated.View>
-      <LinearGradient
-        colors={['rgba(6,78,59,0.55)', 'rgba(3,19,14,0.82)', 'rgba(2,8,6,0.97)']}
-        locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFill}
-      />
     </View>
   );
 }
 
-function Ripple({ size, delay, active, color }) {
+function Wave({ size, delay, active }) {
   const progress = useSharedValue(0);
   useEffect(() => {
     if (!active) {
       cancelAnimation(progress);
-      progress.value = withTiming(0, { duration: 200 });
+      progress.value = withTiming(1, { duration: 300 });
       return undefined;
     }
     progress.value = 0;
-    progress.value = withDelay(delay, withRepeat(withTiming(1, { duration: 2400, easing: Easing.out(Easing.quad) }), -1, false));
+    progress.value = withDelay(delay, withRepeat(withTiming(1, { duration: 2400, easing: DECELERATE }), -1, false));
     return () => cancelAnimation(progress);
   }, [active, delay, progress]);
   const animated = useAnimatedStyle(() => ({
-    opacity: active ? 0.5 * (1 - progress.value) : 0,
-    transform: [{ scale: 1 + progress.value * 0.8 }],
+    opacity: 0.7 * (1 - progress.value),
+    transform: [{ scale: 1 + progress.value * 0.65 }],
   }));
-  return (
-    <Reanimated.View
-      style={[
-        styles.ripple,
-        { width: size, height: size, borderRadius: size / 2, borderColor: color },
-        animated,
-      ]}
-    />
-  );
+  return <Reanimated.View style={[styles.wave, { width: size, height: size, borderRadius: size / 2 }, animated]} />;
 }
 
-/**
- * Caller photo inside a spinning gradient ring. Ripples spread while the call rings;
- * once connected the ring slows and the photo breathes softly.
- */
-export function CallAvatar({ image, name, ringing, connected, size = 136 }) {
+/** Caller photo in a glass frame with three soft waves spreading out while the call is live. */
+export function CallAvatar({ image, name, waving = true, size = 150 }) {
   const reduced = useReducedMotion();
-  const spin = useSharedValue(0);
-  const breathe = useSharedValue(0);
-  const enter = useSharedValue(0.6);
+  const pulse = useSharedValue(0);
+  const enter = useSharedValue(0.85);
 
   useEffect(() => {
-    enter.value = withSpring(1, { damping: 11, stiffness: 140, mass: 0.8 });
+    enter.value = withSpring(1, { damping: 9, stiffness: 160, mass: 0.8 });
   }, [enter]);
 
   useEffect(() => {
-    if (reduced) return undefined;
-    cancelAnimation(spin);
-    spin.value = 0;
-    spin.value = withRepeat(withTiming(1, { duration: ringing ? 2600 : 9000, easing: Easing.linear }), -1, false);
-    return () => cancelAnimation(spin);
-  }, [reduced, ringing, spin]);
-
-  useEffect(() => {
-    if (!connected || reduced) {
-      cancelAnimation(breathe);
-      breathe.value = withTiming(0, { duration: 250 });
+    if (reduced || !waving) {
+      cancelAnimation(pulse);
+      pulse.value = withTiming(0, { duration: 250 });
       return undefined;
     }
-    breathe.value = withRepeat(withTiming(1, { duration: 1400, easing: Easing.inOut(Easing.sin) }), -1, true);
-    return () => cancelAnimation(breathe);
-  }, [breathe, connected, reduced]);
+    pulse.value = withRepeat(withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.sin) }), -1, true);
+    return () => cancelAnimation(pulse);
+  }, [pulse, reduced, waving]);
 
-  const ringStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${spin.value * 360}deg` }] }));
-  const bodyStyle = useAnimatedStyle(() => ({ transform: [{ scale: enter.value * (1 + breathe.value * 0.035) }] }));
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: 0.25 + breathe.value * 0.35,
-    transform: [{ scale: 1.05 + breathe.value * 0.12 }],
-  }));
+  const frameStyle = useAnimatedStyle(() => ({ transform: [{ scale: enter.value * (1 + pulse.value * 0.035) }] }));
 
-  const ring = size + 14;
-  const box = size * 1.9;
-  const initials = String(name || 'U').trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('') || 'U';
+  const frame = size + 8;
+  const box = Math.round(size * 1.67);
+  const initials = String(name || 'K').trim().split(/\s+/).slice(0, 2).map((part) => part.charAt(0).toUpperCase()).join('') || 'K';
 
   return (
-    <View style={[styles.avatarBox, { width: box, height: box }]}>
+    <View style={[styles.center, { width: box, height: box }]}>
       {[0, 800, 1600].map((delay) => (
-        <Ripple key={delay} size={ring} delay={delay} active={ringing && !reduced} color="rgba(110,231,183,0.9)" />
+        <Wave key={delay} size={size} delay={delay} active={waving && !reduced} />
       ))}
-      <Reanimated.View style={[styles.glow, { width: ring + 26, height: ring + 26, borderRadius: (ring + 26) / 2 }, glowStyle]} />
-      <Reanimated.View style={[styles.center, bodyStyle]}>
-        <Reanimated.View style={[{ width: ring, height: ring, borderRadius: ring / 2, overflow: 'hidden' }, ringStyle]}>
-          <LinearGradient
-            colors={['#A7F3D0', '#10B981', '#064E3B', '#34D399']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Reanimated.View>
-        <View style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>
+      <Reanimated.View
+        style={[styles.frame, styles.center, { width: frame, height: frame, borderRadius: frame / 2 }, frameStyle]}
+      >
+        <View style={[styles.avatar, styles.center, { width: size, height: size, borderRadius: size / 2 }]}>
           {image ? (
             <Image source={{ uri: image }} style={styles.avatarImage} />
           ) : (
-            <LinearGradient colors={['#10B981', '#065F46']} style={[StyleSheet.absoluteFill, styles.center]}>
-              <Text style={[styles.initials, { fontSize: size * 0.36 }]}>{initials}</Text>
-            </LinearGradient>
+            <Text style={[styles.initials, { fontSize: size * 0.4 }]}>{initials}</Text>
           )}
         </View>
       </Reanimated.View>
@@ -177,7 +136,7 @@ export function AnimatedDots({ text, style, active = true }) {
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (!active) return undefined;
-    const timer = setInterval(() => setCount((value) => (value + 1) % 4), 420);
+    const timer = setInterval(() => setCount((value) => (value + 1) % 4), 450);
     return () => clearInterval(timer);
   }, [active]);
   if (!active) return <Text style={style}>{text}</Text>;
@@ -190,54 +149,14 @@ export function AnimatedDots({ text, style, active = true }) {
   );
 }
 
-function HintChevron({ index }) {
-  const progress = useSharedValue(0);
-  useEffect(() => {
-    progress.value = withDelay(
-      index * 160,
-      withRepeat(
-        withSequence(
-          withTiming(1, { duration: 380 }),
-          withTiming(0, { duration: 520 }),
-          withDelay(500, withTiming(0, { duration: 0 }))
-        ),
-        -1
-      )
-    );
-    return () => cancelAnimation(progress);
-  }, [index, progress]);
-  const animated = useAnimatedStyle(() => ({
-    opacity: 0.2 + progress.value * 0.8,
-    transform: [{ translateY: -progress.value * 3 }],
-  }));
-  return (
-    <Reanimated.View style={animated}>
-      <Icon name="chevron-up" size={18} color={CALL_PALETTE.mint} />
-    </Reanimated.View>
-  );
-}
-
-/** Three chevrons lighting up bottom to top, pointing at the answer button. */
-export function AnswerHint() {
-  const reduced = useReducedMotion();
-  if (reduced) return null;
-  return (
-    <View style={styles.hint}>
-      {[2, 1, 0].map((index) => (
-        <HintChevron key={index} index={index} />
-      ))}
-    </View>
-  );
-}
-
 /**
  * Round call button with a spring press. `tone` is glass (toggle), answer or decline.
- * The answer tone bounces with a halo so it is the obvious next step.
+ * The answer tone hops and wiggles inside a pulsing halo, like the lock-screen Answer button.
  */
 export function CallButton({ icon, label, onPress, tone = 'glass', active = false, size = 64, iconRotate = 0, disabled }) {
   const reduced = useReducedMotion();
   const press = useSharedValue(1);
-  const bounce = useSharedValue(0);
+  const hop = useSharedValue(0);
   const halo = useSharedValue(0);
   const fill = useSharedValue(active ? 1 : 0);
   const isAnswer = tone === 'answer';
@@ -248,25 +167,27 @@ export function CallButton({ icon, label, onPress, tone = 'glass', active = fals
 
   useEffect(() => {
     if (!isAnswer || reduced) return undefined;
-    bounce.value = withRepeat(
-      withSequence(
-        withTiming(-8, { duration: 260, easing: Easing.out(Easing.quad) }),
-        withSpring(0, { damping: 6, stiffness: 260, mass: 0.5 }),
-        withDelay(900, withTiming(0, { duration: 0 }))
-      ),
-      -1
-    );
-    halo.value = withRepeat(withTiming(1, { duration: 1500, easing: Easing.out(Easing.quad) }), -1, false);
+    hop.value = withRepeat(withTiming(1, { duration: 1700, easing: Easing.inOut(Easing.sin) }), -1, false);
+    halo.value = withRepeat(withTiming(1, { duration: 1600, easing: DECELERATE }), -1, false);
     return () => {
-      cancelAnimation(bounce);
+      cancelAnimation(hop);
       cancelAnimation(halo);
     };
-  }, [bounce, halo, isAnswer, reduced]);
+  }, [halo, hop, isAnswer, reduced]);
 
-  const body = useAnimatedStyle(() => ({ transform: [{ translateY: bounce.value }, { scale: press.value }] }));
+  const body = useAnimatedStyle(() => {
+    const t = hop.value;
+    const lift = t < 0.4 ? -8 * Math.sin((t / 0.4) * Math.PI) : 0;
+    return { transform: [{ translateY: lift }, { scale: press.value }] };
+  });
+  const wiggle = useAnimatedStyle(() => {
+    const t = hop.value;
+    const turn = t < 0.4 ? 14 * Math.sin((t / 0.4) * 4 * Math.PI) : 0;
+    return { transform: [{ rotate: `${iconRotate + turn}deg` }] };
+  });
   const haloStyle = useAnimatedStyle(() => ({
-    opacity: 0.55 * (1 - halo.value),
-    transform: [{ scale: 1 + halo.value * 0.7 }],
+    opacity: 0.45 * (1 - halo.value),
+    transform: [{ scale: 1 + halo.value * 0.5 }],
   }));
   const glassFill = useAnimatedStyle(() => ({ opacity: fill.value, transform: [{ scale: 0.6 + fill.value * 0.4 }] }));
 
@@ -276,74 +197,63 @@ export function CallButton({ icon, label, onPress, tone = 'glass', active = fals
 
   return (
     <View style={styles.buttonWrap}>
-      <Reanimated.View style={body}>
+      <View style={[styles.center, { width: size * 1.55, height: size * 1.55 }]}>
         {isAnswer ? <Reanimated.View style={[styles.halo, round, haloStyle]} /> : null}
-        <Pressable
-          onPress={onPress}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ selected: active, disabled }}
-          onPressIn={() => {
-            press.value = withSpring(0.9, PRESS_SPRING);
-          }}
-          onPressOut={() => {
-            press.value = withSpring(1, PRESS_SPRING);
-          }}
-          style={[
-            styles.button,
-            round,
-            { backgroundColor: background },
-            tone === 'glass' ? styles.buttonGlass : { shadowColor: background },
-            tone !== 'glass' && styles.buttonSolid,
-          ]}
-        >
-          {tone === 'glass' ? <Reanimated.View style={[StyleSheet.absoluteFill, styles.glassFill, round, glassFill]} /> : null}
-          <View style={{ transform: [{ rotate: `${iconRotate}deg` }] }}>
-            <Icon name={icon} size={size * 0.42} color={iconColor} />
-          </View>
-        </Pressable>
-      </Reanimated.View>
+        <Reanimated.View style={body}>
+          <Pressable
+            onPress={onPress}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            accessibilityState={{ selected: active, disabled }}
+            onPressIn={() => {
+              press.value = withSpring(0.9, PRESS_SPRING);
+            }}
+            onPressOut={() => {
+              press.value = withSpring(1, PRESS_SPRING);
+            }}
+            style={[
+              styles.button,
+              round,
+              { backgroundColor: background },
+              tone === 'glass' ? styles.buttonGlass : { shadowColor: background },
+              tone !== 'glass' && styles.buttonSolid,
+            ]}
+          >
+            {tone === 'glass' ? <Reanimated.View style={[StyleSheet.absoluteFill, styles.glassFill, round, glassFill]} /> : null}
+            <Reanimated.View style={wiggle}>
+              <Icon name={icon} size={size * 0.44} color={iconColor} />
+            </Reanimated.View>
+          </Pressable>
+        </Reanimated.View>
+      </View>
       {label ? <Text style={styles.buttonLabel}>{label}</Text> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  orb: {
+  glow: {
     position: 'absolute',
     top: 60,
     alignSelf: 'center',
-    width: 380,
-    height: 380,
-    borderRadius: 190,
-    overflow: 'hidden',
-  },
-  orbFill: {
-    flex: 1,
+    width: GLOW_SIZE,
+    height: GLOW_SIZE,
   },
   center: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  ripple: {
+  wave: {
     position: 'absolute',
-    borderWidth: 2,
+    backgroundColor: 'rgba(110,231,183,0.2)',
   },
-  glow: {
-    position: 'absolute',
-    backgroundColor: 'rgba(52,211,153,0.35)',
+  frame: {
+    backgroundColor: CALL_PALETTE.glassBorder,
   },
   avatar: {
-    position: 'absolute',
     overflow: 'hidden',
-    borderWidth: 3,
-    borderColor: CALL_PALETTE.base,
-    backgroundColor: '#064E3B',
+    backgroundColor: '#16A34A',
   },
   avatarImage: {
     width: '100%',
@@ -353,19 +263,12 @@ const styles = StyleSheet.create({
   initials: {
     color: CALL_PALETTE.text,
     fontWeight: '800',
-    letterSpacing: 1,
   },
   invisible: {
     color: 'transparent',
   },
-  hint: {
-    alignItems: 'center',
-    marginBottom: 6,
-    marginTop: -4,
-  },
   buttonWrap: {
     alignItems: 'center',
-    gap: 10,
   },
   button: {
     alignItems: 'center',
@@ -380,7 +283,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    elevation: 6,
   },
   glassFill: {
     backgroundColor: '#FFFFFF',
@@ -390,9 +293,8 @@ const styles = StyleSheet.create({
     backgroundColor: CALL_PALETTE.answer,
   },
   buttonLabel: {
-    fontSize: 13,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     color: CALL_PALETTE.muted,
-    letterSpacing: 0.2,
   },
 });

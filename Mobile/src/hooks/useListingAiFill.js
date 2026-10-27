@@ -7,6 +7,16 @@ import { upsertCategoryMemory } from '../utils/categories';
 
 export const AI_LIMIT_MESSAGE = "Today's AI limit is used up. Please fill the details yourself.";
 
+/** Individual sellers sell used items: suggested price is this share of the brand-new price. */
+export const USED_PRICE_SHARE = { Good: 0.5, Fair: 0.25 };
+
+function roundPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const step = n < 1000 ? 50 : n < 10000 ? 100 : n < 100000 ? 500 : 1000;
+  return Math.max(step, Math.round(n / step) * step);
+}
+
 const ISSUE_LABELS = {
   nudity: 'nudity or adult content',
   violence: 'violence',
@@ -34,6 +44,7 @@ export function useListingAiFill({
   const [limitReached, setLimitReached] = useState(false);
   const [aiPrice, setAiPrice] = useState(null);
   const [aiCondition, setAiCondition] = useState(null);
+  const [aiNewPrice, setAiNewPrice] = useState(null);
   const [imageFlag, setImageFlag] = useState(null);
 
   const showAlert = (title, message) =>
@@ -71,6 +82,7 @@ export function useListingAiFill({
       if (suggestion.imageBlocked) {
         setAiPrice(null);
         setAiCondition(null);
+        setAiNewPrice(null);
         const issue = ISSUE_LABELS[suggestion.blockIssue] ? suggestion.blockIssue : 'other';
         setImageFlag({ uri: photoUri, issue, reason: suggestion.blockReason || '' });
         const label = ISSUE_LABELS[issue] || 'content that breaks KinBech rules';
@@ -119,6 +131,8 @@ export function useListingAiFill({
         fields.setCondition?.(suggestion.condition);
         setAiCondition(suggestion.condition);
       }
+      const newPrice = Number(suggestion.newPrice);
+      setAiNewPrice(!forShop && suggestion.priceSource === 'new_price' && newPrice > 0 ? newPrice : null);
       const price = Number(suggestion.price);
       if (Number.isFinite(price) && price > 0) {
         setAiPrice(price);
@@ -143,7 +157,16 @@ export function useListingAiFill({
     }
   };
 
-  return { fill, filling, error, limitReached, aiPrice, aiCondition, imageFlag };
+  /** New AI price for a condition, from the brand-new price; null when there is none. */
+  const reprice = (condition) => {
+    const share = USED_PRICE_SHARE[condition];
+    if (!aiNewPrice || !share) return null;
+    const next = roundPrice(aiNewPrice * share);
+    setAiPrice(next);
+    return next;
+  };
+
+  return { fill, filling, error, limitReached, aiPrice, aiCondition, aiNewPrice, reprice, imageFlag };
 }
 
 /** Short English warning when a price is 0 or far from the AI/market estimate. */

@@ -1,4 +1,10 @@
-import { DarkTheme, DefaultTheme, NavigationContainer, useNavigation } from '@react-navigation/native';
+import {
+  CommonActions,
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+  useNavigation,
+} from '@react-navigation/native';
 import { navigationRef, flushPendingCallNavigation } from './navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -86,6 +92,9 @@ import WishlistScreen from '../screens/WishlistScreen';
 import SavedAddressesScreen from '../screens/SavedAddressesScreen';
 import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
 import WalletScreen from '../screens/WalletScreen';
+import SubscriptionScreen from '../screens/SubscriptionScreen';
+import PaymentHistoryScreen from '../screens/PaymentHistoryScreen';
+import TesterModeScreen from '../screens/TesterModeScreen';
 import ContactUsScreen from '../screens/ContactUsScreen';
 import ListingSuccessScreen from '../screens/ListingSuccessScreen';
 import ShopStorefrontQrScreen from '../screens/ShopStorefrontQrScreen';
@@ -95,17 +104,22 @@ const Tab = createBottomTabNavigator();
 
 function IncomingCallBridge() {
   const navigation = useNavigation();
-  const { ready, isLoggedIn } = useAuth();
+  // The saved token is enough: waiting for /auth/me delays an answered call by a network round trip.
+  const { isLoggedIn } = useAuth();
   const ringingChatRef = useRef('');
 
   useEffect(() => {
-    if (!ready || !isLoggedIn) return undefined;
+    if (!isLoggedIn) return undefined;
 
     const open = (call) => {
       if (!call?.chatId || isCallDeclined(call.chatId)) return;
       const state = navigation.getState?.();
       const current = state?.routes?.[state.index];
       if (current?.name === 'Call' && String(current.params?.chatId) === String(call.chatId)) {
+        // The poll can open the ringing screen just before the Answer tap arrives.
+        if (call.autoAnswer && !current.params?.autoAnswer) {
+          navigation.dispatch({ ...CommonActions.setParams({ autoAnswer: true }), source: current.key });
+        }
         return;
       }
       if (call.autoAnswer) {
@@ -184,7 +198,7 @@ function IncomingCallBridge() {
       unsubscribeEvents();
       appState.remove();
     };
-  }, [ready, isLoggedIn, navigation]);
+  }, [isLoggedIn, navigation]);
 
   return null;
 }
@@ -205,6 +219,10 @@ function PushAlertBridge() {
           chatId: String(data.chatId),
           name: data.name || undefined,
         });
+        return;
+      }
+      if (data.route === 'TesterMode' || data.route === 'Subscription') {
+        navigation.navigate(data.route);
         return;
       }
       navigation.navigate('Notifications');
@@ -499,6 +517,9 @@ export default function AppNavigator() {
         <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
         <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
         <Stack.Screen name="Wallet" component={WalletScreen} />
+        <Stack.Screen name="Subscription" component={SubscriptionScreen} />
+        <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+        <Stack.Screen name="TesterMode" component={TesterModeScreen} />
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
       </Stack.Navigator>
       <SignedInModal />

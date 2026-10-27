@@ -113,6 +113,10 @@ export function callFromData(data) {
     chatId: String(data.chatId),
     callerName: String(data.callerName || data.name || 'KinBech user'),
     callerImage: String(data.callerImage || data.image || ''),
+    itemTitle: String(data.itemTitle || ''),
+    itemPrice: String(data.itemPrice || ''),
+    itemPlace: String(data.itemPlace || ''),
+    itemImage: String(data.itemImage || ''),
   };
 }
 
@@ -152,6 +156,8 @@ export async function ensureCallChannel() {
 /** Android's built-in call notification: red Decline and green Answer, ringtone, full screen when locked. */
 async function displayNativeCallStyle(call, avatarUrl) {
   if (!KinBechCall?.showIncomingCall) return false;
+  const { resolveMediaUrl } = require('../utils/listing');
+  const itemImage = resolveMediaUrl(call.itemImage || '');
   try {
     return Boolean(
       await KinBechCall.showIncomingCall({
@@ -159,6 +165,10 @@ async function displayNativeCallStyle(call, avatarUrl) {
         callerName: call.callerName || 'KinBech user',
         callerImage: avatarUrl,
         timeoutMs: RING_TIMEOUT_MS,
+        itemTitle: call.itemTitle || '',
+        itemPrice: call.itemPrice || '',
+        itemPlace: call.itemPlace || '',
+        itemImage: /^https?:\/\//i.test(itemImage) ? itemImage : '',
       })
     );
   } catch (error) {
@@ -247,6 +257,44 @@ export async function displayIncomingCall(call, { fullScreen = false } = {}) {
   }
 }
 
+/** Keeps the microphone and process alive while the screen is off or another app is open. */
+export function startOngoingCallService(call) {
+  try {
+    KinBechCall?.startOngoingCall?.({
+      chatId: String(call.chatId),
+      callerName: call.callerName || 'KinBech user',
+      callerImage: call.callerImage || '',
+      timeoutMs: 60000,
+    });
+  } catch {
+    /* builds made before the ongoing-call service */
+  }
+}
+
+export function setOngoingCallSpeaker(on) {
+  try {
+    KinBechCall?.setOngoingCallSpeaker?.(Boolean(on));
+  } catch {
+    /* service already stopped */
+  }
+}
+
+export function stopOngoingCallService() {
+  try {
+    KinBechCall?.stopOngoingCall?.();
+  } catch {
+    /* service already stopped */
+  }
+}
+
+export function subscribeOngoingCallHangUp(chatId, onHangUp) {
+  if (!KinBechCall?.addListener || !chatId) return () => {};
+  const subscription = KinBechCall.addListener('onCallAction', (event) => {
+    if (event?.action === 'hangup' && String(event.chatId) === String(chatId)) onHangUp();
+  });
+  return () => subscription.remove();
+}
+
 function releaseCallKeep(chatId) {
   try {
     require('./CallKeepManager').dismissNativeIncomingCall(chatId);
@@ -306,7 +354,7 @@ function subscribeNativeCallActions(onOpen) {
   if (!KinBechCall?.addListener) return () => {};
   const subscription = KinBechCall.addListener('onCallAction', async (event) => {
     const call = callFromNativeAction(event);
-    if (!call) return;
+    if (!call || event.action === 'hangup') return;
     if (event.action === 'decline' || isCallDeclined(call.chatId)) {
       releaseCallKeep(call.chatId);
       await declineIncomingCall(call.chatId);

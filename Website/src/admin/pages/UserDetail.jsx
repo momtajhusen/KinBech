@@ -6,6 +6,7 @@ import {
   Ban,
   CalendarDays,
   Clock,
+  Crown,
   Fingerprint,
   Flag,
   MessageSquareWarning,
@@ -26,9 +27,11 @@ import {
   Star,
   Store,
   Trash2,
+  User,
 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import PostLimitStepper, { PostLimitPresets, postLimitLabel } from '../components/PostLimitStepper';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
 
@@ -51,7 +54,71 @@ function timeAgo(value) {
   return fmtDate(value);
 }
 
-const SECTION_ICONS = { listings: Package, shops: Store, reports: Flag, strikes: ShieldAlert, sessions: Smartphone, tickets: LifeBuoy, audit: History, linked: Fingerprint };
+const SECTION_ICONS = { listings: Package, shops: Store, reports: Flag, strikes: ShieldAlert, sessions: Smartphone, tickets: LifeBuoy, audit: History, linked: Fingerprint, payments: Crown };
+
+const BILL_STATUS = {
+  approved: { label: 'Paid', badge: 'active' },
+  pending: { label: 'Waiting', badge: 'pending' },
+  rejected: { label: 'Rejected', badge: 'rejected' },
+  failed: { label: 'Failed', badge: 'rejected' },
+  cancelled: { label: 'Cancelled', badge: '' },
+};
+
+function PlanPayments({ user, payments }) {
+  const plan = user.subscription;
+  const rows = payments?.rows || [];
+  return (
+    <Section id="payments" title="Plan & payments" count={rows.length} empty={null}>
+      <div className="u360-plan">
+        <div className="u360-plan-main">
+          <div className="u360-plan-name">{plan ? plan.name : 'Free plan'}</div>
+          <div className="u360-li-sub">
+            {plan
+              ? `${fmtDate(plan.startsAt)} – ${fmtDate(plan.endsAt)} · ${plan.daysLeft} day${plan.daysLeft === 1 ? '' : 's'} left`
+              : 'No paid plan right now'}
+          </div>
+        </div>
+        <div className="u360-plan-figure">
+          <strong>{npr(payments?.paid)}</strong>
+          <span className="u360-li-sub">
+            paid · {payments?.plansBought || 0} plan{payments?.plansBought === 1 ? '' : 's'}
+            {payments?.test ? ` · ${npr(payments.test)} test` : ''}
+          </span>
+        </div>
+      </div>
+      {rows.length ? (
+        <ul className="u360-list">
+          {rows.map((bill) => {
+            const meta = BILL_STATUS[bill.status] || BILL_STATUS.cancelled;
+            return (
+              <li key={bill.id}>
+                <Crown className="item-icon u360-li-icon" aria-hidden />
+                <div className="u360-li-main">
+                  <span className="u360-li-title">{bill.planName} · {bill.durationDays} days</span>
+                  <span className="u360-li-sub">
+                    {fmtDateTime(bill.createdAt)} · {bill.methodLabel}
+                    {bill.gateway ? ` online${bill.gatewayMode === 'sandbox' ? ' (test)' : ''}` : ''}
+                    {` · ${bill.gatewayRef || bill.reference} · Bill ${bill.receiptNo}`}
+                    {bill.status === 'rejected' && bill.rejectReason ? ` · ${bill.rejectReason}` : ''}
+                  </span>
+                </div>
+                <span className={`u360-bill-amount${bill.status === 'approved' ? '' : ' muted'}`}>{npr(bill.price)}</span>
+                <span className={`status-badge ${meta.badge}`}>{meta.label}</span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <div className="u360-empty">No plan payments yet</div>
+      )}
+      {rows.length ? (
+        <Link className="u360-more" to={`${adminPath('subscriptions')}?q=${encodeURIComponent(user.phone || user.name)}`}>
+          Open in Plans &amp; Payments
+        </Link>
+      ) : null}
+    </Section>
+  );
+}
 
 function LinkedGroup({ label, hint, users }) {
   if (!users?.length) return null;
@@ -181,6 +248,114 @@ function ActionModal({ action, user, onClose, onDone }) {
   );
 }
 
+const USER_LIMIT_ROWS = [
+  { key: 'individual', icon: User, title: 'Individual posts' },
+  { key: 'shop', icon: Store, title: 'Store posts' },
+];
+
+const limitDraft = (limits) => Object.fromEntries(
+  USER_LIMIT_ROWS.map(({ key }) => [key, limits?.[key] ?? null]),
+);
+
+/** Per-user override of Settings → Daily post limits. null = follow the platform default. */
+function UserPostLimits({ user, hasShop, onSaved }) {
+  const limits = user.postLimits || {};
+  const [draft, setDraft] = useState(() => limitDraft(limits));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const changed = USER_LIMIT_ROWS.some(({ key }) => draft[key] !== (limits[key] ?? null));
+
+  useEffect(() => {
+    setDraft(limitDraft(user.postLimits));
+  }, [user.postLimits]);
+
+  const setRow = (key, value) => setDraft((prev) => ({ ...prev, [key]: value }));
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const response = await api.post(`/auth/admin/users/${user.id}/moderate`, { action: 'set_post_limits', ...draft });
+      await onSaved(response.data?.summary || 'Daily post limit saved');
+    } catch (err) {
+      setError(errorText(err, 'Could not save the post limit'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card u360-section">
+      <header className="u360-section-head">
+        <Package className="item-icon" aria-hidden />
+        <h3>Daily post limit</h3>
+      </header>
+      <div className="post-limits compact">
+        <div className="post-limit-grid">
+        {USER_LIMIT_ROWS.map(({ key, icon: Icon, title }) => {
+          const value = draft[key];
+          const custom = value != null;
+          const fallback = limits.defaults?.[key] ?? 0;
+          const used = limits.used24h?.[key] ?? 0;
+          return (
+            <div className="post-limit-row" key={key}>
+              <div className="post-limit-head">
+                <div className="post-limit-icon"><Icon className="item-icon" aria-hidden /></div>
+                <div className="post-limit-copy">
+                  <label htmlFor={`user-limit-${key}`}>{title}</label>
+                  <span>
+                    {used} posted in the last 24 h
+                    {key === 'shop' && !hasShop ? ' · no store yet' : ''}
+                  </span>
+                </div>
+                <div className="post-limit-mode" role="group" aria-label={`${title} limit`}>
+                  <button type="button" className={!custom ? 'active' : ''} disabled={busy} onClick={() => setRow(key, null)}>
+                    Default
+                  </button>
+                  <button
+                    type="button"
+                    className={custom ? 'active' : ''}
+                    disabled={busy}
+                    onClick={() => setRow(key, custom ? value : fallback || 10)}
+                  >
+                    Custom
+                  </button>
+                </div>
+              </div>
+              {custom ? (
+                <div className="post-limit-foot">
+                  <PostLimitStepper id={`user-limit-${key}`} value={value} disabled={busy} onChange={(next) => setRow(key, next)} />
+                  <PostLimitPresets value={value} disabled={busy} onPick={(preset) => setRow(key, preset)} />
+                </div>
+              ) : null}
+              <div className="post-limit-foot">
+                <span className={`post-limit-status${(custom ? value : fallback) === 0 ? ' open' : ''}`}>
+                  {postLimitLabel(custom ? value : fallback)}
+                </span>
+                <span className="form-hint" style={{ margin: 0 }}>
+                  {custom ? 'Only for this user. New-account and Watch caps are skipped.' : 'Platform default from Settings'}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+        </div>
+        {error ? <div className="u360-error">{error}</div> : null}
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy || !changed}>
+            {busy ? 'Saving…' : 'Save limit'}
+          </button>
+          {changed && !busy ? (
+            <button type="button" className="btn btn-secondary" onClick={() => { setDraft(limitDraft(limits)); setError(''); }}>
+              Reset
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function UserDetail() {
   const { userId } = useParams();
   const [data, setData] = useState(null);
@@ -272,6 +447,7 @@ export default function UserDetail() {
                 ? <span className="status-badge suspended">Suspended</span>
                 : <span className="status-badge active">Active</span>}
               {!user.profileComplete ? <span className="status-badge unverified">Profile incomplete</span> : null}
+              {user.subscription ? <span className="status-badge active">{user.subscription.name} plan</span> : null}
               {isAdmin ? <span className="status-badge pending">{user.role.replace('_', ' ')}</span> : null}
             </div>
             <div className="u360-meta">
@@ -382,7 +558,19 @@ export default function UserDetail() {
         ))}
       </div>
 
+      {canModerate ? (
+        <UserPostLimits
+          user={user}
+          hasShop={data.shops.length > 0}
+          onSaved={async (summary) => {
+            flash(summary);
+            await load();
+          }}
+        />
+      ) : null}
+
       <div className="u360-grid">
+        <PlanPayments user={user} payments={data.payments} />
         {data.linked ? (
           <Section
             id="linked"

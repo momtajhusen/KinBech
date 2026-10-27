@@ -22,6 +22,22 @@ const { forgetViewer } = require('../utils/audience');
 const { recordAudit } = require('../utils/audit');
 const { removeOrphanUploads } = require('../utils/mediaCleanup');
 const { refreshRatings } = require('./reviewController');
+const { sendUserPush } = require('../utils/callPush');
+
+/** Tell the user their account switched in or out of the tester sandbox. */
+async function notifyTester(userId, { title, body, icon, route }) {
+  try {
+    const note = await Notification.create({ user: userId, type: 'system', title, body, icon, route });
+    sendUserPush({
+      userId,
+      title,
+      body,
+      data: { type: 'tester', route, notificationId: String(note._id) },
+    }).catch(() => {});
+  } catch {
+    /* the app still shows the tester badge on next refresh */
+  }
+}
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 async function sellerCounts(userIds) {
@@ -146,6 +162,12 @@ async function makeTester(req, res, next) {
     ]);
     forgetViewer(user._id);
     listingQueryCache.invalidateAll();
+    await notifyTester(user._id, {
+      title: 'Your account is in Tester mode',
+      body: 'Only other testers see your posts and chats for now. Tap to see what changes.',
+      icon: 'flask-outline',
+      route: 'TesterMode',
+    });
 
     recordAudit(req, {
       action: 'tester.add',
@@ -368,6 +390,12 @@ async function restoreTester(req, res, next) {
     if (!user.isTester) return res.status(400).json({ message: 'This user is not a tester' });
 
     const result = await returnToPublic(user);
+    await notifyTester(user._id, {
+      title: 'Tester mode is off',
+      body: 'Your account is public again. Listings from before testing are back; test posts and chats were removed.',
+      icon: 'checkmark-circle-outline',
+      route: 'MyListings',
+    });
     recordAudit(req, {
       action: 'tester.restore',
       targetType: 'user',

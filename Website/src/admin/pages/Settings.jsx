@@ -1,15 +1,124 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, Copy, KeyRound, UserCog, UserPlus, X } from 'lucide-react';
+import { Check, Copy, KeyRound, Store, User, UserCog, UserPlus, X } from 'lucide-react';
 import api from '../services/api';
 import Modal, { OptionCards } from '../components/Modal';
 import Pagination from '../components/Pagination';
+import PostLimitStepper, { PostLimitPresets, clampPosts, postLimitLabel } from '../components/PostLimitStepper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+
+const POST_LIMIT_ROWS = [
+  {
+    key: 'individualDailyListings',
+    icon: User,
+    title: 'Individual sellers',
+    description: 'Posts from the Sell screen as a person',
+  },
+  {
+    key: 'shopDailyListings',
+    icon: Store,
+    title: 'Stores',
+    description: 'Posts added to a store, counted per owner',
+  },
+];
+
+function DailyPostLimits({ settings, canEdit, onSaved }) {
+  const saved = {
+    individualDailyListings: clampPosts(settings.individualDailyListings),
+    shopDailyListings: clampPosts(settings.shopDailyListings),
+  };
+  const [draft, setDraft] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(null);
+  const changed = POST_LIMIT_ROWS.some(({ key }) => draft[key] !== saved[key]);
+
+  useEffect(() => {
+    setDraft({
+      individualDailyListings: clampPosts(settings.individualDailyListings),
+      shopDailyListings: clampPosts(settings.shopDailyListings),
+    });
+  }, [settings.individualDailyListings, settings.shopDailyListings]);
+
+  const save = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await api.put('/auth/admin/settings', draft);
+      if (response.data.settings) onSaved(response.data.settings);
+      setMessage({ tone: 'ok', text: 'Daily post limits saved. They apply to the next post.' });
+    } catch (error) {
+      setMessage({ tone: 'error', text: error.response?.data?.message || 'Could not save the limits' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-header">
+        <div>
+          <h3>Daily post limits</h3>
+          <p className="form-hint" style={{ margin: '0.2rem 0 0' }}>New listings one seller can post in 24 hours</p>
+        </div>
+      </div>
+      <div className="post-limits">
+        {POST_LIMIT_ROWS.map(({ key, icon: Icon, title, description }) => {
+          const value = draft[key];
+          return (
+            <div className="post-limit-row" key={key}>
+              <div className="post-limit-head">
+                <div className="post-limit-icon"><Icon className="item-icon" aria-hidden /></div>
+                <div className="post-limit-copy">
+                  <label htmlFor={`limit-${key}`}>{title}</label>
+                  <span>{description}</span>
+                </div>
+                <PostLimitStepper
+                  id={`limit-${key}`}
+                  value={value}
+                  disabled={!canEdit || busy}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, [key]: next }))}
+                />
+              </div>
+              <div className="post-limit-foot">
+                <span className={`post-limit-status${value === 0 ? ' open' : ''}`}>{postLimitLabel(value)}</span>
+                <PostLimitPresets
+                  value={value}
+                  disabled={!canEdit || busy}
+                  onPick={(preset) => setDraft((prev) => ({ ...prev, [key]: preset }))}
+                />
+              </div>
+            </div>
+          );
+        })}
+        <p className="form-hint">
+          0 means no limit. A seller who is both posts under each limit separately. New or unverified
+          accounts stay at 5 a day, and Watch-tier sellers follow Trust → Settings, whichever is lower.
+          Admin accounts are not limited. To give one person a different limit, open them in Users.
+        </p>
+        {message ? (
+          <div className={message.tone === 'ok' ? 'u360-notice' : 'u360-error'}>{message.text}</div>
+        ) : null}
+        <div className="form-actions">
+          <button type="button" className="btn btn-primary" onClick={save} disabled={!canEdit || busy || !changed}>
+            {busy ? 'Saving…' : 'Save limits'}
+          </button>
+          {changed && !busy ? (
+            <button type="button" className="btn btn-secondary" onClick={() => { setDraft(saved); setMessage(null); }}>
+              Reset
+            </button>
+          ) : null}
+        </div>
+        {!canEdit ? <p className="form-hint">Only a super admin or admin can change these limits.</p> : null}
+      </div>
+    </div>
+  );
+}
 
 const Settings = () => {
   const { colors } = useTheme();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
+  const isFullAdmin = isSuperAdmin || user?.role === 'admin';
   const [admins, setAdmins] = useState([]);
   const [createdAdmin, setCreatedAdmin] = useState(null);
   const [platformSettings, setPlatformSettings] = useState({
@@ -367,6 +476,16 @@ const Settings = () => {
         </div>
 
         <div className="platform-settings-section">
+          <DailyPostLimits
+            settings={platformSettings}
+            canEdit={isFullAdmin}
+            onSaved={(next) => setPlatformSettings((prev) => ({
+              ...prev,
+              individualDailyListings: next.individualDailyListings,
+              shopDailyListings: next.shopDailyListings,
+            }))}
+          />
+
           <div className="card">
             <div className="card-header">
               <h3>Platform Settings</h3>

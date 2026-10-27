@@ -23,6 +23,7 @@ export const PAGE_SCOPES = {
   notifications: 'notifications',
   'ai-models': 'ai',
   'voice-calls': 'settings',
+  subscriptions: 'settings',
   settings: 'settings',
   activity: 'audit',
 };
