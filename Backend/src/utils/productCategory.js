@@ -1,5 +1,6 @@
 const Category = require('../models/Category');
 const { PRODUCT_DEFAULTS } = require('./categoryDefaults');
+const { evaluatePublicText } = require('./listingModeration');
 
 const JUNK = new Set([
   'other', 'others', 'general', 'misc', 'miscellaneous', 'item', 'items',
@@ -327,6 +328,11 @@ async function resolveProductCategory({
   const display = toDisplayName(suggested);
   if (!display) {
     return best ? { ...toRecord(best.doc), created: false } : toRecord(docs[0]);
+  }
+
+  const nameCheck = await evaluatePublicText({ category: display }, 'listing');
+  if (!nameCheck.ok) {
+    return best?.score >= 30 ? { ...toRecord(best.doc), created: false } : null;
   }
 
   const created = await createProductCategory(display);

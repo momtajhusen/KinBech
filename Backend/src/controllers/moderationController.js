@@ -187,6 +187,94 @@ async function deleteKeyword(req, res, next) {
   }
 }
 
+const IMPORT_MAX_ROWS = 2000;
+const MATCH_MODES = ['contains', 'exact', 'word'];
+
+function parseImportBool(raw) {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (!value) return true;
+  return !['no', 'n', 'false', '0', 'off', 'inactive'].includes(value);
+}
+
+async function importKeywords(req, res, next) {
+  try {
+    const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+    if (!rows.length) {
+      return res.status(400).json({ message: 'The file has no keyword rows' });
+    }
+    if (rows.length > IMPORT_MAX_ROWS) {
+      return res.status(400).json({ message: `Upload at most ${IMPORT_MAX_ROWS} keywords at a time` });
+    }
+
+    let added = 0;
+    let updated = 0;
+    const errors = [];
+    const seen = new Set();
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i] || {};
+      const line = Number(row.line) || i + 2;
+      const keyword = normalizeKeyword(row.keyword);
+      if (!keyword) {
+        errors.push({ line, message: 'Keyword is empty' });
+        continue;
+      }
+      if (keyword.length > 80) {
+        errors.push({ line, keyword, message: 'Keyword is longer than 80 characters' });
+        continue;
+      }
+      if (seen.has(keyword)) {
+        errors.push({ line, keyword, message: 'Duplicate keyword in file' });
+        continue;
+      }
+      seen.add(keyword);
+
+      const severityRaw = String(row.severity || '').trim().toLowerCase();
+      if (severityRaw && !['block', 'hold'].includes(severityRaw)) {
+        errors.push({ line, keyword, message: 'Severity must be block or hold' });
+        continue;
+      }
+      const modeRaw = String(row.matchMode || '').trim().toLowerCase();
+      if (modeRaw && !MATCH_MODES.includes(modeRaw)) {
+        errors.push({ line, keyword, message: 'Match mode must be contains, word or exact' });
+        continue;
+      }
+
+      const values = { isActive: parseImportBool(row.active) };
+      if (severityRaw) values.severity = severityRaw;
+      if (modeRaw) values.matchMode = modeRaw;
+      if (String(row.notes || '').trim()) values.notes = String(row.notes).trim().slice(0, 200);
+      if (String(row.matchFields || '').trim()) {
+        values.matchFields = parseMatchFields(String(row.matchFields).replace(/[|;]/g, ','));
+      }
+
+      const existing = await RestrictedKeyword.findOne({ keyword });
+      if (existing) {
+        Object.assign(existing, values);
+        await existing.save();
+        updated += 1;
+      } else {
+        await RestrictedKeyword.create({
+          keyword,
+          severity: 'block',
+          matchMode: 'contains',
+          matchFields: parseMatchFields(),
+          surfaces: [...SURFACES],
+          notes: '',
+          ...values,
+          createdBy: req.user?._id || null,
+        });
+        added += 1;
+      }
+    }
+
+    if (added || updated) invalidateKeywordCache();
+    return res.json({ added, updated, skipped: errors.length, errors: errors.slice(0, 50) });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function testKeyword(req, res, next) {
   try {
     const text = String(req.body.text || '').trim();
@@ -210,5 +298,6 @@ module.exports = {
   createKeyword,
   updateKeyword,
   deleteKeyword,
+  importKeywords,
   testKeyword,
 };

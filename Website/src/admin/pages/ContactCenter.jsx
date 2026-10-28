@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../services/api';
+import { toast } from '../components/Feedback';
 import useDebounce from '../utils/useDebounce';
 import { mediaUrl } from '../../config';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
@@ -417,24 +418,25 @@ function NotifyPanel({ detail, onSent }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState(null);
 
   const send = async (event) => {
     event.preventDefault();
     if (!title.trim() || !body.trim() || busy) return;
     setBusy(true);
-    setResult(null);
     try {
       const { data } = await api.post(`/chats/admin/users/${detail.contact.id}/notify`, { title, body });
-      setResult({
-        ok: true,
-        text: data.pushed ? 'Sent to their phone and saved in their in-app notifications.' : 'Saved in their in-app notifications. Push was not delivered (no push token or notifications turned off).',
-      });
+      if (data.pushed) {
+        toast.success('It reached their phone and is saved in their in-app notifications.', { title: `Sent to ${detail.contact.name}` });
+      } else {
+        toast.warning('It is saved in their in-app notifications, but push was not delivered (no push token or notifications are off).', {
+          title: 'Saved, not pushed',
+        });
+      }
       setTitle('');
       setBody('');
       onSent();
-    } catch (err) {
-      setResult({ ok: false, text: errorText(err, 'Notification not sent') });
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusy(false);
     }
@@ -462,7 +464,6 @@ function NotifyPanel({ detail, onSent }) {
         <button type="submit" className="btn btn-primary" disabled={busy || !title.trim() || !body.trim()}>
           <Send className="item-icon" aria-hidden /> {busy ? 'Sending…' : `Send to ${detail.contact.name}`}
         </button>
-        {result ? <div className={result.ok ? 'u360-notice' : 'u360-error'}>{result.text}</div> : null}
       </form>
       <div className="cc-subhead">Their notifications</div>
       {detail.notifications.length === 0

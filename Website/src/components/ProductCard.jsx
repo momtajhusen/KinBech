@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { IconLocation, IconEye } from './Icons';
 
-export default function ProductCard({ item, onClick }) {
+export default function ProductCard({ item, onClick, style }) {
   if (!item) return null;
 
   const href = `/listing/${item.id}`;
@@ -65,6 +65,7 @@ export default function ProductCard({ item, onClick }) {
     return (
       <article
         className="product-card"
+        style={style}
         onClick={() => onClick(item)}
         role="button"
         tabIndex={0}
@@ -76,7 +77,7 @@ export default function ProductCard({ item, onClick }) {
   }
 
   return (
-    <Link to={href} className="product-card product-card-link">
+    <Link to={href} className="product-card product-card-link" style={style}>
       {inner}
     </Link>
   );

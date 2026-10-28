@@ -1564,14 +1564,18 @@ a {
   gap: 12px;
 }
 
-.faq-q span {
+.faq-q-text {
+  flex: 1;
+}
+
+.faq-toggle {
   font-size: 20px;
   color: var(--primary);
   transition: transform 0.2s;
 }
 
-.faq-item.open .faq-q span {
-  transform: rotate(45deg);
+.faq-item.open .faq-toggle {
+  transform: rotate(180deg);
 }
 
 .faq-a {

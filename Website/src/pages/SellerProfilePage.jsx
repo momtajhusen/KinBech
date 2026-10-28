@@ -5,6 +5,10 @@ import { toCardItem, toSellerCard } from '../utils/listing';
 import { useGeolocation } from '../hooks/useGeolocation';
 import ProductCard from '../components/ProductCard';
 import Footer from '../components/Footer';
+import SiteImage from '../components/SiteImage';
+import Breadcrumb from '../components/Breadcrumb';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import LocationCityRounded from '@mui/icons-material/LocationCityRounded';
 import { IconLocation, IconShield, IconStar } from '../components/Icons';
 
 export default function SellerProfilePage() {
@@ -88,13 +92,7 @@ export default function SellerProfilePage() {
           <div className="seller-profile-hero-shade" aria-hidden />
           <div className="container seller-profile-hero-inner">
             <div className="seller-profile-topbar detail-header-inner">
-              <nav className="detail-breadcrumb seller-profile-breadcrumb" aria-label="Breadcrumb">
-                <Link to="/">Home</Link>
-                <span>/</span>
-                <Link to="/explore">Explore</Link>
-                <span>/</span>
-                <span className="detail-breadcrumb-current">{sellerName}</span>
-              </nav>
+              <Breadcrumb trail={[{ to: '/explore', label: 'Explore' }, { label: sellerName }]} className="kb-crumbs--slab" />
               <button type="button" className="detail-back-btn detail-back-btn-light" onClick={() => navigate(-1)}>
                 ← Back
               </button>
@@ -121,9 +119,9 @@ export default function SellerProfilePage() {
                   {seller.rating > 0 ? (
                     <span><IconStar width={14} height={14} /> {seller.rating.toFixed(1)} ({seller.reviewsCount} reviews)</span>
                   ) : null}
-                  <span>{listings.length || seller.listingCount} listings</span>
+                  <span><Inventory2Rounded aria-hidden /> {listings.length || seller.listingCount} listings</span>
                   {seller.distanceLabel ? <span><IconLocation width={14} height={14} /> {seller.distanceLabel}</span> : null}
-                  {seller.location ? <span>{seller.location}</span> : null}
+                  {seller.location ? <span><LocationCityRounded aria-hidden /> {seller.location}</span> : null}
                 </div>
               </div>
             </div>
@@ -182,6 +180,7 @@ export default function SellerProfilePage() {
                 </div>
               ) : (
                 <div className="explore-empty">
+                  <SiteImage name="explore-empty" className="empty-art" />
                   <h3>No active listings</h3>
                   <p>This seller has no items listed right now.</p>
                 </div>

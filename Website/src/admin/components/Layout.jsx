@@ -1,99 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import {
-  Activity,
-  BadgeCheck,
-  Ban,
-  Bell,
-  Bug,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardCheck,
-  Crown,
-  Fingerprint,
-  Flag,
-  FlaskConical,
-  FolderTree,
-  Headphones,
-  History,
-  KeyRound,
-  LayoutDashboard,
-  LifeBuoy,
-  LogOut,
-  Menu,
-  MessageSquareWarning,
-  Moon,
-  Package,
-  Phone,
-  Search,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Star,
-  Store,
-  Sun,
-  Users,
-  X,
-} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import MIcon from './MIcon';
 import { useTheme } from '../context/ThemeContext';
 import { adminPath } from '../routes';
 import { BRAND_TAGLINE } from '../../content/brand';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
 import api from '../services/api';
 import useDebounce from '../utils/useDebounce';
+import useActivePill, { NavPill } from '../../utils/useActivePill';
 import { ROLE_LABELS, canAccess, canAccessPath } from '../utils/access';
+import { findNavLocation, isActivePath, tabPath, visibleNav } from '../navigation';
 
 const SIDEBAR_KEY = 'admin-sidebar-collapsed';
-
-const navSections = [
-  {
-    title: 'Overview',
-    items: [
-      { path: adminPath('dashboard'), label: 'Dashboard', icon: LayoutDashboard },
-      { path: adminPath('live-activity'), label: 'Live Activity', icon: Activity },
-    ],
-  },
-  {
-    title: 'Marketplace',
-    items: [
-      { path: adminPath('users'), label: 'Users', icon: Users },
-      { path: adminPath('support'), label: 'Support Inbox', icon: LifeBuoy },
-      { path: adminPath('contact-center'), label: 'Contact Center', icon: Headphones },
-      { path: adminPath('testers'), label: 'Test Accounts', icon: FlaskConical },
-      { path: adminPath('shops'), label: 'Shops', icon: Store },
-      { path: adminPath('shop-verification'), label: 'Shop Verification', icon: BadgeCheck },
-      { path: adminPath('pending-review'), label: 'Pending Review', icon: ClipboardCheck },
-      { path: adminPath('listings'), label: 'Listings', icon: Package },
-      { path: adminPath('categories'), label: 'Categories', icon: FolderTree },
-      { path: adminPath('subscriptions'), label: 'Plans & Payments', icon: Crown },
-    ],
-  },
-  {
-    title: 'Trust & Safety',
-    items: [
-      { path: adminPath('reports'), label: 'Reports', icon: Flag },
-      { path: adminPath('trust'), label: 'Seller Trust', icon: ShieldCheck },
-      { path: adminPath('scam-monitor'), label: 'Scam Monitor', icon: MessageSquareWarning },
-      { path: adminPath('fraud-signals'), label: 'Fraud Signals', icon: Fingerprint },
-      { path: adminPath('error-log'), label: 'Error Log', icon: Bug },
-      { path: adminPath('reviews'), label: 'Reviews', icon: Star },
-      { path: adminPath('restricted-keywords'), label: 'Restricted Keywords', icon: Ban },
-    ],
-  },
-  {
-    title: 'System',
-    items: [
-      { path: adminPath('notifications'), label: 'Notifications', icon: Bell },
-      { path: adminPath('ai-models'), label: 'AI Models', icon: Sparkles },
-      { path: adminPath('voice-calls'), label: 'Voice Calls', icon: Phone },
-      { path: adminPath('settings'), label: 'Settings & Roles', icon: Settings },
-      { path: adminPath('activity'), label: 'Activity', icon: History },
-      { path: adminPath('account-security'), label: 'My Security', icon: KeyRound },
-    ],
-  },
-];
+const RIPPLE_TARGETS = '.btn, .action-btn, .sidebar-item, .hub-tab, .filter-chip, .pagination-btn, .ud-type-tab, .ud-quick-chip, .view-toggle button, .dropdown-item, .icon-btn';
 
 const IDLE_KEY = 'adminLastActive';
 const IDLE_LIMIT_MS = 30 * 60 * 1000;
@@ -146,38 +67,6 @@ function useIdleLogout(logout) {
     setSecondsLeft(null);
   };
   return { secondsLeft, stayActive };
-}
-
-const pageTitleMap = {
-  [adminPath('dashboard')]: 'Dashboard',
-  [adminPath('live-activity')]: 'Live Activity',
-  [adminPath('users')]: 'Users',
-  [adminPath('support')]: 'Support Inbox',
-  [adminPath('contact-center')]: 'Contact Center',
-  [adminPath('testers')]: 'Test Accounts',
-  [adminPath('shops')]: 'Shops',
-  [adminPath('pending-review')]: 'Pending Review',
-  [adminPath('listings')]: 'Listings',
-  [adminPath('categories')]: 'Categories',
-  [adminPath('restricted-keywords')]: 'Restricted Keywords',
-  [adminPath('reports')]: 'Reports',
-  [adminPath('trust')]: 'Seller Trust',
-  [adminPath('scam-monitor')]: 'Scam Monitor',
-  [adminPath('fraud-signals')]: 'Fraud Signals',
-  [adminPath('shop-verification')]: 'Shop Verification',
-  [adminPath('error-log')]: 'Error Log',
-  [adminPath('reviews')]: 'Reviews',
-  [adminPath('notifications')]: 'Notifications',
-  [adminPath('ai-models')]: 'AI Models',
-  [adminPath('voice-calls')]: 'Voice Calls',
-  [adminPath('subscriptions')]: 'Plans & Payments',
-  [adminPath('settings')]: 'Settings & Roles',
-  [adminPath('activity')]: 'Activity',
-  [adminPath('account-security')]: 'My Security',
-};
-
-function isActivePath(pathname, path) {
-  return pathname === path || pathname.startsWith(`${path}/`);
 }
 
 const NAV_SEEN_KEY = 'adminNavSeen';
@@ -248,11 +137,51 @@ function NavBadge({ count }) {
 }
 
 const mobileTabs = [
-  { path: adminPath('dashboard'), label: 'Home', icon: LayoutDashboard },
-  { path: adminPath('users'), label: 'Users', icon: Users },
-  { path: adminPath('listings'), label: 'Listings', icon: Package },
-  { path: adminPath('reports'), label: 'Reports', icon: Flag },
+  { path: adminPath('dashboard'), label: 'Home', icon: 'space_dashboard' },
+  { path: adminPath('pending-review'), label: 'Listings', icon: 'inventory_2' },
+  { path: adminPath('reports'), label: 'Safety', icon: 'shield' },
+  { path: adminPath('support'), label: 'Support', icon: 'support_agent' },
 ];
+
+function hubBadge(hub, counts) {
+  return hub.tabs.reduce((sum, tab) => sum + (Number(counts[tab.page]) || 0), 0);
+}
+
+/** Title, short explanation and tabs for the related pages of the current sidebar item. */
+function HubHeader({ location, counts }) {
+  const tabsPill = useActivePill('.hub-tab.is-active', [location?.hub.key, location?.tab.page]);
+  if (!location || location.hub.tabs.length < 2) return null;
+  const { hub, tab: current } = location;
+  return (
+    <div className="hub-head">
+      <div className="hub-title">
+        <span className="hub-title-icon" key={hub.key}><MIcon name={hub.icon} filled /></span>
+        <div>
+          <h2>{hub.label}</h2>
+          <p className="hub-hint">{hub.hint}</p>
+        </div>
+      </div>
+      <nav className="hub-tabs" aria-label={`${hub.label} pages`} ref={tabsPill.ref}>
+        <NavPill pill={tabsPill.pill} ready={tabsPill.ready} />
+        {hub.tabs.map((tab) => {
+          const active = tab.page === current.page;
+          return (
+            <Link
+              key={tab.page}
+              to={tabPath(tab)}
+              className={`hub-tab ${active ? 'is-active' : ''}`}
+              aria-current={active ? 'page' : undefined}
+            >
+              <MIcon name={tab.icon} filled={active} />
+              {tab.label}
+              <NavBadge count={counts[tab.page] || 0} />
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
 
 function Dropdown({ align = 'end', trigger, children, className = '' }) {
   const [open, setOpen] = useState(false);
@@ -306,6 +235,9 @@ const Layout = () => {
   const [searchHits, setSearchHits] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [alerts, setAlerts] = useState([]);
+  const [fullscreen, setFullscreen] = useState(false);
+  const canFullscreen = typeof document !== 'undefined'
+    && Boolean(document.fullscreenEnabled || document.webkitFullscreenEnabled);
   const debouncedQuery = useDebounce(query, 300);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -319,6 +251,51 @@ const Layout = () => {
     setSidebarOpen(false);
     setSearchOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const onChange = () => setFullscreen(Boolean(document.fullscreenElement || document.webkitFullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
+  const toggleFullscreen = () => {
+    const root = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document);
+    } else {
+      const request = root.requestFullscreen || root.webkitRequestFullscreen;
+      Promise.resolve(request?.call(root)).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
+    const onDown = (event) => {
+      if (event.button !== 0) return;
+      const target = event.target.closest?.(RIPPLE_TARGETS);
+      if (!target || target.disabled || !target.closest('.admin-app')) return;
+      if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
+      const rect = target.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 2.2;
+      const wrap = document.createElement('span');
+      wrap.className = 'kb-ripple-wrap';
+      const ripple = document.createElement('span');
+      ripple.className = 'kb-ripple';
+      ripple.style.width = `${size}px`;
+      ripple.style.height = `${size}px`;
+      ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
+      ripple.style.top = `${event.clientY - rect.top - size / 2}px`;
+      wrap.appendChild(ripple);
+      target.appendChild(wrap);
+      ripple.addEventListener('animationend', () => wrap.remove(), { once: true });
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, []);
 
   useEffect(() => {
     const term = debouncedQuery.trim();
@@ -414,39 +391,62 @@ const Layout = () => {
     };
   }, [sidebarOpen]);
 
-  const activeSection = useMemo(
-    () => navSections.find((section) => section.items.some((item) => isActivePath(location.pathname, item.path))),
-    [location.pathname],
+  const navGroups = useMemo(() => visibleNav(user), [user]);
+  const navLocation = useMemo(
+    () => findNavLocation(navGroups, location.pathname),
+    [navGroups, location.pathname],
   );
+  const sidebarPill = useActivePill('.sidebar-item-active', [navLocation?.hub.key, collapsed, navGroups]);
 
-  const currentTitle = pageTitleMap[location.pathname]
-    || (location.pathname.startsWith(`${adminPath('users')}/`) ? 'User Details' : 'Dashboard');
+  // The new theme grows out of the toggle button as a circle.
+  const switchTheme = (event) => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!document.startViewTransition || reduceMotion) {
+      toggleTheme();
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const radius = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+    const root = document.documentElement;
+    root.classList.add('admin-theme-reveal');
+    const transition = document.startViewTransition(() => flushSync(toggleTheme));
+    transition.ready.then(() => {
+      root.animate(
+        { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
+        { duration: 650, easing: 'cubic-bezier(0.65, 0, 0.35, 1)', pseudoElement: '::view-transition-new(root)' },
+      );
+    }).catch(() => {});
+    transition.finished.finally(() => root.classList.remove('admin-theme-reveal'));
+  };
+
+  const isUserDetail = location.pathname.startsWith(`${adminPath('users')}/`);
+  const currentTitle = isUserDetail ? 'User details' : navLocation?.tab.label || 'Dashboard';
   const displayName = user?.name || 'Admin';
   const roleLabel = ROLE_LABELS[user?.role] || 'Admin';
-  const visibleSections = navSections
-    .map((section) => ({ ...section, items: section.items.filter((item) => canAccessPath(user, item.path)) }))
-    .filter((section) => section.items.length > 0);
   const visibleTabs = mobileTabs.filter((tab) => canAccessPath(user, tab.path));
 
   const navList = (onNavigate) => (
-    <nav className="sidebar-nav">
-      {visibleSections.map((section) => (
-        <div key={section.title} className="nav-section">
-          {!collapsed ? <div className="nav-section-title">{section.title}</div> : null}
-          {section.items.map((item) => {
-            const Icon = item.icon;
-            const active = isActivePath(location.pathname, item.path);
-            const count = navCounts[item.path.split('/').pop()] || 0;
+    <nav className="sidebar-nav" ref={sidebarPill.ref}>
+      <NavPill pill={sidebarPill.pill} ready={sidebarPill.ready} />
+      {navGroups.map((group) => (
+        <div key={group.title} className="nav-section">
+          {!collapsed ? <div className="nav-section-title">{group.title}</div> : null}
+          {group.hubs.map((hub) => {
+            const active = navLocation?.hub.key === hub.key;
+            const count = hubBadge(hub, navCounts);
+            const pages = hub.tabs.map((tab) => tab.label).join(' · ');
             return (
               <Link
-                key={item.path}
-                to={item.path}
-                title={count ? `${item.label} (${count} new)` : item.label}
+                key={hub.key}
+                to={tabPath(hub.tabs[0])}
+                title={`${hub.label}${hub.tabs.length > 1 ? ` — ${pages}` : ''}${count ? ` (${count} new)` : ''}`}
                 onClick={onNavigate}
                 className={`sidebar-item ${active ? 'sidebar-item-active' : 'sidebar-item-inactive'}`}
               >
-                <Icon className="item-icon" aria-hidden />
-                {!collapsed ? <span className="item-label">{item.label}</span> : null}
+                <span className="sidebar-icon"><MIcon name={hub.icon} filled={active} /></span>
+                {!collapsed ? <span className="item-label">{hub.label}</span> : null}
                 <NavBadge count={count} />
               </Link>
             );
@@ -482,7 +482,7 @@ const Layout = () => {
             onClick={() => setSidebarOpen(false)}
             aria-label="Close sidebar"
           >
-            <X className="item-icon" />
+            <MIcon name="close" />
           </button>
         </div>
 
@@ -505,7 +505,7 @@ const Layout = () => {
           onClick={() => setCollapsed((value) => !value)}
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight className="item-icon" /> : <ChevronLeft className="item-icon" />}
+          <MIcon name={collapsed ? 'chevron_right' : 'chevron_left'} />
         </button>
       </aside>
 
@@ -518,7 +518,7 @@ const Layout = () => {
               onClick={() => setSidebarOpen(true)}
               aria-label="Open menu"
             >
-              <Menu className="item-icon" />
+              <MIcon name="menu" />
             </button>
             <button
               type="button"
@@ -526,18 +526,18 @@ const Layout = () => {
               onClick={() => setCollapsed((value) => !value)}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             >
-              <Menu className="item-icon" />
+              <MIcon name={collapsed ? 'menu_open' : 'menu'} />
             </button>
             <nav className="crumbs" aria-label="Breadcrumb">
-              <span className="crumb-muted">{activeSection?.title || 'Overview'}</span>
-              <ChevronRight className="crumb-sep" aria-hidden />
-              <span className="crumb-current">{currentTitle}</span>
+              <span className="crumb-muted">{navLocation?.hub.label || 'Dashboard'}</span>
+              <MIcon name="chevron_right" className="crumb-sep" />
+              <span className="crumb-current" key={currentTitle}>{currentTitle}</span>
             </nav>
           </div>
 
           <div className="appbar-center">
             <div className="appbar-search">
-              <Search className="search-icon" aria-hidden />
+              <MIcon name="search" className="search-icon" />
               <input
                 type="text"
                 placeholder="Search users, shops, listings..."
@@ -575,7 +575,7 @@ const Layout = () => {
 
           <div className="appbar-right">
             <Dropdown
-              trigger={<Bell className="item-icon" />}
+              trigger={<MIcon name="notifications" />}
               className="dropdown-notify"
             >
               {({ close }) => (
@@ -601,23 +601,38 @@ const Layout = () => {
                       ) : <em>{alert.status}</em>}
                     </div>
                   ))}
-                  <div className="dropdown-foot">
-                    <Link to={adminPath('notifications')} onClick={close} className="dropdown-link">
-                      View all notifications
-                    </Link>
-                  </div>
+                  {canAccess(user, 'dashboard') ? (
+                    <div className="dropdown-foot">
+                      <Link to={adminPath('dashboard')} onClick={close} className="dropdown-link">
+                        See all alerts on the dashboard
+                      </Link>
+                    </div>
+                  ) : null}
                 </>
               )}
             </Dropdown>
 
+            {canFullscreen ? (
+              <button
+                type="button"
+                className="icon-btn appbar-fullscreen"
+                onClick={toggleFullscreen}
+                title={fullscreen ? 'Exit full screen' : 'Full screen'}
+                aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+                aria-pressed={fullscreen}
+              >
+                <MIcon key={fullscreen ? 'exit' : 'enter'} name={fullscreen ? 'fullscreen_exit' : 'fullscreen'} className="fullscreen-icon" />
+              </button>
+            ) : null}
+
             <button
               type="button"
               className="icon-btn"
-              onClick={toggleTheme}
+              onClick={switchTheme}
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
               aria-label="Toggle theme"
             >
-              {theme === 'light' ? <Moon className="item-icon" /> : <Sun className="item-icon" />}
+              <MIcon key={theme} name={theme === 'light' ? 'dark_mode' : 'light_mode'} className="theme-icon" />
             </button>
 
             <Dropdown
@@ -629,7 +644,7 @@ const Layout = () => {
                     <span className="user-name">{displayName}</span>
                     <span className="user-role">{roleLabel}</span>
                   </span>
-                  <ChevronDown className="chev" aria-hidden />
+                  <MIcon name="expand_more" className="chev" />
                 </>
               }
             >
@@ -644,23 +659,23 @@ const Layout = () => {
                   </div>
                   {canAccess(user, 'settings') ? (
                     <Link to={adminPath('settings')} onClick={close} className="dropdown-item">
-                      <Settings className="item-icon" aria-hidden />
+                      <MIcon name="admin_panel_settings" />
                       <span>Settings &amp; Roles</span>
                     </Link>
                   ) : null}
                   {canAccess(user, 'notifications') ? (
                     <Link to={adminPath('notifications')} onClick={close} className="dropdown-item">
-                      <Bell className="item-icon" aria-hidden />
-                      <span>Notifications</span>
+                      <MIcon name="campaign" />
+                      <span>Send announcement</span>
                     </Link>
                   ) : null}
                   <Link to={adminPath('account-security')} onClick={close} className="dropdown-item">
-                    <KeyRound className="item-icon" aria-hidden />
+                    <MIcon name="lock" />
                     <span>My Security</span>
                   </Link>
                   <div className="dropdown-sep" />
                   <button type="button" className="dropdown-item danger" onClick={logout}>
-                    <LogOut className="item-icon" aria-hidden />
+                    <MIcon name="logout" />
                     <span>Logout</span>
                   </button>
                 </>
@@ -679,24 +694,27 @@ const Layout = () => {
             </div>
           ) : null}
           <div className="page-container">
-            <Outlet />
+            <HubHeader location={isUserDetail ? null : navLocation} counts={navCounts} />
+            <div className="page-stage" key={location.pathname}>
+              <Outlet />
+            </div>
           </div>
         </main>
       </div>
 
       <nav className="mkt-bottom-nav" aria-label="Admin navigation">
         {visibleTabs.map((tab) => {
-          const Icon = tab.icon;
-          const active = isActivePath(location.pathname, tab.path);
+          const active = isActivePath(location.pathname, tab.path)
+            || Boolean(navLocation?.hub.tabs.some((item) => tabPath(item) === tab.path));
           return (
             <Link key={tab.path} to={tab.path} className={active ? 'is-active' : ''}>
-              <Icon className="item-icon" aria-hidden />
+              <MIcon name={tab.icon} filled={active} />
               {tab.label}
             </Link>
           );
         })}
         <button type="button" className="mkt-menu-btn" onClick={() => setSidebarOpen(true)}>
-          <ShieldCheck className="item-icon" aria-hidden />
+          <MIcon name="menu" />
           Menu
           <NavBadge count={Object.values(navCounts).reduce((sum, value) => sum + (Number(value) || 0), 0)} />
         </button>

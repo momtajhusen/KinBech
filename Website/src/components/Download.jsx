@@ -1,5 +1,7 @@
 import SectionHeader from './SectionHeader';
 import Reveal from './Reveal';
+import PublicRounded from '@mui/icons-material/PublicRounded';
+import SellRounded from '@mui/icons-material/SellRounded';
 import { IconMobile, IconPhone } from './Icons';
 
 export default function Download({ embedded = false }) {
@@ -10,16 +12,16 @@ export default function Download({ embedded = false }) {
               <IconMobile width={40} height={40} />
             </div>
             <div className="download-features">
-              <div className="download-feature">
-                <IconPhone width={18} height={18} />
+              <div className="download-feature icon-tone--green">
+                <span className="icon-tile"><IconPhone /></span>
                 <span>+977 phone login</span>
               </div>
-              <div className="download-feature">
-                <span className="download-dot" />
+              <div className="download-feature icon-tone--amber">
+                <span className="icon-tile"><SellRounded aria-hidden /></span>
                 <span>Free to browse &amp; list</span>
               </div>
-              <div className="download-feature">
-                <span className="download-dot" />
+              <div className="download-feature icon-tone--blue">
+                <span className="icon-tile"><PublicRounded aria-hidden /></span>
                 <span>Works across Nepal</span>
               </div>
             </div>

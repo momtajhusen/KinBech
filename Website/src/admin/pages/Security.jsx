@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { KeyRound, Laptop, ShieldCheck, ShieldOff, Smartphone } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import { confirmAction, toast } from '../components/Feedback';
 import { useAuth } from '../context/AuthContext';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
 
@@ -225,14 +226,38 @@ function SessionsCard() {
   }, [load]);
 
   const revoke = async (session) => {
-    if (!window.confirm(`Sign out ${session.deviceName}?`)) return;
-    await api.delete(`/auth/sessions/${session.id}`).catch(() => {});
+    const ok = await confirmAction({
+      title: `Sign out ${session.deviceName}?`,
+      message: session.current
+        ? 'This is the device you are using now. You will go back to the login page.'
+        : 'That device will have to sign in again.',
+      confirmLabel: 'Sign out device',
+      tone: 'warning',
+      icon: 'logout',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/auth/sessions/${session.id}`);
+    } catch {
+      toast.error('Please try again.', { title: `Could not sign out ${session.deviceName}` });
+      return;
+    }
     if (session.current) logout();
-    else load();
+    else {
+      toast.success(`${session.deviceName} is signed out`);
+      load();
+    }
   };
 
   const signOutEverywhere = async () => {
-    if (!window.confirm('Sign out of every device, including this one?')) return;
+    const ok = await confirmAction({
+      title: 'Sign out everywhere?',
+      message: 'Every device is signed out, including this one. You will sign in again right after.',
+      confirmLabel: 'Sign out everywhere',
+      tone: 'danger',
+      icon: 'devices_off',
+    });
+    if (!ok) return;
     await api.post('/auth/logout-all').catch(() => {});
     logout();
   };

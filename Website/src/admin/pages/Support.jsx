@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, LifeBuoy, Phone, RotateCcw, Search, Send, Trash2, X } from 'lucide-react';
 import api from '../services/api';
+import { confirmAction, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
@@ -239,13 +240,23 @@ function DeletionsTab() {
   }, [scope]);
 
   const cancel = async (row) => {
-    if (!window.confirm(`Cancel deletion for ${row.name || row.phone}? Their hidden listings and shops come back.`)) return;
+    const name = row.name || row.phone;
+    const ok = await confirmAction({
+      title: `Cancel deletion for ${name}?`,
+      message: 'The account stays, and their hidden listings and shops come back.',
+      confirmLabel: 'Keep the account',
+      cancelLabel: 'Go back',
+      tone: 'primary',
+      icon: 'restore',
+    });
+    if (!ok) return;
     setBusyId(row.id);
     try {
       await api.post(`/auth/admin/deletions/${row.id}/cancel`);
+      toast.success(`${name}'s account is kept`, { title: 'Deletion cancelled' });
       await load();
-    } catch (error) {
-      window.alert(errorText(error, 'Could not cancel the deletion'));
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusyId(null);
     }

@@ -2,28 +2,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { BRAND_TAGLINE } from '../content/brand';
 import BrandMark from './BrandMark';
 import ThemeToggle from './ThemeToggle';
-import { DRAWER_LINKS } from '../config/navLinks';
+import { DRAWER_LINKS, isNavActive } from '../config/navLinks';
 import { useTheme } from '../theme/ThemeContext';
-import {
-  IconAlert,
-  IconSearch,
-  IconShield,
-  IconShop,
-  IconStar,
-  IconPhone,
-  IconMobile,
-} from './Icons';
-
-const ICONS = {
-  Explore: IconSearch,
-  Categories: IconSearch,
-  Features: IconStar,
-  'How it works': IconPhone,
-  'For sellers': IconShop,
-  Safety: IconShield,
-  FAQ: IconAlert,
-  Download: IconMobile,
-};
 
 export default function MobileDrawer({ open, onClose }) {
   const location = useLocation();
@@ -57,13 +37,8 @@ export default function MobileDrawer({ open, onClose }) {
 
           <nav className="drawer-nav">
             {DRAWER_LINKS.map((link, index) => {
-              const Icon = ICONS[link.label] || IconSearch;
-              const active = location.pathname === link.path
-                || (link.path === '/explore' && (
-                  location.pathname.startsWith('/explore')
-                  || location.pathname.startsWith('/listing/')
-                  || location.pathname.startsWith('/seller/')
-                ));
+              const Icon = link.icon;
+              const active = isNavActive(link.path, location.pathname);
               return (
                 <Link
                   key={link.path}

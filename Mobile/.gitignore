@@ -41,3 +41,6 @@ yarn-error.*
 /android
 modules/*/android/build/
 modules/*/android/.cxx/
+
+# release signing (keep a backup outside git)
+/credentials

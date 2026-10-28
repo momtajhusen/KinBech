@@ -6,6 +6,7 @@ const {
   createKeyword,
   updateKeyword,
   deleteKeyword,
+  importKeywords,
   testKeyword,
 } = require('../controllers/moderationController');
 const trust = require('../controllers/trustController');
@@ -15,6 +16,7 @@ const router = express.Router();
 
 router.get('/keywords/admin', requireScope('moderation'), listKeywords);
 router.post('/keywords/admin', requireScope('moderation'), auditRoute('moderation.keywords.create', { targetType: 'keyword' }), createKeyword);
+router.post('/keywords/admin/import', requireScope('moderation'), auditRoute('moderation.keywords.import', { targetType: 'keyword' }), importKeywords);
 router.post('/keywords/admin/test', requireScope('moderation'), auditRoute('moderation.keywords.test.create', { targetType: 'keyword' }), testKeyword);
 router.patch('/keywords/admin/:id', requireScope('moderation'), auditRoute('moderation.keywords.update', { targetType: 'keyword', param: 'id' }), updateKeyword);
 router.delete('/keywords/admin/:id', requireScope('moderation'), auditRoute('moderation.keywords.delete', { targetType: 'keyword', param: 'id' }), deleteKeyword);

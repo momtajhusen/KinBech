@@ -2,6 +2,17 @@ import axios from 'axios';
 import { API_BASE } from '../../config';
 import { adminPath } from '../routes';
 import { reportClientError } from '../../utils/errorReporting';
+import { toast } from '../components/Feedback';
+import { errorText, errorTitle, shouldReportError, successMessage } from '../utils/actionMessages';
+
+const MUTATING = new Set(['post', 'put', 'patch', 'delete']);
+
+const isAction = (config = {}) => MUTATING.has(String(config.method || 'get').toLowerCase()) && config.feedback !== false;
+
+// Dialog forms print their own error inline; don't repeat it as a toast.
+const modalShowsError = () => Boolean(document.querySelector(
+  '.kb-modal [class*="error"]:not(:empty), .kb-modal [role="alert"]:not(:empty)',
+));
 
 const api = axios.create({
   baseURL: API_BASE || undefined,
@@ -71,6 +82,12 @@ api.interceptors.response.use(
     if (response.data?.refreshToken) {
       localStorage.setItem('adminRefreshToken', response.data.refreshToken);
     }
+    if (isAction(response.config)) {
+      const method = response.config.method.toLowerCase();
+      const message = response.config.successMessage
+        || successMessage(method, response.config.url, response.config.data, response.data);
+      if (message) toast.auto('success', message);
+    }
     return response;
   },
   async (error) => {
@@ -85,6 +102,11 @@ api.interceptors.response.use(
         original.headers = { ...original.headers, Authorization: `Bearer ${token}` };
         return api(original);
       }
+    }
+    const redirecting = !isLoginCall && (error.response?.status === 401 || code === 'ACCOUNT_SUSPENDED'
+      || code === 'PASSWORD_CHANGE_REQUIRED' || code === 'TWO_FACTOR_SETUP_REQUIRED');
+    if (!isLoginCall && !redirecting && isAction(original) && shouldReportError(original.method, original.url)) {
+      toast.auto('error', errorText(error), { title: errorTitle(error), skipIf: modalShowsError });
     }
     if (isLoginCall) {
       // fall through to reject

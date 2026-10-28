@@ -46,6 +46,7 @@ function escapeRegex(value) {
 function normalizeText(value) {
   return String(value || '')
     .toLowerCase()
+    .replace(/[-_.*/\\|~+]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -84,7 +85,16 @@ function fieldMatches(text, keyword, matchMode) {
     const re = new RegExp(`(^|[^a-z0-9\\u0900-\\u097F])${escapeRegex(needle)}([^a-z0-9\\u0900-\\u097F]|$)`, 'i');
     return re.test(haystack);
   }
-  return haystack.includes(needle);
+  if (haystack.includes(needle)) return true;
+  return looseSpacingMatches(haystack, needle);
+}
+
+// Catches "airgun" / "air-gun" for "air gun" and "ak 47" for "ak47".
+function looseSpacingMatches(haystack, needle) {
+  const parts = needle.split(/\s+|(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])/).filter(Boolean);
+  if (parts.length < 2) return false;
+  const re = new RegExp(`(^|[^a-z0-9\\u0900-\\u097F])${parts.map(escapeRegex).join('\\s?')}`, 'i');
+  return re.test(haystack);
 }
 
 function flattenVariants(listingLike) {
@@ -118,6 +128,7 @@ function listingFieldBag(listingLike) {
 }
 
 function ruleSurfaces(rule) {
+  if ((rule.severity || 'block') === 'block') return ALL_PUBLIC_SURFACES;
   if (Array.isArray(rule.surfaces) && rule.surfaces.length) {
     return rule.surfaces;
   }
@@ -129,6 +140,7 @@ function ruleApplies(rule, surface) {
 }
 
 function fieldsToScan(rule, fieldBag, surface) {
+  if ((rule.severity || 'block') === 'block') return Object.keys(fieldBag);
   const configured =
     Array.isArray(rule.matchFields) && rule.matchFields.length
       ? rule.matchFields
@@ -240,15 +252,10 @@ async function evaluateListingModeration(listingLike, { currentStatus } = {}) {
 
   if (!publicCheck.ok) {
     return {
-      ok: true,
+      ...publicCheck,
       prohibited: true,
-      status: 'pending',
-      matchedKeywords: publicCheck.matchedKeywords || [],
       requiresPreApproval: false,
-      reason: 'Title or description has words that may break KinBech rules (adult, violence, weapons or drugs).',
-      message: publicCheck.message,
-      httpStatus: 200,
-      fieldErrors: {},
+      reason: publicCheck.message,
     };
   }
 

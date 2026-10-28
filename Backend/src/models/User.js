@@ -118,6 +118,8 @@ const userSchema = new mongoose.Schema(
     },
     preferences: {
       notifications: { type: Boolean, default: true },
+      /** Morning / afternoon / evening / night summaries from utils/dailyDigest. */
+      dailyDigest: { type: Boolean, default: true },
       language: { type: String, default: 'English' },
       currency: { type: String, default: 'NPR (₨)' },
       showPhone: { type: Boolean, default: false },

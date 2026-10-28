@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Award, ChevronDown, EyeOff, Filter, Gauge, Package, RefreshCw, Search, ShieldAlert, Undo2 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import { confirmAction, errorMessage, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import PromptModal from '../components/PromptModal';
 import RecordModal from '../components/RecordModal';
@@ -204,7 +205,7 @@ function SellersTab() {
       setTotal(data.total || 0);
       setTotalPages(data.totalPages || 1);
     } catch (error) {
-      alert(errorText(error, 'Could not load sellers'));
+      toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load sellers' });
     } finally {
       setLoading(false);
     }
@@ -214,14 +215,21 @@ function SellersTab() {
   useEffect(() => { setPage(1); }, [tier, type, sort, search]);
 
   const recomputeAll = async () => {
-    if (!window.confirm('Recompute every seller score now? This can take a minute.')) return;
+    const ok = await confirmAction({
+      title: 'Recompute every seller score?',
+      message: 'Scores normally update every night. A full run can take a minute.',
+      confirmLabel: 'Recompute now',
+      tone: 'primary',
+      icon: 'model_training',
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       const { data } = await api.post('/moderation/trust/recompute');
-      alert(`Scored ${data.count} sellers`);
+      toast.success(`Scored ${data.count} sellers`, { title: 'Seller scores updated' });
       load();
-    } catch (error) {
-      alert(errorText(error, 'Recompute failed'));
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusy(false);
     }
@@ -229,16 +237,10 @@ function SellersTab() {
 
   const [overrideRow, setOverrideRow] = useState(null);
   const [strikeRow, setStrikeRow] = useState(null);
-  const [notice, setNotice] = useState('');
-
-  const flash = (message) => {
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 4000);
-  };
 
   const strike = async (reason) => {
     const { data } = await api.post(`/moderation/trust/sellers/${strikeRow.id}/strike`, { reason });
-    flash(`Strike ${data.strikes} for ${strikeRow.name}: ${data.action.replace('_', ' ')}`);
+    toast.success(`${strikeRow.name}: ${data.action.replace('_', ' ')}`, { title: `Strike ${data.strikes} added` });
     setStrikeRow(null);
     setSelected(null);
     load();
@@ -292,8 +294,6 @@ function SellersTab() {
           </button>
         </div>
       </div>
-
-      {notice ? <div className="u360-notice" style={{ marginBottom: '1rem' }}>{notice}</div> : null}
 
       {loading ? (
         <div className="loading">Loading sellers...</div>
@@ -352,7 +352,7 @@ function SellersTab() {
           row={overrideRow}
           onClose={() => setOverrideRow(null)}
           onSaved={(message) => {
-            flash(message);
+            toast.success(message);
             setOverrideRow(null);
             setSelected(null);
             load();
@@ -401,7 +401,7 @@ function HidesTab() {
     setLoading(true);
     api.get('/moderation/trust/auto-hides', { params: { days } })
       .then(({ data: body }) => { if (alive) setData(body); })
-      .catch((error) => alert(errorText(error, 'Could not load the auto-hide report')))
+      .catch((error) => toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load the auto-hide report' }))
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [days]);
@@ -490,7 +490,7 @@ function StockTab() {
     setLoading(true);
     api.get('/moderation/trust/stock', { params: { state: state || undefined } })
       .then(({ data: body }) => { if (alive) setData(body); })
-      .catch((error) => alert(errorText(error, 'Could not load store stock')))
+      .catch((error) => toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load store stock' }))
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [state]);
@@ -577,7 +577,7 @@ function ClustersTab() {
   useEffect(() => {
     api.get('/moderation/trust/clusters')
       .then(({ data: body }) => setData(body))
-      .catch((error) => alert(errorText(error, 'Could not load linked accounts')));
+      .catch((error) => toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load linked accounts' }));
   }, []);
 
   if (!data) return <div className="loading">Loading linked accounts...</div>;
@@ -631,7 +631,7 @@ function SettingsTab() {
   useEffect(() => {
     api.get('/moderation/trust/settings')
       .then(({ data }) => { setForm(data.settings); setDefaults(data.defaults); })
-      .catch((error) => alert(errorText(error, 'Could not load trust settings')));
+      .catch((error) => toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load trust settings' }));
   }, []);
 
   if (!form) return <div className="loading">Loading settings...</div>;
@@ -642,9 +642,9 @@ function SettingsTab() {
     try {
       const { data } = await api.put('/moderation/trust/settings', form);
       setForm(data.settings);
-      alert('Trust settings saved');
-    } catch (error) {
-      alert(errorText(error, 'Could not save settings'));
+      toast.success('They apply on the next hourly check.', { title: 'Trust settings saved' });
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setSaving(false);
     }

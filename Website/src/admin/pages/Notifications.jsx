@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Bell, BellRing, Clock, LayoutPanelTop, Layers, Megaphone, Plus, Send, Users } from 'lucide-react';
 import api from '../services/api';
 import Modal, { OptionCards } from '../components/Modal';
+import { confirmAction, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
 
@@ -71,7 +72,9 @@ function ComposeModal({ draftId, initial, onClose, onDone }) {
         id: draftId || undefined,
         ...(saveAsDraft ? { saveAsDraft: true } : {}),
       });
-      onDone(saveAsDraft ? 'Draft saved' : 'Notification sent');
+      onDone(saveAsDraft
+        ? { title: 'Draft saved', text: 'Find it under Drafts and send it when ready.' }
+        : { title: 'Notification sent', text: `"${form.title}" is on its way to users.` });
     } catch (err) {
       setError(err.response?.data?.message || (saveAsDraft ? 'Failed to save draft' : 'Failed to send notification'));
       setBusy(false);
@@ -162,7 +165,6 @@ const Notifications = () => {
   const [recentNotifications, setRecentNotifications] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [compose, setCompose] = useState(null);
-  const [notice, setNotice] = useState('');
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -215,20 +217,26 @@ const Notifications = () => {
     });
   };
 
-  const deleteDraft = async (id) => {
-    if (!window.confirm('Delete this draft?')) return;
+  const deleteDraft = async (draft) => {
+    const ok = await confirmAction({
+      title: 'Delete this draft?',
+      message: draft.title ? `"${draft.title}" will be gone for good.` : 'It will be gone for good.',
+      confirmLabel: 'Delete draft',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/notifications/admin/broadcasts/${id}`);
+      await api.delete(`/notifications/admin/broadcasts/${draft.id}`);
+      toast.success('Draft deleted');
       fetchDrafts();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to delete draft');
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
-  const onDone = (message) => {
+  const onDone = ({ title, text }) => {
     setCompose(null);
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 4000);
+    toast.success(text, { title });
     fetchRecentNotifications();
     fetchDrafts();
   };
@@ -245,8 +253,6 @@ const Notifications = () => {
           </button>
         </div>
       </div>
-
-      {notice ? <div className="u360-notice" style={{ marginBottom: '1rem' }}>{notice}</div> : null}
 
       {compose ? (
         <ComposeModal draftId={compose.id} initial={compose.form} onClose={() => setCompose(null)} onDone={onDone} />
@@ -275,7 +281,7 @@ const Notifications = () => {
                   </div>
                   <div className="draft-actions">
                     <button type="button" className="action-btn small" onClick={() => editDraft(draft)}>Edit</button>
-                    <button type="button" className="action-btn small delete" onClick={() => deleteDraft(draft.id)}>Delete</button>
+                    <button type="button" className="action-btn small delete" onClick={() => deleteDraft(draft)}>Delete</button>
                   </div>
                 </div>
               ))}

@@ -40,6 +40,7 @@ const {
   moderateUser,
 } = require('../controllers/adminUserController');
 const { getTesters, makeTester, deleteTester, restoreTester } = require('../controllers/adminTesterController');
+const { getUserDirectory } = require('../controllers/adminUserDirectoryController');
 const { getNavCounts } = require('../controllers/adminNavController');
 const { requireAuth, requireAdmin, requireScope } = require('../middleware/auth');
 const {
@@ -125,6 +126,7 @@ router.get('/admin/nav-counts', requireAdmin, getNavCounts);
 router.get('/admin/live-activity', requireScope('dashboard'), getLiveActivity);
 router.patch('/admin/platform-alerts/:id', requireScope('dashboard'), updatePlatformAlert);
 router.get('/admin/users', requireScope('users'), getAllUsers);
+router.get('/admin/user-directory', requireScope('users'), getUserDirectory);
 router.patch('/admin/users/:userId/status', requireScope('users'), updateUserStatus);
 router.get('/admin/users/:userId', requireScope('users'), getUserDetail);
 router.post('/admin/users/:userId/moderate', requireScope('users'), moderateUser);

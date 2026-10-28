@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import { confirmAction, toast } from '../components/Feedback';
 import PostLimitStepper, { PostLimitPresets, postLimitLabel } from '../components/PostLimitStepper';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -152,6 +153,38 @@ function Section({ id, title, count, children, empty }) {
   );
 }
 
+const DONE_TEXT = {
+  suspend: 'Account suspended',
+  restrict_chat: 'Chat restricted',
+  strike: 'Strike added',
+  set_credits: 'Featured credits saved',
+};
+
+const QUICK_CONFIRM = {
+  reinstate: (name) => ({
+    title: `Reinstate ${name}?`,
+    message: 'They can sign in, post and chat again right away.',
+    confirmLabel: 'Reinstate',
+    tone: 'success',
+    icon: 'lock_open',
+  }),
+  force_logout: (name) => ({
+    title: `Sign ${name} out everywhere?`,
+    message: 'Every device is signed out. They can sign in again with an OTP.',
+    confirmLabel: 'Sign out everywhere',
+    tone: 'warning',
+    icon: 'logout',
+  }),
+  cancel_deletion: (name) => ({
+    title: 'Cancel this account deletion?',
+    message: `${name}'s account stays, and their listings and shops show again.`,
+    confirmLabel: 'Keep the account',
+    cancelLabel: 'Go back',
+    tone: 'primary',
+    icon: 'restore',
+  }),
+};
+
 function ActionModal({ action, user, onClose, onDone }) {
   const [days, setDays] = useState(action === 'suspend' ? 7 : 3);
   const [reason, setReason] = useState('');
@@ -177,17 +210,18 @@ function ActionModal({ action, user, onClose, onDone }) {
     setSaving(true);
     setError('');
     try {
+      let response;
       if (action === 'strike') {
-        await api.post(`/moderation/trust/sellers/${user.id}/strike`, { reason: reason.trim() });
+        response = await api.post(`/moderation/trust/sellers/${user.id}/strike`, { reason: reason.trim() });
       } else {
-        await api.post(`/auth/admin/users/${user.id}/moderate`, {
+        response = await api.post(`/auth/admin/users/${user.id}/moderate`, {
           action,
           reason: reason.trim(),
           days: showDays ? days : undefined,
           credits: action === 'set_credits' ? Number(credits) : undefined,
         });
       }
-      onDone();
+      onDone(response.data?.summary || DONE_TEXT[action]);
     } catch (err) {
       setError(errorText(err, 'Action failed'));
       setSaving(false);
@@ -362,7 +396,6 @@ export default function UserDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState(null);
-  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -382,22 +415,18 @@ export default function UserDetail() {
     load();
   }, [load]);
 
-  const flash = (message) => {
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 4000);
-  };
-
-  const quick = async (action, confirmText) => {
-    if (confirmText && !window.confirm(confirmText)) return;
+  const quick = async (action) => {
+    const name = data?.user?.name || data?.user?.phone || 'this user';
+    if (QUICK_CONFIRM[action] && !(await confirmAction(QUICK_CONFIRM[action](name)))) return;
     setBusy(true);
     try {
       const response = action === 'cancel_deletion'
         ? await api.post(`/auth/admin/deletions/${userId}/cancel`)
         : await api.post(`/auth/admin/users/${userId}/moderate`, { action });
-      flash(response.data?.summary || 'Done');
+      if (response.data?.summary) toast.success(response.data.summary);
       await load();
-    } catch (err) {
-      flash(errorText(err, 'Action failed'));
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusy(false);
     }
@@ -467,7 +496,7 @@ export default function UserDetail() {
         {canModerate ? (
           <div className="u360-actions">
             {restrictions.suspended ? (
-              <button type="button" className="action-btn reinstate" disabled={busy} onClick={() => quick('reinstate', `Reinstate ${user.name || 'this user'}?`)}>
+              <button type="button" className="action-btn reinstate" disabled={busy} onClick={() => quick('reinstate')}>
                 <RotateCcw className="item-icon" aria-hidden /> Reinstate
               </button>
             ) : (
@@ -487,7 +516,7 @@ export default function UserDetail() {
             <button type="button" className="action-btn dismiss" onClick={() => setModal('strike')}>
               <ShieldAlert className="item-icon" aria-hidden /> Add strike
             </button>
-            <button type="button" className="action-btn view" disabled={busy} onClick={() => quick('force_logout', 'Sign this user out of every device?')}>
+            <button type="button" className="action-btn view" disabled={busy} onClick={() => quick('force_logout')}>
               <LogOut className="item-icon" aria-hidden /> Force logout
             </button>
             <button type="button" className="action-btn view" onClick={() => setModal('set_credits')}>
@@ -500,8 +529,6 @@ export default function UserDetail() {
           </div>
         )}
       </section>
-
-      {notice ? <div className="u360-notice">{notice}</div> : null}
 
       {user.isTester ? (
         <div className="u360-banner info">
@@ -519,7 +546,7 @@ export default function UserDetail() {
             <strong>Account deletion scheduled for {fmtDate(deletion.scheduledFor)}</strong>
             <span>Requested {fmtDateTime(deletion.requestedAt)}. Listings and shops are hidden until then.</span>
           </div>
-          <button type="button" className="action-btn reinstate" disabled={busy} onClick={() => quick('cancel_deletion', 'Cancel this deletion and restore their listings and shops?')}>
+          <button type="button" className="action-btn reinstate" disabled={busy} onClick={() => quick('cancel_deletion')}>
             Cancel deletion
           </button>
         </div>
@@ -563,7 +590,7 @@ export default function UserDetail() {
           user={user}
           hasShop={data.shops.length > 0}
           onSaved={async (summary) => {
-            flash(summary);
+            toast.success(summary);
             await load();
           }}
         />
@@ -715,9 +742,9 @@ export default function UserDetail() {
           action={modal}
           user={modalUser}
           onClose={() => setModal(null)}
-          onDone={() => {
+          onDone={(summary) => {
             setModal(null);
-            flash('Saved');
+            toast.success(summary);
             load();
           }}
         />

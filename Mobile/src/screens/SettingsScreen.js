@@ -176,6 +176,7 @@ export default function SettingsScreen({ navigation }) {
   const { logout, user } = useAuth();
   const styles = useThemedStyles(createStyles);
   const [notifications, setNotifications] = useState(true);
+  const [dailyDigest, setDailyDigest] = useState(true);
   const [language, setLanguage] = useState('English');
   const [currency, setCurrency] = useState('NPR (₨)');
   const [loading, setLoading] = useState(false);
@@ -216,6 +217,7 @@ export default function SettingsScreen({ navigation }) {
   useEffect(() => {
     if (user?.preferences) {
       setNotifications(user.preferences.notifications ?? true);
+      setDailyDigest(user.preferences.dailyDigest ?? true);
       setLanguage(user.preferences.language || 'English');
       setCurrency(user.preferences.currency || 'NPR (₨)');
     }
@@ -238,6 +240,11 @@ export default function SettingsScreen({ navigation }) {
   const handleNotificationChange = (value) => {
     setNotifications(value);
     updatePreferences({ notifications: value });
+  };
+
+  const handleDailyDigestChange = (value) => {
+    setDailyDigest(value);
+    updatePreferences({ dailyDigest: value });
   };
 
   const handleLanguageChange = (newLanguage) => {
@@ -297,6 +304,21 @@ export default function SettingsScreen({ navigation }) {
                 value={notifications}
                 onValueChange={handleNotificationChange}
                 disabled={loading}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor={colors.surface}
+              />
+            }
+          />
+          <Row
+            icon="sunny-outline"
+            label="Daily updates"
+            subtitle="Your day's summary, nearby finds and tips, up to 3 a day"
+            showBorder
+            right={
+              <Switch
+                value={notifications && dailyDigest}
+                onValueChange={handleDailyDigestChange}
+                disabled={loading || !notifications}
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor={colors.surface}
               />

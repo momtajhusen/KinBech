@@ -266,8 +266,10 @@ function parseShopCategories(rawText) {
   return names.length ? names : null;
 }
 
-async function callModel(model, body, apiKey) {
+/** `meta` = { account: { id, label }, purpose } for the admin usage log. */
+async function callModel(model, body, apiKey, meta = {}) {
   const url = `${GEMINI_BASE}/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const started = Date.now();
   let res;
   try {
     res = await fetch(url, {
@@ -276,11 +278,13 @@ async function callModel(model, body, apiKey) {
       body: JSON.stringify(body),
     });
   } catch (error) {
-    recordUsage(model, { error: error.message || 'Network error' });
+    recordUsage(model, { ...meta, ms: Date.now() - started, error: error.message || 'Network error' });
     throw error;
   }
   const payload = await res.json().catch(() => null);
   recordUsage(model, {
+    ...meta,
+    ms: Date.now() - started,
     ok: res.ok,
     quota: isQuotaError(res.status, payload),
     error: payload?.error?.message || `HTTP ${res.status}`,
@@ -294,10 +298,10 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function callModelWithRetry(model, body, apiKey) {
+async function callModelWithRetry(model, body, apiKey, meta) {
   let result = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    result = await callModel(model, body, apiKey);
+    result = await callModel(model, body, apiKey, meta);
     if (result.res.ok || !RETRYABLE_STATUSES.has(result.res.status)) return result;
     if (isQuotaError(result.res.status, result.payload)) return result;
     if (attempt === 0) await sleep(300);
@@ -309,7 +313,7 @@ async function callModelWithRetry(model, body, apiKey) {
  * Runs `makeBody` against every enabled account/model until `parse` returns a value,
  * switching on quota and key errors.
  */
-async function runGemini(makeBody, parse) {
+async function runGemini(makeBody, parse, purpose = '') {
   const configs = [
     { ...GENERATION_CONFIG, thinkingConfig: { thinkingBudget: 0 } },
     GENERATION_CONFIG,
@@ -339,7 +343,10 @@ async function runGemini(makeBody, parse) {
         let res;
         let payload;
         try {
-          ({ res, payload } = await callModelWithRetry(model, makeBody(generationConfig), account.apiKey));
+          ({ res, payload } = await callModelWithRetry(model, makeBody(generationConfig), account.apiKey, {
+            account: { id: account.id, label: account.label },
+            purpose,
+          }));
         } catch (error) {
           lastError = error;
           break;
@@ -390,6 +397,7 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
   const { result, model, account } = await runGemini(
     (generationConfig) => buildBody(generationConfig, data, mimeType, categories, shop),
     parseSuggestion,
+    'listing',
   );
   return { suggestion: result, model, account };
 }
@@ -399,6 +407,7 @@ async function suggestShopCategories({ type, name = '', description = '', existi
   const { result, model } = await runGemini(
     (generationConfig) => buildShopCategoriesBody(generationConfig, { type, name, description, existing }),
     parseShopCategories,
+    'shop-categories',
   );
   return { categories: result, model };
 }
@@ -425,17 +434,21 @@ async function listAvailableModels(apiKey) {
 }
 
 /** Sends a one-word text prompt to check that a model answers (uses one request of its quota). */
-async function testModel(model, apiKey, accountId) {
+async function testModel(model, apiKey, accountId, accountLabel = '') {
   const settings = await getAiSettings();
-  const key = apiKey || candidateAccounts(settings)[0]?.apiKey;
+  const fallback = candidateAccounts(settings)[0];
+  const key = apiKey || fallback?.apiKey;
   if (!key) {
     return { ok: false, status: 503, ms: 0, message: 'No AI account is configured' };
   }
+  const account = apiKey
+    ? { id: accountId || '', label: accountLabel }
+    : { id: fallback.id, label: fallback.label };
   const started = Date.now();
   const { res, payload } = await callModel(model, {
     contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
     generationConfig: { maxOutputTokens: 5, temperature: 0 },
-  }, key);
+  }, key, { account, purpose: 'test' });
   const message = res.ok ? 'Model answered' : payload?.error?.message || `HTTP ${res.status}`;
   if (isQuotaError(res.status, payload)) {
     const until = Date.now() + retryDelayMs(payload);

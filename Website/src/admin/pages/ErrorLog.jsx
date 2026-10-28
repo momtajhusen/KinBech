@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ChevronDown, Filter, Search, X } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
@@ -37,6 +37,7 @@ export default function ErrorLog() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm);
   const [selected, setSelected] = useState(null);
+  const panelRef = useRef(null);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -76,6 +77,14 @@ export default function ErrorLog() {
   useEffect(() => {
     setPage(1);
   }, [filter, source, debouncedSearch]);
+
+  // On narrower screens the panel sits below the table, so bring it into view.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (selected?.id && panel && panel.getBoundingClientRect().top > window.innerHeight * 0.6) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selected?.id]);
 
   const openDetail = async (id) => {
     try {
@@ -194,7 +203,7 @@ export default function ErrorLog() {
                       </div>
                     </td>
                     <td>
-                      <code className="error-path">
+                      <code className="error-path" title={`${err.method ? `${err.method} ` : ''}${err.path || err.route || ''}`}>
                         {err.method ? `${err.method} ` : ''}
                         {err.path || err.route || '—'}
                       </code>
@@ -215,7 +224,7 @@ export default function ErrorLog() {
             />
           </div>
 
-          <aside className="error-detail-panel">
+          <aside className="error-detail-panel" ref={panelRef}>
             {!selected ? (
               <div className="empty-state">Select an error to see developer details</div>
             ) : (

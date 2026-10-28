@@ -2,6 +2,9 @@ const KinBechCall = require('../../modules/kinbech-call').default;
 // Android fixes a channel's sound when it is created, so a new sound needs a new channel id.
 const ALERT_CHANNEL_ID = 'kinbech-alerts-v2';
 const OLD_ALERT_CHANNEL_IDS = ['kinbech-alerts'];
+// Daily digest pushes are quieter than chat alerts and share one tray slot, so a new one replaces the last.
+const DIGEST_CHANNEL_ID = 'kinbech-updates';
+const DIGEST_NOTIFICATION_ID = 'kinbech-digest';
 // res/raw/kinbech_notification.mp3 in modules/kinbech-call (same file as assets/sounds/new-message.mp3).
 const ALERT_SOUND = 'kinbech_notification';
 const { getActiveChatId } = require('./sounds');
@@ -31,6 +34,13 @@ export async function ensureAlertChannel() {
     importance: AndroidImportance.HIGH,
     sound: ALERT_SOUND,
     vibration: true,
+  });
+  await notifee.createChannel({
+    id: DIGEST_CHANNEL_ID,
+    name: 'Daily updates',
+    description: 'Your daily summary, nearby finds and listing tips',
+    importance: AndroidImportance.DEFAULT,
+    sound: 'default',
   });
   await Promise.all(OLD_ALERT_CHANNEL_IDS.map((id) => notifee.deleteChannel(id).catch(() => {})));
   return true;
@@ -83,13 +93,19 @@ export async function displayAlert({ id, title, body, data, image }) {
   const notifeeModule = loadNotifee();
   const chatId = data?.chatId ? String(data.chatId) : '';
   const isChat = data?.type === 'chat';
-  const notificationId = isChat && chatId ? messageAlertId(chatId) : id || `alert-${Date.now()}`;
+  const isDigest = String(data?.digest || '') === '1';
+  const notificationId = isChat && chatId
+    ? messageAlertId(chatId)
+    : isDigest
+      ? DIGEST_NOTIFICATION_ID
+      : id || `alert-${Date.now()}`;
   if (isChat && chatId && chatId === getActiveChatId()) {
     await dismissChatAlerts(chatId);
     return;
   }
   const senderImage = pictureUrl(data?.image || image || '');
   const productImage = pictureUrl(data?.listingImage || '');
+  const bigPicture = isDigest ? pictureUrl(data?.bigPicture || '') : '';
   if (isChat && chatId && KinBechCall?.showChatAlert) {
     try {
       const shown = await KinBechCall.showChatAlert({
@@ -109,9 +125,9 @@ export async function displayAlert({ id, title, body, data, image }) {
   const { AndroidImportance, AndroidStyle } = notifeeModule;
   await ensureAlertChannel();
   const android = {
-    channelId: ALERT_CHANNEL_ID,
-    importance: AndroidImportance.HIGH,
-    sound: ALERT_SOUND,
+    channelId: isDigest ? DIGEST_CHANNEL_ID : ALERT_CHANNEL_ID,
+    importance: isDigest ? AndroidImportance.DEFAULT : AndroidImportance.HIGH,
+    sound: isDigest ? 'default' : ALERT_SOUND,
     color: '#047857',
     showTimestamp: true,
     pressAction: {
@@ -120,7 +136,10 @@ export async function displayAlert({ id, title, body, data, image }) {
     },
   };
   // No circularLargeIcon: Notifee crops a bitmap it already recycled ("Canvas: trying to use a recycled bitmap").
-  if (productImage) {
+  if (bigPicture) {
+    android.largeIcon = bigPicture;
+    android.style = { type: AndroidStyle.BIGPICTURE, picture: bigPicture, largeIcon: null };
+  } else if (productImage) {
     android.largeIcon = productImage;
   } else if (senderImage) {
     android.largeIcon = senderImage;
@@ -202,6 +221,29 @@ export function subscribeAlertPress(onOpen) {
     }
     onOpen(data);
   });
+}
+
+// FCM tray taps arrive in App.js before the navigator is ready, so hold them until someone listens.
+let queuedOpen = null;
+const openListeners = new Set();
+
+export function queueAlertOpen(data) {
+  if (!data || data.type === 'incoming_call') return;
+  if (openListeners.size) {
+    openListeners.forEach((listener) => listener(data));
+  } else {
+    queuedOpen = data;
+  }
+}
+
+export function subscribeQueuedAlertOpen(onOpen) {
+  openListeners.add(onOpen);
+  if (queuedOpen) {
+    const data = queuedOpen;
+    queuedOpen = null;
+    onOpen(data);
+  }
+  return () => openListeners.delete(onOpen);
 }
 
 export async function consumeInitialAlert() {

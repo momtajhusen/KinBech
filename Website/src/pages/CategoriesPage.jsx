@@ -85,7 +85,11 @@ export default function CategoriesPage() {
     <PageShell
       label="Categories"
       title="Browse by category"
+      titleNe="वर्ग अनुसार सामान खोज्नुहोस्"
+      neFirst
       subtitle="From daily essentials to big purchases — find what you need nearby in Kathmandu, Pokhara, and across Nepal."
+      image="categories-hero"
+      highlights={['Products & shops', 'Listings near you', 'One tap to explore']}
     >
       <div className="container">
         {loading ? <p className="page-loading">Loading categories…</p> : null}

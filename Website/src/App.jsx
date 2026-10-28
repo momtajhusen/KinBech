@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useLayoutEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import AmbientBackground from './components/AmbientBackground';
 import Navbar from './components/Navbar';
@@ -22,6 +22,11 @@ import HumanCheckPage from './pages/HumanCheckPage';
 import SecurityPolicyPage from './pages/SecurityPolicyPage';
 
 function PublicSite() {
+  useLayoutEffect(() => {
+    document.documentElement.classList.add('kb-public');
+    return () => document.documentElement.classList.remove('kb-public');
+  }, []);
+
   return (
     <>
       <AmbientBackground />

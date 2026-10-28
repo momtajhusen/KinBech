@@ -14,6 +14,7 @@ const { startListingTrustJobs } = require('./utils/listingTrust');
 const { backfillReviewSellers } = require('./controllers/reviewController');
 const { startSellerScoreJob } = require('./utils/sellerScore');
 const { startBoostJobs } = require('./utils/referral');
+const { startDailyDigestJob } = require('./utils/dailyDigest');
 
 const PORT = process.env.PORT || 5001;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -33,6 +34,7 @@ async function start() {
     startListingTrustJobs();
     startSellerScoreJob();
     startBoostJobs();
+    startDailyDigestJob();
     backfillReviewSellers().catch((error) => {
       console.warn('Review seller backfill skipped:', error.message);
     });

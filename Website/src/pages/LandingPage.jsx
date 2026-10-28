@@ -1,6 +1,6 @@
 import Hero from '../components/Hero';
 import StatsStrip from '../components/StatsStrip';
-import HomeQuickLinks from '../components/HomeQuickLinks';
+import { HomeDownloadBand, HomeSellerBand, HomeStory } from '../components/HomeStory';
 import Footer from '../components/Footer';
 
 export default function LandingPage() {
@@ -8,7 +8,9 @@ export default function LandingPage() {
     <>
       <Hero />
       <StatsStrip />
-      <HomeQuickLinks />
+      <HomeStory />
+      <HomeSellerBand />
+      <HomeDownloadBand />
       <Footer />
     </>
   );

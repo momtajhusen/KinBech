@@ -15,6 +15,7 @@ const {
   invalidateAiSettings,
   isBlocked,
   modelsForAccount,
+  nextQuotaReset,
   presentAccount,
   quotaDay,
   replaceAccountKey,
@@ -24,6 +25,7 @@ const AiSettings = require('../models/AiSettings');
 const Shop = require('../models/Shop');
 const { categoriesForShop, linkCategoryToShop } = require('../utils/shopProductCategories');
 const AiUsageDaily = require('../models/AiUsageDaily');
+const AiCallLog = require('../models/AiCallLog');
 const { evaluateListingModeration } = require('../utils/listingModeration');
 const { reserveAiCall, refundAiCall, usedToday } = require('../utils/aiQuota');
 const { blendEstimate, marketPriceFor, roundPrice } = require('../utils/priceCheck');
@@ -115,6 +117,7 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
       suggestion.title = '';
       suggestion.description = '';
       suggestion.searchWords = [];
+      if (!resolved) suggestion.category = '';
       suggestion.contentBlocked = true;
       suggestion.blockMessage = moderation.message;
     }
@@ -195,6 +198,119 @@ function lastDays(count) {
   return days;
 }
 
+const PURPOSE_LABELS = {
+  listing: 'Listing photo fill',
+  'shop-categories': 'Shop categories',
+  test: 'Admin test',
+};
+
+/** Per-account calls from the call log: today by model, last 7 days, and recent calls. */
+async function accountUsageReport(settings, days) {
+  const today = days[0];
+  const [groups, recent] = await Promise.all([
+    AiCallLog.aggregate([
+      { $match: { day: { $in: days } } },
+      {
+        $group: {
+          _id: { day: '$day', accountId: '$accountId', model: '$model', result: '$result' },
+          count: { $sum: 1 },
+          label: { $last: '$accountLabel' },
+          lastAt: { $max: '$at' },
+        },
+      },
+    ]),
+    AiCallLog.find().sort({ at: -1 }).limit(30).lean(),
+  ]);
+
+  const byAccount = new Map();
+  const entryFor = (id, label) => {
+    if (!byAccount.has(id)) {
+      byAccount.set(id, {
+        id,
+        label,
+        lastUsedAt: null,
+        week: new Map(days.map((day) => [day, { ok: 0, failed: 0, limit: 0 }])),
+        todayByModel: new Map(),
+      });
+    }
+    return byAccount.get(id);
+  };
+
+  groups.forEach((group) => {
+    const { day, accountId, model, result } = group._id;
+    const entry = entryFor(accountId || 'unknown', group.label || 'Unknown account');
+    const dayRow = entry.week.get(day);
+    if (dayRow) dayRow[result] += group.count;
+    if (day === today) {
+      const modelRow = entry.todayByModel.get(model) || { ok: 0, failed: 0, limit: 0 };
+      modelRow[result] += group.count;
+      entry.todayByModel.set(model, modelRow);
+    }
+    if (!entry.lastUsedAt || group.lastAt > entry.lastUsedAt) entry.lastUsedAt = group.lastAt;
+  });
+
+  const enabledModels = (settings.models || []).filter((model) => model.enabled);
+  const quotaModels = settings.autoSwitch ? enabledModels : enabledModels.slice(0, 1);
+  const now = Date.now();
+
+  const usageFor = (account) => {
+    const entry = byAccount.get(account.id) || entryFor(account.id, account.label);
+    const week = days.map((day) => ({ day, ...entry.week.get(day) }));
+    const todayRow = week[0];
+    const models = quotaModels.map((model) => {
+      const row = entry.todayByModel.get(model.name) || { ok: 0, failed: 0, limit: 0 };
+      const block = (account.modelBlocks || []).find(
+        (item) => item.name === model.name && item.blockedUntil && new Date(item.blockedUntil).getTime() > now
+      );
+      const limit = model.dailyLimit ?? 20;
+      const used = row.ok + row.failed;
+      return {
+        name: model.name,
+        used,
+        limit,
+        limitHits: row.limit,
+        blockedUntil: block ? block.blockedUntil : null,
+        remaining: block || account.blockedUntil ? 0 : Math.max(0, limit - used),
+      };
+    });
+    const quotaLimit = models.reduce((sum, model) => sum + model.limit, 0);
+    const quotaUsed = models.reduce((sum, model) => sum + model.used, 0);
+    return {
+      today: { ok: todayRow.ok, failed: todayRow.failed, limitHits: todayRow.limit },
+      lastUsedAt: entry.lastUsedAt,
+      week,
+      models,
+      quota: {
+        limit: quotaLimit,
+        used: quotaUsed,
+        remaining: account.enabled === false ? 0 : models.reduce((sum, model) => sum + model.remaining, 0),
+      },
+    };
+  };
+
+  return {
+    usageFor,
+    historyAccounts: [...byAccount.values()]
+      .filter((entry) => [...entry.week.values()].some((row) => row.ok + row.failed + row.limit > 0))
+      .map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        byDay: Object.fromEntries([...entry.week.entries()].map(([day, row]) => [day, row.ok + row.failed])),
+      })),
+    recent: recent.map((row) => ({
+      id: String(row._id),
+      at: row.at,
+      accountId: row.accountId,
+      accountLabel: row.accountLabel || 'Unknown account',
+      model: row.model,
+      result: row.result,
+      purpose: PURPOSE_LABELS[row.purpose] || row.purpose || 'AI request',
+      ms: row.ms || 0,
+      error: row.error || '',
+    })),
+  };
+}
+
 async function adminOverview() {
   const settings = await getAiSettings({ fresh: true });
   const today = quotaDay();
@@ -213,7 +329,11 @@ async function adminOverview() {
   });
 
   const { models: available, error: availableError } = await availableModels();
-  const accounts = (settings.accounts || []).map(presentAccount);
+  const report = await accountUsageReport(settings, days);
+  const accounts = (settings.accounts || []).map((account) => ({
+    ...presentAccount(account),
+    usage: report.usageFor(presentAccount(account)),
+  }));
   const activeAccount = candidateAccounts(settings)[0] || null;
   const activeModel = activeAccount ? (modelsForAccount(settings, activeAccount)[0] || null) : (candidateModels(settings)[0] || null);
 
@@ -224,9 +344,13 @@ async function adminOverview() {
     usedToday: await usedToday(),
     activeModel,
     activeAccount: activeAccount ? activeAccount.label : null,
+    activeAccountId: activeAccount ? activeAccount.id : null,
     keyConfigured: accounts.length > 0 || Boolean(String(process.env.GEMINI_API_KEY || '').trim()),
     accounts,
     quotaDay: today,
+    quotaResetAt: nextQuotaReset(),
+    historyAccounts: report.historyAccounts,
+    recentCalls: report.recent,
     models: (settings.models || []).map((model) => {
       const row = todayByModel.get(model.name) || {};
       return {
@@ -351,7 +475,7 @@ router.post('/admin/accounts/:id/test', requireScope('ai'), auditRoute('ai.accou
     const settings = await getAiSettings({ fresh: true });
     const model = candidateModels(settings)[0];
     if (!model) return res.status(400).json({ message: 'Turn on at least one model before testing' });
-    const result = await testModel(model, account.apiKey, account.id);
+    const result = await testModel(model, account.apiKey, account.id, account.label);
     res.json({ result, overview: await adminOverview() });
   } catch (error) {
     next(error);

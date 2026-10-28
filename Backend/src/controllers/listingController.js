@@ -10,7 +10,17 @@ const { listingPayload, parsePrice, haversineDistanceKm, listingPoint, listingTr
 const { parseVariantsFromBody } = require('../utils/listingVariants');
 const { recordShopMetric, recordShopSale } = require('../utils/shopAnalytics');
 const listingQueryCache = require('../utils/listingQueryCache');
-const { evaluateListingModeration } = require('../utils/listingModeration');
+const {
+  evaluateListingModeration,
+  evaluatePublicText,
+  listingFieldBag,
+  publicProhibitedBody,
+} = require('../utils/listingModeration');
+
+async function prohibitedListingBody(listingLike) {
+  const check = await evaluatePublicText(listingFieldBag(listingLike), 'listing');
+  return check.ok ? null : publicProhibitedBody(check);
+}
 const { estimateForListing, priceReviewReason } = require('../utils/priceCheck');
 const { assertListingNotSpam } = require('../utils/listingSpamGuard');
 const { featureListingWithCredit } = require('../utils/referral');
@@ -1056,6 +1066,21 @@ async function createListing(req, res, next) {
       });
     }
 
+    const prohibited = await prohibitedListingBody({
+      title,
+      description,
+      category,
+      brand,
+      sku,
+      location: resolvedLocation,
+      searchWords: normalizeSearchWords(req.body.searchWords),
+      variantOptions: variantResult.variantOptions,
+      variants: variantResult.variants,
+    });
+    if (prohibited) {
+      return res.status(400).json(prohibited);
+    }
+
     const resolvedCategory = await resolveProductCategory({
       name: category,
       title,
@@ -1101,6 +1126,9 @@ async function createListing(req, res, next) {
     }
 
     const moderation = await evaluateListingModeration(listingData);
+    if (!moderation.ok) {
+      return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
+    }
     const { reasons, priceHeld, photoHeld } = await collectReviewReasons({
       moderation,
       listingLike: listingData,
@@ -1188,6 +1216,28 @@ async function updateListing(req, res, next) {
       'originalPrice',
       'isOnSale',
     ];
+
+    const markingSoldOnly = Boolean(req.body.markSold || req.body.status === 'sold');
+    if (!markingSoldOnly) {
+      const pick = (key) => (req.body[key] !== undefined ? req.body[key] : listing[key]);
+      const prohibited = await prohibitedListingBody({
+        title: pick('title'),
+        description: pick('description'),
+        category: pick('category'),
+        brand: pick('brand'),
+        sku: pick('sku'),
+        location: pick('location'),
+        searchWords:
+          req.body.searchWords !== undefined
+            ? normalizeSearchWords(req.body.searchWords)
+            : listing.searchWords,
+        variantOptions: pick('variantOptions'),
+        variants: pick('variants'),
+      });
+      if (prohibited) {
+        return res.status(400).json(prohibited);
+      }
+    }
 
     for (const field of fields) {
       if (req.body[field] === undefined) continue;
@@ -1287,6 +1337,9 @@ async function updateListing(req, res, next) {
         },
         { currentStatus: listing.status }
       );
+      if (!moderation.ok) {
+        return res.status(moderation.httpStatus || 400).json(publicProhibitedBody(moderation));
+      }
       const { reasons } = await collectReviewReasons({
         moderation,
         listingLike: listing,

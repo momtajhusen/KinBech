@@ -306,9 +306,9 @@ const LiveActivity = () => {
   const opsCards = [
     { title: 'Errors (1h)', value: pulse.errorsLastHour || 0, icon: Bug, color: '#dc2626', hint: 'needs triage', link: '/admin/error-log' },
     { title: 'Pending reports', value: pulse.pendingReports || 0, icon: Flag, color: '#b91c1c', hint: 'awaiting review', link: '/admin/reports' },
-    { title: 'Shops to verify', value: pulse.pendingShops || 0, icon: Store, color: '#d97706', hint: 'verification queue', link: '/admin/shops' },
+    { title: 'Shops to verify', value: pulse.pendingShops || 0, icon: Store, color: '#d97706', hint: 'verification queue', link: '/admin/shop-verification' },
     { title: 'Reviews to moderate', value: pulse.pendingReviews || 0, icon: Star, color: '#7c3aed', hint: 'moderation queue', link: '/admin/reviews' },
-    { title: 'Open tickets', value: pulse.openTickets || 0, icon: LifeBuoy, color: '#0891b2', hint: 'support requests', link: null },
+    { title: 'Open tickets', value: pulse.openTickets || 0, icon: LifeBuoy, color: '#0891b2', hint: 'support requests', link: '/admin/support' },
     { title: 'Open alerts', value: pulse.openAlerts || 0, icon: AlertTriangle, color: '#dc2626', hint: 'anomalies detected', link: '/admin/dashboard' },
   ];
 
@@ -329,7 +329,7 @@ const LiveActivity = () => {
     Array.isArray(event.details) && event.details.length ? (
       <div className="live-details">
         {event.details.map((detail) => (
-          <span key={`${event.id}-${detail.label}`} className="live-chip">
+          <span key={`${event.id}-${detail.label}`} className="live-chip" title={`${detail.label}: ${detail.value}`}>
             <span className="live-chip-label">{detail.label}</span>
             <span className="live-chip-value">{detail.value}</span>
           </span>
@@ -361,8 +361,8 @@ const LiveActivity = () => {
 
         <footer className="live-card-foot">
           <div className="live-card-who">
-            {event.actor ? <span className="live-actor">{event.actor}</span> : null}
-            {event.meta ? <span className="live-meta">{event.meta}</span> : null}
+            {event.actor ? <span className="live-actor" title={event.actor}>{event.actor}</span> : null}
+            {event.meta ? <span className="live-meta" title={event.meta}>{event.meta}</span> : null}
           </div>
           <div className="live-card-tags">
             {event.severity ? <span className={`live-sev ${event.severity}`}>{event.severity}</span> : null}

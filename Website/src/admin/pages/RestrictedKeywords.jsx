@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Ban, ChevronDown, Clock, Filter, Search, ShieldAlert, X } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Ban, ChevronDown, Clock, Download, FileUp, Filter, Search, ShieldAlert, Upload, X } from 'lucide-react';
 import api from '../services/api';
 import Modal, { ModalSwitch, OptionCards } from '../components/Modal';
+import { confirmAction, errorMessage, toast } from '../components/Feedback';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
@@ -25,6 +26,126 @@ const SEVERITY_OPTIONS = [
   { value: 'hold', label: 'Hold for review', description: 'Listing waits in Pending Review until an admin approves it.', icon: Clock, tone: 'warning' },
   { value: 'block', label: 'Hard block', description: 'The post is rejected right away. The seller sees why.', icon: Ban, tone: 'danger' },
 ];
+
+const CSV_TEMPLATE = [
+  'keyword,severity,match_mode,active,notes',
+  'pistol,block,word,yes,Weapons are not allowed',
+  'air gun,block,contains,yes,Weapons are not allowed',
+  'counterfeit,hold,contains,yes,Check before publishing',
+].join('\n');
+
+const CSV_HEADER_KEYS = {
+  keyword: 'keyword',
+  word: 'keyword',
+  severity: 'severity',
+  match_mode: 'matchMode',
+  matchmode: 'matchMode',
+  mode: 'matchMode',
+  active: 'active',
+  is_active: 'active',
+  notes: 'notes',
+  note: 'notes',
+  fields: 'matchFields',
+  match_fields: 'matchFields',
+};
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i += 1;
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function csvToKeywordRows(text) {
+  const table = parseCsv(String(text).replace(/^\uFEFF/, ''));
+  const header = (table[0] || []).map((cell) => CSV_HEADER_KEYS[cell.trim().toLowerCase().replace(/\s+/g, '_')]);
+  if (!header.includes('keyword')) {
+    throw new Error('First row must be the header. Download the template and keep the "keyword" column.');
+  }
+  return table
+    .slice(1)
+    .map((cells, index) => {
+      const item = { line: index + 2 };
+      header.forEach((key, col) => {
+        if (key) item[key] = (cells[col] || '').trim();
+      });
+      return item;
+    })
+    .filter((item) => Object.keys(item).some((key) => key !== 'line' && item[key]));
+}
+
+function downloadTemplate() {
+  const blob = new Blob([`\uFEFF${CSV_TEMPLATE}\n`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'kinbech-restricted-keywords-template.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function ImportResultModal({ result, onClose }) {
+  return (
+    <Modal
+      icon={FileUp}
+      tone={result.errors?.length ? 'warning' : 'primary'}
+      title="CSV import finished"
+      subtitle={`${result.added} added, ${result.updated} updated, ${result.skipped} skipped`}
+      size="md"
+      onClose={onClose}
+      onSubmit={onClose}
+      footer={<button type="submit" className="btn btn-primary">Done</button>}
+    >
+      {result.errors?.length ? (
+        <div className="form-group">
+          <label>Rows that were skipped</label>
+          <ul style={{ margin: 0, paddingLeft: '1.1rem', maxHeight: 260, overflowY: 'auto' }}>
+            {result.errors.map((item) => (
+              <li key={`${item.line}-${item.keyword || ''}`}>
+                Line {item.line}{item.keyword ? ` (${item.keyword})` : ''}: {item.message}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="form-hint">All rows were saved. New and edited listings are checked against them right away.</p>
+      )}
+    </Modal>
+  );
+}
 
 const emptyForm = {
   keyword: '',
@@ -147,6 +268,9 @@ export default function RestrictedKeywords() {
   const debouncedQuery = useDebounce(query);
   const [view, setView] = useViewMode('restricted-keywords', 'list');
   const [stats, setStats] = useState({ all: 0, block: 0, hold: 0 });
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const fileInputRef = useRef(null);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -204,13 +328,38 @@ export default function RestrictedKeywords() {
     });
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this restricted keyword?')) return;
+  const handleDelete = async (item) => {
+    const ok = await confirmAction({
+      title: `Delete "${item.keyword}"?`,
+      message: 'Listings will no longer be checked against this word. This cannot be undone.',
+      confirmLabel: 'Delete keyword',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/moderation/keywords/admin/${id}`);
+      await api.delete(`/moderation/keywords/admin/${item.id}`);
+      toast.success(`"${item.keyword}" deleted`);
+      await fetchKeywords();
+    } catch {
+      /* the API layer shows the error */
+    }
+  };
+
+  const handleCsvFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setImporting(true);
+    try {
+      const rows = csvToKeywordRows(await file.text());
+      if (!rows.length) throw new Error('The file has no keyword rows');
+      const response = await api.post('/moderation/keywords/admin/import', { rows }, { feedback: false });
+      setImportResult(response.data);
       await fetchKeywords();
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to delete keyword');
+      toast.error(errorMessage(error, 'Failed to import CSV'), { title: 'Import failed' });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -219,9 +368,10 @@ export default function RestrictedKeywords() {
       await api.patch(`/moderation/keywords/admin/${item.id}`, {
         isActive: !item.isActive,
       });
+      toast.success(`"${item.keyword}" is ${item.isActive ? 'off' : 'on'}`);
       await fetchKeywords();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to update keyword');
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -243,6 +393,19 @@ export default function RestrictedKeywords() {
           <button className="action-btn view" onClick={openCreate} style={{ marginLeft: '0.5rem' }}>
             + Add keyword
           </button>
+          <button className="action-btn" onClick={downloadTemplate} style={{ marginLeft: '0.5rem' }} title="Download CSV template">
+            <Download className="item-icon" /> Template
+          </button>
+          <button
+            className="action-btn view"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            style={{ marginLeft: '0.5rem' }}
+            title="Upload filled CSV"
+          >
+            <Upload className="item-icon" /> {importing ? 'Uploading…' : 'Upload CSV'}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleCsvFile} />
         </div>
         <div className="filter-group right">
           <ViewToggle view={view} onChange={setView} />
@@ -283,6 +446,10 @@ export default function RestrictedKeywords() {
         />
       ) : null}
 
+      {importResult ? (
+        <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
+      ) : null}
+
       {loading ? (
         <div className="loading">Loading keywords...</div>
       ) : keywords.length === 0 ? (
@@ -310,7 +477,9 @@ export default function RestrictedKeywords() {
                   </span>
                   <span>{item.matchMode}</span>
                 </div>
-                {item.notes ? <div className="data-card-desc">{item.notes}</div> : null}
+                <div className={`data-card-desc ${item.notes ? '' : 'is-empty'}`} title={item.notes || ''}>
+                  {item.notes || 'No notes'}
+                </div>
                 <div className="data-card-actions">
                   <div className="action-buttons">
                     <button
@@ -322,7 +491,7 @@ export default function RestrictedKeywords() {
                     <button className="action-btn view" onClick={() => openEdit(item)}>
                       Edit
                     </button>
-                    <button className="action-btn suspend" onClick={() => handleDelete(item.id)}>
+                    <button className="action-btn suspend" onClick={() => handleDelete(item)}>
                       Delete
                     </button>
                   </div>
@@ -379,7 +548,7 @@ export default function RestrictedKeywords() {
                       </button>
                       <button
                         className="action-btn suspend"
-                        onClick={() => handleDelete(item.id)}
+                        onClick={() => handleDelete(item)}
                       >
                         Delete
                       </button>

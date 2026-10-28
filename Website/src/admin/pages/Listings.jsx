@@ -9,6 +9,7 @@ import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
 import RecordModal from '../components/RecordModal';
 import PromptModal from '../components/PromptModal';
+import { toast } from '../components/Feedback';
 import { LISTING_REJECT_REASONS, heldReason } from '../utils/moderationReasons';
 
 const Listings = () => {
@@ -124,11 +125,13 @@ const Listings = () => {
       setPrompt({ action, listing: listing || listings.find((row) => row.id === listingId) });
       return;
     }
+    const title = (listing || listings.find((row) => row.id === listingId))?.title;
     try {
       await api.patch(`/listings/admin/${listingId}/status`, { status: 'active' });
+      toast.success(title ? `"${title}" is live in the app` : 'Listing is live in the app', { title: 'Listing approved' });
       fetchListings();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to update listing');
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -137,6 +140,9 @@ const Listings = () => {
     await api.patch(`/listings/admin/${listing.id}/status`, {
       status: action === 'reject' ? 'rejected' : 'removed',
       ...(reason ? { reason } : {}),
+    });
+    toast.success(`"${listing.title}" is hidden from buyers.`, {
+      title: action === 'reject' ? 'Listing rejected' : 'Listing removed',
     });
     setPrompt(null);
     fetchListings();

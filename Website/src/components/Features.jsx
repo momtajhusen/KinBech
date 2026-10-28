@@ -14,6 +14,7 @@ const FEATURES = [
     icon: IconLocation,
     tone: 'emerald',
     title: 'Hyperlocal discovery',
+    ne: 'नजिकैका सामान पहिले देखिन्छन्',
     text: 'See items sorted by distance. Browse by category, filter by price and condition, and find deals in your district.',
     chip: 'GPS-powered nearby feed',
     visual: ['2.1 km', '800 m', '5.3 km'],
@@ -22,6 +23,7 @@ const FEATURES = [
     icon: IconChat,
     tone: 'blue',
     title: 'In-app chat',
+    ne: 'एपभित्रै सुरक्षित च्याट',
     text: 'Message sellers without sharing your number first. Negotiate, ask questions, and coordinate meetups inside KinBech.',
     chip: 'Private until you share',
     visual: ['Hi, is this available?', 'Yes — meet at Civil Mall?'],
@@ -30,6 +32,7 @@ const FEATURES = [
     icon: IconStore,
     tone: 'violet',
     title: 'Shops & individuals',
+    ne: 'व्यक्तिगत वा पसल — दुवै तरिका',
     text: 'Sell a single used phone as an individual, or run a verified shop with logo, hours, and a product catalog.',
     chip: 'Switch modes anytime',
     visual: ['Individual', 'Verified Shop'],
@@ -38,6 +41,7 @@ const FEATURES = [
     icon: IconHeart,
     tone: 'pink',
     title: 'Wishlist & alerts',
+    ne: 'मन परेका सामान सेभ गर्नुहोस्',
     text: 'Save items you love and come back when you are ready to buy. Stay updated on listings near you.',
     chip: 'Save & track prices',
     visual: ['♥ Saved', 'Price drop'],
@@ -46,6 +50,7 @@ const FEATURES = [
     icon: IconStar,
     tone: 'amber',
     title: 'Shop reviews',
+    ne: 'पसलको समीक्षा र भरोसा',
     text: 'Rate verified shops after a deal. Build trust with real feedback from the community.',
     chip: 'Community trust score',
     visual: ['★ 4.8', '128 reviews'],
@@ -54,6 +59,7 @@ const FEATURES = [
     icon: IconShield,
     tone: 'slate',
     title: 'Report & block',
+    ne: 'गलत लागे रिपोर्ट र ब्लक',
     text: 'See something wrong? Report listings or users. Block people you do not want to hear from again.',
     chip: 'Moderated listings',
     visual: ['Report', 'Block user'],
@@ -80,6 +86,7 @@ export default function Features({ embedded = false }) {
                   <span className="feature-chip">{f.chip}</span>
                 </div>
                 <h3>{f.title}</h3>
+                <p className="ne-sub ne-sub--card" lang="ne">{f.ne}</p>
                 <p>{f.text}</p>
                 <div className="feature-visual" aria-hidden>
                   {f.visual.map((item) => (

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import Modal from '../components/Modal';
+import { errorMessage, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
@@ -223,7 +224,6 @@ export default function ScamMonitor() {
   const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
   const [busyId, setBusyId] = useState(null);
-  const [notice, setNotice] = useState('');
   const debounced = useDebounce(searchTerm);
 
   const load = useCallback(async () => {
@@ -234,7 +234,7 @@ export default function ScamMonitor() {
       });
       setData(response.data);
     } catch (error) {
-      setNotice(errorText(error, 'Could not load flagged chats'));
+      toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load flagged chats' });
     } finally {
       setLoading(false);
     }
@@ -248,19 +248,14 @@ export default function ScamMonitor() {
     setPage(1);
   }, [status, days, debounced, sender]);
 
-  const flash = (message) => {
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 4000);
-  };
-
   const review = async (flag, next) => {
     setBusyId(flag.id);
     try {
       await api.patch(`/moderation/scam/${flag.id}`, { status: next });
-      flash(next === 'dismissed' ? 'Marked as false alarm' : 'Reopened');
+      toast.success(next === 'dismissed' ? 'Marked as a false alarm' : 'Flag reopened');
       await load();
-    } catch (error) {
-      flash(errorText(error, 'Could not update the flag'));
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusyId(null);
     }
@@ -295,8 +290,6 @@ export default function ScamMonitor() {
           </div>
         ))}
       </div>
-
-      {notice ? <div className="u360-notice">{notice}</div> : null}
 
       <div className="filter-bar">
         <div className="filter-group left">
@@ -373,7 +366,7 @@ export default function ScamMonitor() {
           onClose={() => setModal(null)}
           onDone={(summaryText) => {
             setModal(null);
-            flash(summaryText || 'Done');
+            toast.success(summaryText || 'Done');
             load();
           }}
         />

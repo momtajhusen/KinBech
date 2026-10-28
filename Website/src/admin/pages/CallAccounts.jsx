@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Ban, Clock, Phone, RefreshCw } from 'lucide-react';
 import api from '../services/api';
+import { confirmAction, toast } from '../components/Feedback';
 
 const EMPTY_FORM = { label: '', appId: '', appCertificate: '', monthlyLimitMinutes: 10000 };
 
@@ -53,14 +54,13 @@ export default function CallAccounts() {
 
   const run = async (request, success = '') => {
     setSaving(true);
-    setMessage('');
     try {
       const response = await request();
       setData(response.data);
-      if (success) setMessage(success);
+      setMessage('');
+      if (success) toast.success(success);
       return true;
-    } catch (error) {
-      setMessage(error.response?.data?.message || 'Could not save');
+    } catch {
       return false;
     } finally {
       setSaving(false);
@@ -69,9 +69,9 @@ export default function CallAccounts() {
 
   const accounts = data?.accounts || [];
 
-  const saveAccounts = (next) => run(() => api.put('/calls/admin/accounts', {
+  const saveAccounts = (next, success) => run(() => api.put('/calls/admin/accounts', {
     accounts: next.map(({ id, label, enabled, monthlyLimitMinutes }) => ({ id, label, enabled, monthlyLimitMinutes })),
-  }));
+  }), success);
 
   const updateAccount = (index, patch) => saveAccounts(accounts.map((item, i) => (i === index ? { ...item, ...patch } : item)));
 
@@ -116,7 +116,7 @@ export default function CallAccounts() {
         </div>
       ) : null}
 
-      <div className="card" style={{ marginBottom: 16 }}>
+      <div className="card calls-card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <h3>Agora accounts</h3>
         </div>
@@ -205,10 +205,16 @@ export default function CallAccounts() {
                             type="button"
                             className="action-btn"
                             disabled={saving}
-                            onClick={() => {
-                              if (window.confirm(`Reset this month's minutes for ${account.label}? Only do this if Agora shows minutes left.`)) {
-                                clearLimit(account.id, true);
-                              }
+                            onClick={async () => {
+                              const ok = await confirmAction({
+                                title: `Reset minutes for ${account.label}?`,
+                                message: "This month's used minutes go back to zero, so the account takes calls again.",
+                                details: ['Only do this if the Agora console still shows minutes left.'],
+                                confirmLabel: 'Reset minutes',
+                                tone: 'warning',
+                                icon: 'restart_alt',
+                              });
+                              if (ok) clearLimit(account.id, true);
                             }}
                           >
                             Reset minutes
@@ -252,10 +258,14 @@ export default function CallAccounts() {
                           type="button"
                           className="action-btn suspend"
                           disabled={saving}
-                          onClick={() => {
-                            if (window.confirm(`Remove ${account.label}? Calls already ringing on it may fail.`)) {
-                              saveAccounts(accounts.filter((item) => item.id !== account.id));
-                            }
+                          onClick={async () => {
+                            const ok = await confirmAction({
+                              title: `Remove ${account.label}?`,
+                              message: 'New calls move to the next account. Calls already ringing on this one may fail.',
+                              confirmLabel: 'Remove account',
+                              tone: 'danger',
+                            });
+                            if (ok) saveAccounts(accounts.filter((item) => item.id !== account.id), `${account.label} removed`);
                           }}
                         >
                           Remove
@@ -362,7 +372,7 @@ export default function CallAccounts() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: 16 }}>
+      <div className="card calls-card" style={{ marginTop: 16 }}>
         <div className="card-header">
           <h3>Daily call time per user</h3>
         </div>

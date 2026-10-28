@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FlaskConical, Search, Store, Trash2, Undo2, X } from 'lucide-react';
 import api from '../services/api';
+import { errorMessage, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import PromptModal from '../components/PromptModal';
 import useDebounce from '../utils/useDebounce';
@@ -9,7 +10,6 @@ import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
 
 const LIMIT = 25;
-const errorText = (error, fallback) => error?.response?.data?.message || fallback;
 const fmtDate = (value) => (value ? new Date(value).toLocaleDateString() : '—');
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -143,7 +143,6 @@ export default function TestAccounts() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(null);
-  const [notice, setNotice] = useState('');
   const debounced = useDebounce(searchTerm);
 
   const load = useCallback(async () => {
@@ -157,7 +156,7 @@ export default function TestAccounts() {
       setTotal(response.data.total || 0);
       setTotalPages(response.data.totalPages || 1);
     } catch (error) {
-      setNotice(errorText(error, 'Could not load accounts'));
+      toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load accounts' });
     } finally {
       setLoading(false);
     }
@@ -173,7 +172,7 @@ export default function TestAccounts() {
 
   const onDone = (message) => {
     setConfirm(null);
-    setNotice(message);
+    toast.success(message);
     load();
   };
 
@@ -187,8 +186,6 @@ export default function TestAccounts() {
           <span>Made someone a tester by mistake? Return to public brings back what they had before; anything created while testing is deleted. Delete removes the account and all its data.</span>
         </div>
       </div>
-
-      {notice ? <div className="u360-banner success compact">{notice}</div> : null}
 
       {confirm ? (
         <ConfirmDialog kind={confirm.kind} user={confirm.user} onClose={() => setConfirm(null)} onDone={onDone} />

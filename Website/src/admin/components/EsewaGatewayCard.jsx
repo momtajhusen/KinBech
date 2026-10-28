@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Eye, EyeOff, FlaskConical, KeyRound, PlugZap, RotateCcw, ShieldCheck, Zap } from 'lucide-react';
 import api from '../services/api';
+import { confirmAction, toast } from './Feedback';
 import { ModalSwitch } from './Modal';
 
 const TEST_LOGINS = [
@@ -126,22 +127,32 @@ export default function EsewaGatewayCard() {
 
   const run = async (request, success) => {
     setBusy(true);
-    setMessage(null);
     try {
       const { data } = await request();
       if (data.settings) apply({ settings: data.settings });
-      setMessage({ ok: data.ok !== false, text: data.message || success });
-    } catch (err) {
-      setMessage({ ok: false, text: errorText(err, 'Could not save') });
+      setMessage(null);
+      if (data.ok === false) toast.error(data.message || 'eSewa did not answer', { title: 'eSewa check failed' });
+      else toast.success(data.message || success);
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusy(false);
     }
   };
 
-  const save = (event) => {
+  const save = async (event) => {
     event.preventDefault();
-    if (draft.enabled && draft.mode === 'live' && !settings.enabled) {
-      if (!window.confirm('Turn on LIVE eSewa payments? Sellers will pay real money.')) return;
+    const goingLive = draft.enabled && draft.mode === 'live' && (!settings.enabled || settings.mode !== 'live');
+    if (goingLive) {
+      const ok = await confirmAction({
+        title: 'Turn on live eSewa payments?',
+        message: 'Sellers will pay real money for plans from now on.',
+        details: ['Check the live merchant ID and secret key first', 'Plans turn on only after eSewa confirms the payment'],
+        confirmLabel: 'Go live',
+        tone: 'warning',
+        icon: 'payments',
+      });
+      if (!ok) return;
     }
     run(() => api.put('/subscriptions/admin/gateway/esewa', draft), 'eSewa settings saved');
   };
@@ -300,8 +311,6 @@ export default function EsewaGatewayCard() {
           Status check: <code>{settings.urls[draft.mode].status}</code>
         </p>
       </details>
-
-      {message ? <div className={message.ok ? 'ai-message' : 'u360-error'}>{message.text}</div> : null}
 
       <div className="form-actions">
         <button

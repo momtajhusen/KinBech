@@ -30,7 +30,7 @@ const DEAD_TOKEN_CODES = new Set([
 ]);
 
 /** Sends one push and reports why it did not go out, instead of failing silently. */
-async function deliverPush({ userId, title, body, data, incomingCall = false, dataOnly = false }) {
+async function deliverPush({ userId, title, body, data, incomingCall = false, dataOnly = false, image = '', tag = '', channelId = '' }) {
   const user = await User.findById(userId).select('fcmToken preferences').lean();
   if (!user?.fcmToken) return { sent: false, reason: 'no_token' };
   // The in-app notifications switch silences alerts, not calls.
@@ -71,12 +71,18 @@ async function deliverPush({ userId, title, body, data, incomingCall = false, da
     message.notification = {
       title: title || 'KinBech',
       body: body || '',
+      ...(image ? { imageUrl: image } : {}),
     };
     message.android.notification = {
-      // Must match ALERT_CHANNEL_ID / ALERT_SOUND in Mobile/src/services/pushAlerts.js.
-      channelId: 'kinbech-alerts-v2',
-      sound: 'kinbech_notification',
+      // Must match the channel ids / ALERT_SOUND in Mobile/src/services/pushAlerts.js.
+      channelId: channelId || 'kinbech-alerts-v2',
+      sound: channelId ? 'default' : 'kinbech_notification',
+      color: '#047857',
+      ...(tag ? { tag } : {}),
     };
+    if (image) {
+      message.apns = { payload: { aps: { 'mutable-content': 1 } }, fcmOptions: { imageUrl: image } };
+    }
   }
 
   try {

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import Modal, { ModalSwitch } from '../components/Modal';
+import { toast } from '../components/Feedback';
 import PromptModal from '../components/PromptModal';
 import Pagination from '../components/Pagination';
 import PostLimitStepper, { PostLimitPresets } from '../components/PostLimitStepper';
@@ -43,7 +44,7 @@ const PAYMENT_FIELDS = [
   { key: 'esewa', label: 'eSewa ID', placeholder: '98XXXXXXXX (KinBech Pvt. Ltd.)' },
   { key: 'khalti', label: 'Khalti ID', placeholder: '98XXXXXXXX' },
   { key: 'ime', label: 'IME Pay', placeholder: '98XXXXXXXX' },
-  { key: 'bank', label: 'Bank account', placeholder: 'Bank name · A/C number · Account name' },
+  { key: 'bank', label: 'Bank account', placeholder: 'Bank name · A/C number · Account name', wide: true },
 ];
 
 const REJECT_PRESETS = [
@@ -366,7 +367,7 @@ function PaymentForm({ payment, onSaved }) {
       </p>
       <div className="subs-form-grid">
         {PAYMENT_FIELDS.map((field) => (
-          <div className="form-group" key={field.key}>
+          <div className={`form-group ${field.wide ? 'subs-wide' : ''}`} key={field.key}>
             <label htmlFor={`pay-${field.key}`}>
               <span className="subs-method-dot" style={{ background: METHOD_TONES[field.key] }} /> {field.label}
             </label>
@@ -450,7 +451,7 @@ export default function Subscriptions() {
   const savePlan = (plan, patch) =>
     api.put(`/subscriptions/admin/plans/${plan.id}`, { ...plan, ...patch })
       .then(loadPlans)
-      .catch((err) => setMessage(errorText(err, 'Could not update the plan')));
+      .catch(() => {});
 
   const approve = (row) =>
     setPrompt({
@@ -467,7 +468,7 @@ export default function Subscriptions() {
       onConfirm: async () => {
         await api.post(`/subscriptions/admin/requests/${row.id}/approve`);
         setPrompt(null);
-        setMessage(`${row.planName} is now active for ${row.user?.name || 'the seller'}`);
+        toast.success(`${row.planName} is now active for ${row.user?.name || 'the seller'}.`, { title: 'Plan approved' });
         loadRequests();
         loadPlans();
       },
@@ -484,7 +485,7 @@ export default function Subscriptions() {
       onConfirm: async (reason) => {
         await api.post(`/subscriptions/admin/requests/${row.id}/reject`, { reason });
         setPrompt(null);
-        setMessage('Request rejected');
+        toast.success('The seller sees your reason.', { title: 'Request rejected' });
         loadRequests();
       },
     });
@@ -499,7 +500,7 @@ export default function Subscriptions() {
       onConfirm: async () => {
         const { data } = await api.delete(`/subscriptions/admin/plans/${plan.id}`);
         setPrompt(null);
-        setMessage(data?.message || 'Plan deleted');
+        toast.success(data?.message || `${plan.name} deleted`);
         loadPlans();
       },
     });
@@ -564,7 +565,7 @@ export default function Subscriptions() {
         </button>
       </div>
 
-      {message ? <div className="ai-message">{message}</div> : null}
+      {message ? <div className="ai-alert">{message}</div> : null}
 
       <div className="subs-tabs">
         <div className="post-limit-mode">
@@ -582,7 +583,7 @@ export default function Subscriptions() {
       </div>
 
       {tab === 'requests' ? (
-        <div className="card">
+        <div className="card subs-requests-card">
           <div className="subs-request-bar">
             <div className="u360-chips subs-status">
               {STATUSES.map((item) => (
@@ -649,7 +650,7 @@ export default function Subscriptions() {
           payment={plansData.payment || {}}
           onSaved={(payment) => {
             setPlansData((current) => ({ ...current, payment }));
-            setMessage('Payment details saved');
+            toast.success('Payment details saved');
           }}
         />
       ) : null}
@@ -666,7 +667,7 @@ export default function Subscriptions() {
           onClose={() => setEditing(null)}
           onSaved={(text) => {
             setEditing(null);
-            setMessage(text);
+            toast.success(text);
             loadPlans();
           }}
         />

@@ -1,0 +1,3152 @@
+/*
+ * Claymorphism layer for the admin. Loaded after admin.css: it retunes the shared variables
+ * (so every page's cards pick up the clay surface) and restyles the shared components.
+ * Selectors are prefixed with .admin-app so they win over admin.css without !important.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,0..1,0&display=block');
+
+/* ---------- Tokens ---------- */
+.admin-app {
+  --background: #e7ecf4;
+  --background-secondary: #e1e7f0;
+  --card: #f2f5fa;
+  --border: rgba(140, 155, 180, 0.24);
+  --text: #1e2533;
+  --text-secondary: #3b4558;
+  --text-muted: #6a7488;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 30px;
+
+  --clay-dark: rgba(143, 158, 186, 0.5);
+  --clay-light: rgba(255, 255, 255, 0.95);
+  --clay-hi: rgba(255, 255, 255, 0.9);
+  --clay-lo: rgba(143, 158, 186, 0.3);
+  --clay: 12px 12px 28px var(--clay-dark), -10px -10px 24px var(--clay-light),
+    inset 3px 3px 6px var(--clay-hi), inset -4px -4px 10px var(--clay-lo);
+  --clay-hover: 16px 18px 36px var(--clay-dark), -12px -12px 28px var(--clay-light),
+    inset 3px 3px 6px var(--clay-hi), inset -4px -4px 10px var(--clay-lo);
+  --clay-soft: 6px 6px 14px var(--clay-dark), -6px -6px 14px var(--clay-light),
+    inset 2px 2px 4px var(--clay-hi), inset -3px -3px 6px var(--clay-lo);
+  --clay-pressed: inset 4px 4px 10px var(--clay-lo), inset -4px -4px 10px var(--clay-hi);
+  --clay-green: linear-gradient(145deg, #0b8a62 0%, #047857 48%, #065f46 100%);
+  --clay-green-shadow: 8px 10px 20px rgba(4, 120, 87, 0.3), -4px -4px 12px var(--clay-light),
+    inset 3px 3px 6px rgba(255, 255, 255, 0.22), inset -4px -4px 8px rgba(2, 44, 34, 0.4);
+  --clay-tint-shadow: 4px 4px 10px var(--clay-dark), -4px -4px 10px var(--clay-light),
+    inset 2px 2px 3px rgba(255, 255, 255, 0.55), inset -2px -2px 4px rgba(0, 0, 0, 0.06);
+
+  --card-shadow: var(--clay);
+  --card-shadow-hover: var(--clay-hover);
+  --shadow: rgba(143, 158, 186, 0.35);
+  --shadow-hover: rgba(143, 158, 186, 0.55);
+  --ring: 0 0 0 3px rgba(4, 120, 87, 0.25);
+
+  font-family: 'Nunito', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0;
+}
+
+.admin-app[data-admin-theme="dark"] {
+  --primary: #059669;
+  --background: #1a1e29;
+  --background-secondary: #171a24;
+  --card: #232837;
+  --border: rgba(255, 255, 255, 0.07);
+  --text: #f3f5fa;
+  --text-secondary: #b7bfcf;
+  --text-muted: #8691a6;
+
+  --clay-dark: rgba(0, 0, 0, 0.55);
+  --clay-light: rgba(255, 255, 255, 0.035);
+  --clay-hi: rgba(255, 255, 255, 0.07);
+  --clay-lo: rgba(0, 0, 0, 0.38);
+  --clay-green-shadow: 8px 10px 22px rgba(0, 0, 0, 0.5), -3px -3px 10px var(--clay-light),
+    inset 3px 3px 6px rgba(255, 255, 255, 0.28), inset -4px -4px 8px rgba(2, 44, 33, 0.5);
+  --clay-tint-shadow: 4px 4px 10px var(--clay-dark), -3px -3px 8px var(--clay-light),
+    inset 1px 1px 2px rgba(255, 255, 255, 0.08), inset -2px -2px 4px rgba(0, 0, 0, 0.25);
+  --shadow: rgba(0, 0, 0, 0.45);
+  --shadow-hover: rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Material icons ---------- */
+.admin-app .micon {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+  overflow: hidden;
+  font-family: 'Material Symbols Rounded';
+  font-size: 20px;
+  font-style: normal;
+  font-weight: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  direction: ltr;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'liga';
+  font-variation-settings: 'FILL' 0, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+.admin-app .micon.is-filled {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+/* ---------- Canvas ---------- */
+.admin-app .admin-shell {
+  background:
+    radial-gradient(900px 620px at -5% -10%, rgba(4, 120, 87, 0.14), transparent 60%),
+    radial-gradient(820px 600px at 105% -5%, rgba(196, 181, 253, 0.38), transparent 60%),
+    radial-gradient(900px 700px at 100% 110%, rgba(253, 186, 116, 0.24), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.admin-app[data-admin-theme="dark"] .admin-shell {
+  background:
+    radial-gradient(900px 620px at -5% -10%, rgba(4, 120, 87, 0.12), transparent 60%),
+    radial-gradient(820px 600px at 105% -5%, rgba(139, 92, 246, 0.12), transparent 60%),
+    radial-gradient(900px 700px at 100% 110%, rgba(249, 115, 22, 0.07), transparent 60%),
+    var(--background);
+  background-attachment: fixed;
+}
+
+.admin-app h1,
+.admin-app h2,
+.admin-app h3,
+.admin-app h4,
+.admin-app .stat-value {
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Sidebar ---------- */
+.admin-app .sidebar {
+  border: none;
+  background: var(--card);
+  box-shadow: var(--clay);
+}
+
+@media (min-width: 1101px) {
+  .admin-app .sidebar {
+    top: 14px;
+    left: 14px;
+    height: calc(100vh - 28px);
+    border-radius: 28px;
+  }
+
+  .admin-app .shell-main {
+    margin-left: calc(var(--sidebar-w) + 28px);
+  }
+
+  .admin-app .sidebar.is-collapsed ~ .shell-main {
+    margin-left: calc(var(--sidebar-w-collapsed) + 28px);
+  }
+}
+
+@media (max-width: 1100px) {
+  .admin-app .sidebar {
+    border-radius: 0 28px 28px 0;
+  }
+}
+
+.admin-app .brand-mark {
+  border-radius: 14px;
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .nav-section-title {
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.admin-app .sidebar-item {
+  margin-bottom: 0.35rem;
+  padding: 0.66rem 0.85rem;
+  border-radius: 16px;
+  font-weight: 700;
+  transition: background 0.2s var(--ease), box-shadow 0.25s var(--ease), transform 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.admin-app .sidebar-item:hover {
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+  transform: translateX(2px);
+}
+
+.admin-app .sidebar-item-active,
+.admin-app .sidebar-item-active:hover {
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+  transform: none;
+}
+
+.admin-app .sidebar-foot {
+  border-top: none;
+}
+
+.admin-app .foot-user {
+  border-radius: 18px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .sidebar-collapse {
+  border: none;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .nav-badge {
+  background: linear-gradient(145deg, #fb7185, #e11d48);
+  box-shadow: 2px 3px 6px rgba(225, 29, 72, 0.35), inset 1px 1px 2px rgba(255, 255, 255, 0.45),
+    inset -1px -2px 3px rgba(136, 19, 55, 0.35);
+}
+
+.admin-app .sidebar-backdrop {
+  background: rgba(30, 37, 51, 0.35);
+  backdrop-filter: blur(3px);
+}
+
+/* ---------- App bar ---------- */
+.admin-app .appbar {
+  top: 14px;
+  margin: 14px 14px 0;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(18px);
+  box-shadow: var(--clay);
+}
+
+.admin-app .icon-btn,
+.admin-app .dropdown-trigger {
+  border: none;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+  transition: box-shadow 0.2s var(--ease), transform 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.admin-app .icon-btn:hover,
+.admin-app .dropdown-trigger:hover {
+  background: var(--card);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.admin-app .icon-btn:active,
+.admin-app .dropdown-trigger:active {
+  box-shadow: var(--clay-pressed);
+  transform: none;
+}
+
+.admin-app .user-avatar,
+.admin-app .user-avatar-small {
+  background: var(--clay-green);
+  box-shadow: inset 2px 2px 4px rgba(255, 255, 255, 0.4), inset -2px -3px 5px rgba(3, 84, 62, 0.35);
+}
+
+.admin-app .appbar-search {
+  border: none;
+  border-radius: 16px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .appbar-search:focus-within {
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed), var(--ring);
+}
+
+.admin-app .dropdown-menu,
+.admin-app .appbar-search-results {
+  border: none;
+  border-radius: 22px;
+  padding: 0.5rem;
+  background: var(--card);
+  box-shadow: var(--clay);
+}
+
+.admin-app .dropdown-item {
+  border-radius: 12px;
+}
+
+.admin-app .dropdown-item:hover {
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+/* ---------- Content spacing ---------- */
+.admin-app .app-main {
+  padding-top: 1.6rem;
+}
+
+/* ---------- Clay surfaces ---------- */
+.admin-app .card,
+.admin-app .table-container,
+.admin-app .chart-card,
+.admin-app .activity-card,
+.admin-app .attention-card,
+.admin-app .filter-bar,
+.admin-app .stat-card,
+.admin-app .data-card,
+.admin-app .login-card,
+.admin-app .kb-modal,
+.admin-app .live-card,
+.admin-app .ai-acc,
+.admin-app .subs-plan,
+.admin-app .subs-request,
+.admin-app .invite-form,
+.admin-app .category-form,
+.admin-app .error-detail-panel,
+.admin-app .role-permission-item {
+  border-color: transparent;
+  border-radius: var(--radius-lg);
+  background: var(--card);
+  box-shadow: var(--clay);
+}
+
+.admin-app .card:hover,
+.admin-app .table-container:hover,
+.admin-app .chart-card:hover,
+.admin-app .activity-card:hover,
+.admin-app .attention-card:hover {
+  box-shadow: var(--clay);
+}
+
+.admin-app .data-card,
+.admin-app .stat-card {
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.admin-app .data-card:hover,
+.admin-app .stat-card:hover {
+  border-color: transparent;
+  transform: translateY(-4px);
+  box-shadow: var(--clay-hover);
+}
+
+.admin-app .live-card,
+.admin-app .inbox-card {
+  border-left-width: 0;
+}
+
+.admin-app .card-header {
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.admin-app .card-header h3 {
+  font-weight: 900;
+}
+
+.admin-app .filter-bar {
+  padding: 0.8rem 1rem;
+}
+
+/* ---------- KPI cards ---------- */
+.admin-app .stats-grid {
+  gap: 1rem;
+}
+
+.admin-app .stat-card {
+  padding: 1rem 1.1rem;
+}
+
+.admin-app .stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .stat-content h3 {
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.admin-app .stat-value {
+  font-size: 1.6rem;
+  font-weight: 900;
+}
+
+.admin-app .stat-trend {
+  box-shadow: var(--clay-tint-shadow);
+}
+
+/* ---------- Inputs (pressed into the clay) ---------- */
+.admin-app .form-input,
+.admin-app .form-select,
+.admin-app .form-textarea,
+.admin-app .search-box .search-input,
+.admin-app .dropdown-filter,
+.admin-app .cc-search,
+.admin-app .ai-add-input,
+.admin-app .ai-limit-input {
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .form-input:focus,
+.admin-app .form-select:focus,
+.admin-app .form-textarea:focus,
+.admin-app .search-box .search-input:focus,
+.admin-app .cc-search:focus-within {
+  border-color: transparent;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed), var(--ring);
+}
+
+.admin-app .dropdown-filter:hover {
+  border-color: transparent;
+}
+
+/* ---------- Buttons ---------- */
+.admin-app .btn {
+  border-radius: 16px;
+  font-weight: 800;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease), background 0.2s var(--ease), color 0.2s var(--ease);
+}
+
+.admin-app .btn-primary,
+.admin-app .action-btn,
+.admin-app .action-btn.take-action,
+.admin-app .login-btn,
+.admin-app .review-btn {
+  border: none;
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+}
+
+.admin-app .btn-primary:hover,
+.admin-app .action-btn:hover,
+.admin-app .login-btn:hover:not(:disabled),
+.admin-app .review-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--clay-green-shadow);
+  filter: brightness(1.04);
+}
+
+.admin-app .btn-secondary,
+.admin-app .view-report-btn,
+.admin-app .pagination-btn,
+.admin-app .filter-chip,
+.admin-app .clear-btn:not(:disabled):hover {
+  border-color: transparent;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .btn-secondary:hover,
+.admin-app .view-report-btn:hover,
+.admin-app .pagination-btn:hover:not(:disabled),
+.admin-app .filter-chip:hover {
+  border-color: transparent;
+  background: var(--card);
+  color: var(--primary);
+  transform: translateY(-2px);
+}
+
+.admin-app .btn:active,
+.admin-app .btn-secondary:active,
+.admin-app .action-btn:active,
+.admin-app .filter-chip:active,
+.admin-app .pagination-btn:active {
+  transform: translateY(1px);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .filter-chip.active,
+.admin-app .pagination-btn.active {
+  border-color: transparent;
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+}
+
+.admin-app .clear-btn {
+  border-radius: 14px;
+}
+
+.admin-app .clear-btn:not(:disabled):hover {
+  color: var(--error);
+}
+
+/* Tinted action buttons: soft coloured clay pills. */
+.admin-app .action-btn {
+  padding: 0.42rem 0.9rem;
+  font-weight: 800;
+}
+
+.admin-app .action-btn.view,
+.admin-app .action-btn.suspend,
+.admin-app .action-btn.reject,
+.admin-app .action-btn.remove,
+.admin-app .action-btn.delete,
+.admin-app .action-btn.reinstate,
+.admin-app .action-btn.approve,
+.admin-app .action-btn.keep,
+.admin-app .action-btn.dismiss {
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .action-btn.view { background: color-mix(in srgb, var(--info) 16%, var(--card)); }
+.admin-app .action-btn.suspend,
+.admin-app .action-btn.reject,
+.admin-app .action-btn.remove,
+.admin-app .action-btn.delete { background: color-mix(in srgb, var(--error) 14%, var(--card)); }
+.admin-app .action-btn.reinstate,
+.admin-app .action-btn.approve,
+.admin-app .action-btn.keep { background: color-mix(in srgb, var(--success) 16%, var(--card)); }
+.admin-app .action-btn.dismiss { background: color-mix(in srgb, var(--warning) 16%, var(--card)); }
+
+.admin-app .action-btn.view:hover { background: var(--info); color: #ffffff; }
+.admin-app .action-btn.suspend:hover,
+.admin-app .action-btn.reject:hover,
+.admin-app .action-btn.remove:hover,
+.admin-app .action-btn.delete:hover { background: var(--error); color: #ffffff; }
+.admin-app .action-btn.reinstate:hover,
+.admin-app .action-btn.approve:hover,
+.admin-app .action-btn.keep:hover { background: var(--success); color: #ffffff; }
+.admin-app .action-btn.dismiss:hover { background: var(--warning); color: #ffffff; }
+
+.admin-app .action-btn:disabled,
+.admin-app .btn:disabled {
+  filter: saturate(0.6);
+  opacity: 0.6;
+  transform: none;
+}
+
+/* ---------- Segmented controls (pressed track, raised selection) ---------- */
+.admin-app .view-toggle,
+.admin-app .hub-tabs,
+.admin-app .inbox-tabs,
+.admin-app .cc-tabs {
+  border-color: transparent;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .hub-tabs {
+  padding: 0.35rem;
+  border-radius: 20px;
+}
+
+.admin-app .hub-tab {
+  border-radius: 15px;
+  font-weight: 700;
+}
+
+.admin-app .hub-tab:hover {
+  background: transparent;
+  color: var(--primary);
+}
+
+.admin-app .hub-tab.is-active,
+.admin-app .view-toggle button.active,
+.admin-app .inbox-tab.on,
+.admin-app .cc-tab.active {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .hub-hint {
+  font-weight: 600;
+}
+
+/* ---------- Badges ---------- */
+.admin-app .status-badge,
+.admin-app .role-badge,
+.admin-app .category-badge,
+.admin-app .flag-reason-badge,
+.admin-app .cc-chip {
+  padding: 0.26rem 0.75rem;
+  font-weight: 800;
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, 0.55), inset -1px -2px 3px rgba(0, 0, 0, 0.07);
+}
+
+.admin-app[data-admin-theme="dark"] .status-badge,
+.admin-app[data-admin-theme="dark"] .role-badge,
+.admin-app[data-admin-theme="dark"] .category-badge,
+.admin-app[data-admin-theme="dark"] .flag-reason-badge,
+.admin-app[data-admin-theme="dark"] .cc-chip {
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, 0.08), inset -1px -2px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* ---------- Tables ---------- */
+.admin-app .data-table thead {
+  background: transparent;
+}
+
+.admin-app .data-table th {
+  padding: 1rem 1.1rem 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.admin-app .data-table td {
+  padding: 0.95rem 1.1rem;
+}
+
+.admin-app .data-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.admin-app .data-table tbody tr:hover td:first-child {
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+
+/* ---------- Modals ---------- */
+.admin-app .kb-modal-overlay {
+  background: rgba(30, 37, 51, 0.35);
+  backdrop-filter: blur(6px);
+}
+
+.admin-app .kb-modal {
+  border-radius: var(--radius-xl);
+}
+
+.admin-app .kb-modal-head {
+  border-bottom-color: var(--border);
+}
+
+.admin-app .kb-modal-icon,
+.admin-app .kb-modal-close {
+  border-radius: 14px;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+/* ---------- Page-specific surfaces ---------- */
+.admin-app .bi-anomaly-banner {
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.2rem;
+  background: color-mix(in srgb, var(--error) 10%, var(--card));
+  box-shadow: var(--clay);
+}
+
+.admin-app .attention-item {
+  border-color: transparent;
+  border-radius: 18px;
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .attention-item:hover {
+  border-color: transparent;
+  transform: translateY(-2px);
+  box-shadow: var(--clay);
+}
+
+.admin-app .post-limit-row,
+.admin-app .ai-model-limit,
+.admin-app .session-row {
+  border-color: transparent;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .ud-quick-chip {
+  border: none;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .ud-quick-chip.is-on {
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .ud-active-chip,
+.admin-app .fraud-chip,
+.admin-app .u360-chip {
+  border-color: transparent;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .ud-count {
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .foot-user,
+.admin-app .cc-thread {
+  border-radius: 20px;
+}
+
+.admin-app .cc-thread {
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .cc-bubble {
+  border-color: transparent;
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .cc-round {
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .access-item {
+  border-radius: 12px;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .empty-state {
+  font-weight: 700;
+}
+
+/* ---------- Login ---------- */
+.admin-app .login-container {
+  background:
+    radial-gradient(700px 520px at 10% 10%, rgba(4, 120, 87, 0.18), transparent 60%),
+    radial-gradient(700px 520px at 90% 20%, rgba(196, 181, 253, 0.5), transparent 60%),
+    radial-gradient(700px 520px at 60% 100%, rgba(253, 186, 116, 0.35), transparent 60%),
+    var(--background);
+}
+
+.admin-app[data-admin-theme="dark"] .login-container {
+  background:
+    radial-gradient(700px 520px at 10% 10%, rgba(4, 120, 87, 0.14), transparent 60%),
+    radial-gradient(700px 520px at 90% 20%, rgba(139, 92, 246, 0.14), transparent 60%),
+    var(--background);
+}
+
+.admin-app .login-clay {
+  overflow: hidden;
+  padding: 2rem 1.25rem;
+}
+
+/* Soft clay spheres drifting behind the content. */
+.admin-app .login-blob {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: loginFloat 14s ease-in-out infinite;
+}
+
+.admin-app .login-blob.blob-a {
+  top: -90px;
+  left: -70px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle at 32% 28%, #34d399 0%, #059669 42%, #065f46 100%);
+  box-shadow: 30px 40px 80px rgba(4, 120, 87, 0.35), inset 18px 18px 40px rgba(255, 255, 255, 0.35),
+    inset -24px -28px 50px rgba(2, 44, 34, 0.45);
+  opacity: 0.85;
+}
+
+.admin-app .login-blob.blob-b {
+  right: -110px;
+  bottom: -120px;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle at 30% 28%, #ddd6fe 0%, #a78bfa 45%, #6d28d9 100%);
+  box-shadow: -30px -20px 80px rgba(109, 40, 217, 0.25), inset 20px 20px 46px rgba(255, 255, 255, 0.45),
+    inset -26px -30px 56px rgba(46, 16, 101, 0.4);
+  opacity: 0.55;
+  animation-duration: 18s;
+  animation-direction: reverse;
+}
+
+.admin-app .login-blob.blob-c {
+  top: 16%;
+  right: 12%;
+  width: 92px;
+  height: 92px;
+  background: radial-gradient(circle at 30% 28%, #fed7aa 0%, #fb923c 50%, #c2410c 100%);
+  box-shadow: 10px 16px 30px rgba(194, 65, 12, 0.3), inset 6px 6px 14px rgba(255, 255, 255, 0.5),
+    inset -8px -10px 18px rgba(124, 45, 18, 0.4);
+  opacity: 0.8;
+  animation-duration: 10s;
+}
+
+.admin-app[data-admin-theme="dark"] .login-blob {
+  opacity: 0.32;
+}
+
+@keyframes loginFloat {
+  0%, 100% { transform: translate(0, 0) rotate(0); }
+  33% { transform: translate(18px, -22px) rotate(6deg); }
+  66% { transform: translate(-14px, 14px) rotate(-4deg); }
+}
+
+@keyframes loginBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-9px); }
+}
+
+@keyframes loginRise {
+  from { opacity: 0; transform: translateY(24px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes loginShine {
+  from { transform: translateX(-120%) skewX(-20deg); }
+  to { transform: translateX(260%) skewX(-20deg); }
+}
+
+@keyframes loginLive {
+  0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+  80%, 100% { box-shadow: 0 0 0 9px rgba(16, 185, 129, 0); }
+}
+
+.admin-app .login-theme-toggle {
+  z-index: 3;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--clay-soft);
+  transition: transform 0.4s var(--spring), box-shadow 0.3s var(--glide);
+}
+
+.admin-app .login-theme-toggle:hover {
+  background: var(--card);
+  transform: translateY(-2px) rotate(-8deg);
+}
+
+.admin-app .login-theme-toggle:active {
+  box-shadow: var(--clay-pressed);
+  transform: scale(0.94);
+}
+
+.admin-app .login-theme-toggle .micon {
+  font-size: 22px;
+  animation: kbThemeSpin 0.6s var(--spring);
+}
+
+/* Two columns: the story on the left, the sign-in card on the right. */
+.admin-app .login-stage {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 440px);
+  align-items: center;
+  gap: clamp(2rem, 5vw, 4.5rem);
+  width: min(1120px, 100%);
+}
+
+.admin-app .login-showcase {
+  position: relative;
+  animation: loginRise 0.8s var(--glide) backwards;
+}
+
+.admin-app .login-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.55rem 1.1rem 0.55rem 0.55rem;
+  border-radius: 22px;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .login-brand-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+  object-fit: cover;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .login-brand-name {
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.admin-app .login-brand-tag {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.admin-app .login-hero {
+  margin: 1.8rem 0 0.9rem;
+  max-width: 540px;
+  font-size: clamp(2rem, 3.6vw, 3rem);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.admin-app .login-hero span {
+  background: linear-gradient(120deg, #10b981 0%, #047857 55%, #065f46 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.admin-app[data-admin-theme="dark"] .login-hero span {
+  background-image: linear-gradient(120deg, #6ee7b7 0%, #34d399 50%, #10b981 100%);
+}
+
+.admin-app .login-hero-sub {
+  max-width: 480px;
+  margin: 0 0 1.8rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.admin-app .login-highlights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  max-width: 560px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-app .login-highlights li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+  animation: loginRise 0.7s var(--glide) backwards;
+  transition: transform 0.45s var(--spring), box-shadow 0.4s var(--glide);
+}
+
+.admin-app .login-highlights li:nth-child(1) { animation-delay: 0.15s; }
+.admin-app .login-highlights li:nth-child(2) { animation-delay: 0.22s; }
+.admin-app .login-highlights li:nth-child(3) { animation-delay: 0.29s; }
+.admin-app .login-highlights li:nth-child(4) { animation-delay: 0.36s; }
+
+.admin-app .login-highlights li:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--clay);
+}
+
+.admin-app .login-hl-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+  transition: transform 0.5s var(--spring);
+}
+
+.admin-app .login-highlights li:hover .login-hl-icon {
+  transform: scale(1.1) rotate(-8deg);
+}
+
+.admin-app .login-hl-icon .micon {
+  font-size: 22px;
+}
+
+.admin-app .login-highlights strong {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.admin-app .login-highlights small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.admin-app .login-float {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.95rem;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--text);
+  animation: loginBob 5s ease-in-out infinite;
+}
+
+.admin-app .login-float.float-a {
+  top: 0.4rem;
+  right: 4%;
+}
+
+.admin-app .login-float.float-b {
+  top: 3.2rem;
+  right: -0.75rem;
+  animation-delay: -2.5s;
+}
+
+.admin-app .login-float .micon {
+  font-size: 18px;
+  color: var(--primary);
+}
+
+.admin-app .login-float-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #10b981;
+  animation: loginLive 1.8s ease-out infinite;
+}
+
+/* The sign-in card. */
+.admin-app .login-card {
+  max-width: 440px;
+  padding: 2.4rem 2.2rem 1.9rem;
+  border-radius: 34px;
+  animation: loginRise 0.7s var(--spring) 0.08s backwards;
+}
+
+.admin-app .login-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1.6rem;
+}
+
+.admin-app .login-logo {
+  width: 74px;
+  height: 74px;
+  margin: 0 0 1rem;
+  border-radius: 24px;
+  box-shadow: var(--clay-soft);
+  animation: kbIconPop 0.8s var(--spring) 0.2s backwards;
+}
+
+.admin-app .login-head-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 74px;
+  height: 74px;
+  margin-bottom: 1rem;
+  border-radius: 24px;
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+  animation: kbIconPop 0.8s var(--spring) 0.2s backwards;
+}
+
+.admin-app .login-head-icon .micon {
+  font-size: 36px;
+}
+
+.admin-app .login-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+  padding: 0.32rem 0.8rem;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+
+.admin-app .login-eyebrow .micon {
+  font-size: 15px;
+}
+
+.admin-app .login-card h1 {
+  margin: 0 0 0.4rem;
+  font-size: 2rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.admin-app .login-subtitle {
+  max-width: 320px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.admin-app .login-form {
+  gap: 1.1rem;
+}
+
+.admin-app .login-form .form-group label {
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.admin-app .login-form .form-input {
+  height: 54px;
+  border-radius: 18px;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.admin-app .login-form .micon.input-icon {
+  left: 1rem;
+  width: 1em;
+  height: 1em;
+  font-size: 21px;
+  color: var(--text-muted);
+  transition: color 0.3s var(--glide), transform 0.45s var(--spring), font-variation-settings 0.45s var(--glide);
+}
+
+.admin-app .login-form .input-wrapper:focus-within .input-icon {
+  color: var(--primary);
+  transform: scale(1.12);
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+.admin-app .login-form .password-toggle {
+  right: 0.55rem;
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  transition: background 0.25s var(--glide), color 0.25s var(--glide), box-shadow 0.25s var(--glide);
+}
+
+.admin-app .login-form .password-toggle:hover {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .login-form .password-toggle .micon {
+  font-size: 21px;
+  animation: kbIconPop 0.45s var(--spring);
+}
+
+.admin-app .login-code-input {
+  font-size: 1.2rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.35em;
+}
+
+.admin-app .login-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  height: 56px;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border-radius: 18px;
+  font-size: 1rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  transition: transform 0.4s var(--spring), box-shadow 0.3s var(--glide), filter 0.3s var(--glide);
+}
+
+.admin-app .login-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: translateX(-120%) skewX(-20deg);
+  pointer-events: none;
+}
+
+.admin-app .login-btn:hover:not(:disabled)::after {
+  animation: loginShine 0.9s var(--glide);
+}
+
+.admin-app .login-btn:active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: 0.12s;
+}
+
+.admin-app .login-btn .micon {
+  font-size: 21px;
+}
+
+.admin-app .login-btn-arrow {
+  transition: transform 0.45s var(--spring);
+}
+
+.admin-app .login-btn:hover:not(:disabled) .login-btn-arrow {
+  transform: translateX(5px);
+}
+
+.admin-app .login-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: kbSpin 0.75s linear infinite;
+}
+
+.admin-app .login-card .error-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  margin-bottom: 1.1rem;
+  border: none;
+  border-radius: 16px;
+  text-align: left;
+  font-weight: 700;
+  box-shadow: var(--clay-tint-shadow);
+}
+
+.admin-app .login-card .error-message .micon {
+  font-size: 19px;
+}
+
+.admin-app .login-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.4rem;
+  padding-top: 1.25rem;
+}
+
+.admin-app .login-footer p {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.admin-app .login-secure {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+  font-weight: 800 !important;
+  color: var(--text-secondary) !important;
+}
+
+.admin-app .login-secure .micon {
+  font-size: 15px;
+  color: var(--primary);
+}
+
+.admin-app .login-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 0.25s var(--glide), box-shadow 0.25s var(--glide), transform 0.4s var(--spring);
+}
+
+.admin-app .login-link:hover {
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+  transform: translateX(-2px);
+}
+
+.admin-app .login-link .micon {
+  font-size: 18px;
+}
+
+@media (max-width: 960px) {
+  .admin-app .login-stage {
+    grid-template-columns: minmax(0, 440px);
+    justify-content: center;
+  }
+
+  .admin-app .login-showcase {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-app .login-clay {
+    align-items: flex-start;
+    padding: 4.5rem 0.9rem 1.5rem;
+  }
+
+  .admin-app .login-card {
+    padding: 2rem 1.3rem 1.6rem;
+    border-radius: 28px;
+  }
+
+  .admin-app .login-card h1 {
+    font-size: 1.7rem;
+  }
+
+  .admin-app .login-theme-toggle {
+    top: 1rem;
+    right: 1rem;
+  }
+}
+
+/* ---------- Mobile bottom nav ---------- */
+@media (max-width: 768px) {
+  .admin-app .appbar {
+    top: 10px;
+    margin: 10px 10px 0;
+  }
+
+  .admin-app .mkt-bottom-nav {
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    padding: 0.4rem;
+    border: none;
+    border-radius: 24px;
+    background: color-mix(in srgb, var(--card) 94%, transparent);
+    box-shadow: var(--clay);
+  }
+
+  .admin-app .mkt-bottom-nav a,
+  .admin-app .mkt-bottom-nav button {
+    border-radius: 16px;
+  }
+
+  .admin-app .mkt-bottom-nav a.is-active {
+    background: var(--clay-green);
+    color: #ffffff;
+    box-shadow: var(--clay-green-shadow);
+  }
+}
+
+/* ---------- Scrollbars ---------- */
+.admin-app ::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+/* ======================================================================
+ * Material icons in shared chrome: sidebar, page header, tabs, appbar
+ * ==================================================================== */
+.admin-app .micon.crumb-sep { font-size: 18px; }
+.admin-app .micon.search-icon { font-size: 20px; }
+.admin-app .micon.chev { font-size: 20px; }
+.admin-app .dropdown-filter .micon.chev-icon { font-size: 18px; }
+.admin-app .search-box .micon.search-icon { font-size: 19px; }
+.admin-app .pagination-btn .micon,
+.admin-app .view-toggle .micon { font-size: 20px; }
+.admin-app .action-btn .micon { font-size: 15px; }
+.admin-app .mkt-bottom-nav .micon { font-size: 22px; }
+
+/* Sidebar: every item gets a soft clay icon tile. */
+.admin-app .sidebar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--clay-tint-shadow);
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.admin-app .sidebar-icon .micon {
+  font-size: 20px;
+}
+
+.admin-app .sidebar-item {
+  gap: 0.7rem;
+  padding: 0.45rem 0.6rem;
+}
+
+.admin-app .sidebar-item:hover .sidebar-icon {
+  transform: scale(1.06) rotate(-4deg);
+}
+
+.admin-app .sidebar-item-active .sidebar-icon {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  box-shadow: inset 1px 1px 2px rgba(255, 255, 255, 0.45), inset -2px -2px 4px rgba(3, 84, 62, 0.3);
+}
+
+.admin-app .sidebar.is-collapsed .sidebar-item {
+  padding: 0.4rem;
+}
+
+/* Page header: hub icon + name + hint, then icon tabs. */
+.admin-app .hub-head {
+  margin: 0 0 1.25rem;
+}
+
+.admin-app .hub-title {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-app .hub-title h2 {
+  margin: 0 0 0.1rem;
+  font-size: 1.2rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.admin-app .hub-title .hub-hint {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.admin-app .hub-title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: var(--clay-green-shadow);
+}
+
+.admin-app .hub-title-icon .micon {
+  font-size: 26px;
+}
+
+.admin-app .hub-tab {
+  gap: 0.45rem;
+  padding: 0.55rem 1rem 0.55rem 0.8rem;
+}
+
+.admin-app .hub-tab .micon {
+  font-size: 19px;
+  color: var(--text-muted);
+  transition: color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+
+.admin-app .hub-tab:hover .micon {
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.admin-app .hub-tab.is-active .micon {
+  color: var(--primary);
+}
+
+/* ======================================================================
+ * Users page: type tabs, quick filters, list and cards
+ * ==================================================================== */
+.admin-app .ud-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.admin-app .ud-types {
+  display: flex;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0.35rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-radius: 20px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .ud-types::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-app .ud-type-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.75rem 0.5rem 0.65rem;
+  border: none;
+  border-radius: 15px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.admin-app .ud-type-tab .micon {
+  font-size: 19px;
+  color: var(--text-muted);
+}
+
+.admin-app .ud-type-tab:hover,
+.admin-app .ud-type-tab:hover .micon {
+  color: var(--primary);
+}
+
+.admin-app .ud-type-tab.is-on {
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .ud-type-tab.is-on .micon {
+  color: var(--primary);
+}
+
+.admin-app .ud-type-tab.is-on .ud-count {
+  background: var(--clay-green);
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.admin-app .ud-topline-end {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.admin-app .ud-results {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.admin-app .ud-results .micon {
+  font-size: 19px;
+  color: var(--primary);
+}
+
+.admin-app .ud-sort {
+  padding-left: 0.7rem;
+}
+
+.admin-app .ud-sort .ud-sort-icon {
+  font-size: 18px;
+  color: var(--primary);
+}
+
+.admin-app .ud-filter-btn .micon {
+  font-size: 19px;
+}
+
+.admin-app .ud-quick {
+  margin-top: -0.5rem;
+  gap: 0.5rem;
+}
+
+.admin-app .ud-quick-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+}
+
+.admin-app .ud-quick-label .micon {
+  font-size: 16px;
+  color: #f59e0b;
+}
+
+.admin-app .ud-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.36rem 0.8rem 0.36rem 0.55rem;
+  font-weight: 700;
+}
+
+.admin-app .ud-quick-chip .micon {
+  font-size: 17px;
+  color: var(--text-muted);
+}
+
+.admin-app .ud-quick-chip:hover .micon,
+.admin-app .ud-quick-chip.is-on .micon {
+  color: var(--primary);
+}
+
+.admin-app .ud-group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.admin-app .ud-group-title .micon {
+  font-size: 17px;
+  color: var(--primary);
+}
+
+.admin-app .ud-active-chip .micon {
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.admin-app .ud-active-chip:hover .micon {
+  color: var(--error);
+}
+
+.admin-app .clear-btn .micon {
+  font-size: 17px;
+}
+
+.admin-app .ud-empty-icon {
+  font-size: 44px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+/* Table cells */
+.admin-app .ud-type {
+  gap: 0.3rem;
+  padding: 0.22rem 0.6rem 0.22rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 12%, var(--card));
+  box-shadow: var(--clay-tint-shadow);
+  font-weight: 800;
+}
+
+.admin-app .ud-type .micon {
+  font-size: 15px;
+}
+
+.admin-app .ud-type.is-buyer {
+  color: #2563eb;
+  background: color-mix(in srgb, #3b82f6 12%, var(--card));
+}
+
+.admin-app .ud-type.is-seller {
+  color: #7c3aed;
+  background: color-mix(in srgb, #8b5cf6 12%, var(--card));
+}
+
+.admin-app .ud-type.is-shop {
+  color: #047857;
+  background: color-mix(in srgb, #047857 14%, var(--card));
+}
+
+.admin-app[data-admin-theme="dark"] .ud-type.is-buyer { color: #93c5fd; }
+.admin-app[data-admin-theme="dark"] .ud-type.is-seller { color: #c4b5fd; }
+.admin-app[data-admin-theme="dark"] .ud-type.is-shop { color: #3fae86; }
+
+.admin-app .ud-shop-name {
+  margin-top: 0.35rem;
+}
+
+.admin-app .micon.ud-verified {
+  width: 1em;
+  height: 1em;
+  font-size: 16px;
+  color: #0ea5e9;
+}
+
+.admin-app .ud-rating .micon {
+  font-size: 15px;
+  color: #f59e0b;
+}
+
+.admin-app .ud-loc {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.admin-app .ud-loc .micon {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+/* Card view */
+.admin-app .ud-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1.15rem;
+  margin-bottom: 1.25rem;
+}
+
+.admin-app .ud-card {
+  --ud-tint: #047857;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.95rem 1rem 0.9rem;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(160px 90px at 100% 0%, color-mix(in srgb, var(--ud-tint) 20%, transparent), transparent 70%),
+    var(--card);
+  box-shadow: var(--clay);
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+
+.admin-app .ud-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--ud-tint), color-mix(in srgb, var(--ud-tint) 30%, transparent));
+}
+
+.admin-app .ud-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--clay-hover);
+}
+
+.admin-app .ud-card.is-buyer { --ud-tint: #3b82f6; }
+.admin-app .ud-card.is-seller { --ud-tint: #8b5cf6; }
+.admin-app .ud-card.is-shop { --ud-tint: #059669; }
+
+.admin-app .ud-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.admin-app .ud-card-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border: 3px solid var(--card);
+  border-radius: 17px;
+  object-fit: cover;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--ud-tint) 55%, #ffffff), var(--ud-tint));
+  color: #ffffff;
+  font-size: 1.3rem;
+  font-weight: 900;
+  box-shadow: var(--clay-soft);
+  transition: transform 0.25s var(--ease);
+}
+
+.admin-app .ud-card-head:hover .ud-card-avatar {
+  transform: scale(1.05) rotate(-3deg);
+}
+
+.admin-app .ud-card-id {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.admin-app .ud-card-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.98rem;
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.admin-app .ud-card-head:hover .ud-card-name {
+  color: var(--primary);
+}
+
+.admin-app .ud-card-id .ud-type {
+  max-width: 100%;
+  padding: 0.14rem 0.5rem 0.14rem 0.38rem;
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.admin-app .ud-card-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.admin-app .ud-card-line {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.admin-app .ud-card-line > span:not(.micon) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .ud-card-line .micon {
+  font-size: 15px;
+  color: var(--ud-tint);
+}
+
+.admin-app .ud-card-line.is-shop {
+  font-weight: 800;
+  color: var(--text);
+}
+
+.admin-app .ud-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.admin-app .ud-stat {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: center;
+  align-items: center;
+  column-gap: 0.3rem;
+  row-gap: 0.1rem;
+  min-width: 0;
+  padding: 0.45rem 0.3rem;
+  border-radius: 14px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .ud-stat .micon {
+  font-size: 17px;
+  color: var(--ud-tint);
+}
+
+.admin-app .ud-stat span:not(.micon) {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+.admin-app .ud-stat strong {
+  font-size: 0.98rem;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.admin-app .ud-stat span:not(.micon) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.admin-app .ud-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.admin-app .ud-card-chips .user-badges {
+  display: contents;
+}
+
+.admin-app .ud-card-chips .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.68rem;
+}
+
+.admin-app .ud-card-chips .status-badge .micon {
+  font-size: 13px;
+}
+
+.admin-app .ud-card-chips .ud-rating {
+  display: inline-flex;
+  padding: 0 0.2rem;
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.admin-app .ud-card-foot {
+  margin-top: auto;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--border);
+}
+
+.admin-app .ud-card-foot .action-buttons {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.admin-app .ud-card-foot .action-btn {
+  flex: 1;
+  justify-content: center;
+  padding: 0.45rem 0.6rem;
+}
+
+@media (max-width: 720px) {
+  .admin-app .ud-topline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-app .ud-topline-end {
+    justify-content: space-between;
+  }
+
+  .admin-app .ud-type-label {
+    display: none;
+  }
+
+  .admin-app .ud-type-tab.is-on .ud-type-label {
+    display: inline;
+  }
+
+  .admin-app .hub-title-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+  }
+
+  .admin-app .hub-title-icon .micon {
+    font-size: 22px;
+  }
+}
+
+/* ======================================================================
+ * Layout fit: medium-height cards, no dead space, nothing clipped
+ * ==================================================================== */
+
+/* Stat tiles: the last row stretches instead of leaving empty slots. */
+.admin-app .stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.admin-app .stats-grid > * {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.admin-app .stat-card {
+  padding: 0.85rem 1rem;
+}
+
+.admin-app .stat-value {
+  font-size: 1.45rem;
+}
+
+/* Shared card grid (Listings, Categories, Shops, Reports, Reviews, Banned words). */
+.admin-app .card-grid,
+.admin-app .card-grid.cols-5 {
+  grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+  gap: 1rem;
+}
+
+.admin-app .data-card {
+  min-width: 0;
+}
+
+.admin-app .data-card-media {
+  aspect-ratio: 16 / 10;
+  margin: 0.6rem 0.6rem 0;
+  border-radius: 18px;
+  box-shadow: var(--clay-pressed);
+}
+
+.admin-app .data-card-media img {
+  border-radius: inherit;
+}
+
+.admin-app .data-card-body {
+  gap: 0.4rem;
+  padding: 0.75rem 0.9rem 0.85rem;
+}
+
+.admin-app .data-card-pricerow,
+.admin-app .data-card-meta {
+  flex-wrap: wrap;
+  row-gap: 0.3rem;
+  min-width: 0;
+}
+
+.admin-app .data-card-pricerow > *,
+.admin-app .data-card-meta > * {
+  max-width: 100%;
+}
+
+.admin-app .data-card-sub,
+.admin-app .data-card-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-app .data-card-desc {
+  -webkit-line-clamp: 2;
+  min-height: calc(1.45em * 2);
+}
+
+.admin-app .data-card-desc.is-empty {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.admin-app .data-card-actions {
+  padding-top: 0.65rem;
+  border-top-style: dashed;
+}
+
+.admin-app .data-card-actions,
+.admin-app .data-card-actions .action-buttons {
+  flex-wrap: wrap;
+}
+
+.admin-app .data-card-actions .action-btn {
+  flex: 1 1 auto;
+}
+
+/* Live activity: long paths and values stay on one line (full text on hover). */
+.admin-app .live-card {
+  min-width: 0;
+}
+
+.admin-app .live-chip {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.admin-app .live-chip-value,
+.admin-app .live-actor,
+.admin-app .live-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-app .live-card-who {
+  flex: 1;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.admin-app .live-card-foot {
+  min-width: 0;
+}
+
+/* Long lists scroll inside their card instead of stretching the whole row. */
+.admin-app .dashboard-grid .activity-card .activity-list {
+  max-height: 290px;
+  overflow-y: auto;
+}
+
+.admin-app .cc-overview-grid {
+  align-items: start;
+}
+
+.admin-app .cc-overview-grid .cc-card {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.admin-app .cc-overview-grid .cc-card-head {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  margin: -16px -16px 8px;
+  padding: 16px 16px 10px;
+  background: var(--card);
+}
+
+/* Wide tables scroll sideways instead of being cut at the card edge. */
+.admin-app .table-container {
+  overflow-x: auto;
+}
+
+@media (max-width: 520px) {
+  .admin-app .card-grid,
+  .admin-app .card-grid.cols-5,
+  .admin-app .ud-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-app .stats-grid > * {
+    flex-basis: 140px;
+  }
+
+  .admin-app .live-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .admin-app .ai-add-row {
+    flex-wrap: wrap;
+  }
+
+  .admin-app .ai-add-row .ai-add-input {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .admin-app .ai-add-row .action-btn {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+/* ======================================================================
+ * Form fit: inputs, form grids and two-column pages that stay inside
+ * ==================================================================== */
+
+/* Only inputs with a leading icon need the wide left padding. */
+.admin-app :where(.form-input, .form-textarea) {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.72rem 0.95rem;
+}
+
+.admin-app .input-wrapper .form-input {
+  padding-left: 2.85rem;
+}
+
+.admin-app .input-wrapper .password-toggle ~ .form-input,
+.admin-app .input-wrapper .form-input:has(~ .password-toggle) {
+  padding-right: 3rem;
+}
+
+.admin-app .form-group,
+.admin-app .form-group > * {
+  min-width: 0;
+}
+
+/* Settings: two columns only when both fit, otherwise one under the other. */
+.admin-app .settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
+  align-items: start;
+}
+
+.admin-app .settings-grid > *,
+.admin-app .admins-section > *,
+.admin-app .platform-settings-section > * {
+  min-width: 0;
+}
+
+.admin-app .admins-table {
+  overflow-x: auto;
+}
+
+/* Daily post limits: the stepper drops below the text when the card is narrow. */
+.admin-app .post-limit-head {
+  flex-wrap: wrap;
+  row-gap: 0.6rem;
+}
+
+.admin-app .post-limit-copy {
+  flex: 1 1 170px;
+}
+
+.admin-app .post-limit-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
+/* Plans & Payments forms */
+.admin-app .subs-form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+  gap: 1rem 1.25rem;
+}
+
+.admin-app .subs-form-grid > .form-group {
+  margin-bottom: 0;
+}
+
+.admin-app .subs-form-grid + .form-group {
+  margin-top: 1rem;
+}
+
+.admin-app .subs-form-grid > *,
+.admin-app .esewa-creds-grid > *,
+.admin-app .esewa-secret {
+  min-width: 0;
+}
+
+.admin-app .esewa-creds-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.admin-app .esewa-test-logins dl {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+}
+
+.admin-app .esewa-test-logins dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* Stat sub-lines wrap as a soft rounded box instead of a squashed pill. */
+.admin-app .stat-trend {
+  max-width: 100%;
+  border-radius: 10px;
+  line-height: 1.35;
+}
+
+.admin-app .stat-content {
+  min-width: 0;
+}
+
+.admin-app .subs-form-grid > .subs-wide {
+  grid-column: 1 / -1;
+}
+
+/* Cards built as header + loose content get the same inner padding as the header. */
+.admin-app :is(.subs-payment, .security-card, .calls-card, .subs-requests-card) > :not(.card-header):not(.table-container):not(.subs-empty) {
+  margin-left: 1.25rem;
+  margin-right: 1.25rem;
+}
+
+.admin-app :is(.subs-payment, .security-card, .calls-card, .subs-requests-card) > .card-header + *,
+.admin-app :is(.subs-payment, .security-card, .calls-card, .subs-requests-card) > :first-child:not(.card-header) {
+  margin-top: 1rem;
+}
+
+.admin-app :is(.subs-payment, .security-card, .calls-card, .subs-requests-card) > :last-child:not(.table-container) {
+  margin-bottom: 1.25rem;
+}
+
+.admin-app .calls-card > .table-container {
+  margin-bottom: 1rem;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.admin-app .esewa-card {
+  padding: 1.2rem 1.3rem 1.3rem;
+}
+
+.admin-app .bi-cat-list {
+  padding: 0.85rem 1.2rem 1rem;
+}
+
+/* Error log and admin activity: long values stay on one line, full text on hover. */
+@media (min-width: 1561px) {
+  .admin-app .error-log-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  }
+}
+
+@media (max-width: 1560px) {
+  .admin-app .error-log-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-app .error-detail-panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+.admin-app .error-log-layout .data-table th,
+.admin-app .error-log-layout .data-table td {
+  padding: 0.7rem 0.75rem;
+}
+
+.admin-app .error-msg-cell {
+  max-width: 230px;
+}
+
+.admin-app .error-path {
+  display: inline-block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+@media (max-width: 1300px) {
+  .admin-app .error-msg-cell {
+    max-width: 190px;
+  }
+
+  .admin-app .error-path {
+    max-width: 160px;
+  }
+}
+
+/* Users list: tighter cells so the whole row fits on common laptop screens. */
+.admin-app .users-directory .data-table th,
+.admin-app .users-directory .data-table td {
+  padding: 0.75rem 0.65rem;
+}
+
+.admin-app .users-directory .user-badges {
+  flex-wrap: wrap;
+  max-width: 160px;
+  white-space: normal;
+}
+
+/* Search boxes keep room for their placeholder. */
+.admin-app .filter-bar {
+  flex-wrap: wrap;
+  row-gap: 0.75rem;
+}
+
+.admin-app .filter-bar .filter-group.left {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.admin-app .filter-bar .filter-group.right {
+  flex-wrap: wrap;
+}
+
+.admin-app .filter-bar .search-box {
+  flex: 1 1 260px;
+  min-width: min(100%, 240px);
+}
+
+/* ======================================================================
+ * Motion: page entry, sliding highlights, icon fill, hover and press feedback
+ * ==================================================================== */
+.admin-app {
+  --spring: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --glide: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes kbRise {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbRowIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbIconPop {
+  0% { transform: scale(0.55) rotate(-16deg); }
+  60% { transform: scale(1.2) rotate(5deg); }
+  100% { transform: none; }
+}
+
+@keyframes kbThemeSpin {
+  from { opacity: 0; transform: rotate(-140deg) scale(0.3); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbBell {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(16deg); }
+  40% { transform: rotate(-13deg); }
+  60% { transform: rotate(8deg); }
+  80% { transform: rotate(-4deg); }
+}
+
+@keyframes kbBadgePop {
+  0% { transform: scale(0); }
+  65% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+@keyframes kbBadgePulse {
+  0% {
+    box-shadow: 2px 3px 6px rgba(225, 29, 72, 0.35), inset 1px 1px 2px rgba(255, 255, 255, 0.45),
+      inset -1px -2px 3px rgba(136, 19, 55, 0.35), 0 0 0 0 rgba(225, 29, 72, 0.5);
+  }
+  80%, 100% {
+    box-shadow: 2px 3px 6px rgba(225, 29, 72, 0.35), inset 1px 1px 2px rgba(255, 255, 255, 0.45),
+      inset -1px -2px 3px rgba(136, 19, 55, 0.35), 0 0 0 8px rgba(225, 29, 72, 0);
+  }
+}
+
+@keyframes kbDrop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbModalIn {
+  from { opacity: 0; transform: translateY(26px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbCrumbIn {
+  from { opacity: 0; transform: translateX(8px); filter: blur(3px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes kbRipple {
+  from { opacity: 0.32; transform: scale(0); }
+  to { opacity: 0; transform: scale(1); }
+}
+
+@keyframes kbSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes kbBreathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* Page entry: each block of a page rises in, one after another. */
+.admin-app .page-stage > * > :nth-child(-n + 12):not([class*="overlay"]):not([class*="backdrop"]):not(.error-message),
+.admin-app :is(.stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans) > *,
+.admin-app .kb-modal-body > * {
+  animation: kbRise 0.6s var(--glide) var(--stagger, 0ms) backwards;
+}
+
+.admin-app .data-table tbody tr {
+  animation: kbRowIn 0.5s var(--glide) var(--stagger, 0ms) backwards;
+}
+
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(2) { --stagger: 45ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(3) { --stagger: 90ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(4) { --stagger: 135ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(5) { --stagger: 180ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(6) { --stagger: 225ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(7) { --stagger: 270ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(8) { --stagger: 315ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(9) { --stagger: 360ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(10) { --stagger: 400ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(11) { --stagger: 440ms; }
+.admin-app :is(.page-stage > *, .stats-grid, .card-grid, .ud-card-grid, .settings-grid, .dashboard-grid, .cc-overview-grid, .subs-plans, .kb-modal-body, .data-table tbody) > :nth-child(n + 12) { --stagger: 480ms; }
+
+/* Sliding highlight behind the active sidebar item and the active page tab. */
+.admin-app .sidebar-nav,
+.admin-app .hub-tabs {
+  position: relative;
+}
+
+.admin-app .nav-pill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.admin-app .nav-pill.is-ready {
+  transition: transform 0.55s var(--spring), width 0.55s var(--spring), height 0.55s var(--spring);
+}
+
+.admin-app .sidebar-nav .nav-pill {
+  border-radius: 16px;
+  background: var(--clay-green);
+  box-shadow: var(--clay-green-shadow);
+}
+
+.admin-app .hub-tabs .nav-pill {
+  border-radius: 15px;
+  background: var(--card);
+  box-shadow: var(--clay-soft);
+}
+
+.admin-app .sidebar-nav .sidebar-item,
+.admin-app .hub-tabs .hub-tab {
+  position: relative;
+  z-index: 1;
+}
+
+.admin-app .sidebar-nav:has(> .nav-pill) .sidebar-item-active,
+.admin-app .hub-tabs:has(> .nav-pill) .hub-tab.is-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+.admin-app .sidebar-item {
+  transition: color 0.4s var(--glide), background 0.3s var(--glide), box-shadow 0.35s var(--glide),
+    transform 0.45s var(--spring);
+}
+
+.admin-app .hub-tab {
+  transition: color 0.4s var(--glide), background 0.3s var(--glide), transform 0.45s var(--spring);
+}
+
+/* Icons: the fill flows in on hover and on selection, with a springy pop. */
+.admin-app .micon,
+.admin-app .hub-tab .micon {
+  transition: font-variation-settings 0.5s var(--glide), transform 0.45s var(--spring), color 0.3s var(--glide);
+}
+
+.admin-app :is(.sidebar-item, .hub-tab, .icon-btn, .dropdown-trigger, .btn, .action-btn, .dropdown-item,
+  .ud-type-tab, .ud-quick-chip, .view-toggle button, .pagination-btn, .filter-chip, .clear-btn, .ud-filter-btn):hover .micon {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+.admin-app .sidebar-icon {
+  transition: background 0.4s var(--glide), color 0.4s var(--glide), box-shadow 0.4s var(--glide),
+    transform 0.5s var(--spring);
+}
+
+.admin-app .sidebar-item:hover .sidebar-icon {
+  transform: scale(1.1) rotate(-6deg);
+}
+
+.admin-app .sidebar-item-active .sidebar-icon .micon,
+.admin-app .hub-tab.is-active .micon,
+.admin-app .ud-type-tab.is-on .micon,
+.admin-app .view-toggle button.active .micon {
+  animation: kbIconPop 0.6s var(--spring);
+}
+
+.admin-app .hub-title-icon {
+  animation: kbIconPop 0.7s var(--spring);
+}
+
+.admin-app .hub-tab:hover .micon {
+  transform: translateY(-2px) scale(1.08);
+}
+
+.admin-app :is(.icon-btn, .dropdown-trigger):hover .micon {
+  transform: scale(1.14);
+}
+
+.admin-app :is(.icon-btn, .dropdown-trigger):active .micon {
+  transform: scale(0.88);
+}
+
+.admin-app .icon-btn .theme-icon {
+  animation: kbThemeSpin 0.6s var(--spring);
+}
+
+.admin-app .icon-btn .fullscreen-icon {
+  animation: kbIconPop 0.5s var(--spring);
+}
+
+.admin-app .appbar-fullscreen:hover .micon {
+  transform: scale(1.2);
+}
+
+@media (max-width: 640px) {
+  .admin-app .appbar-fullscreen {
+    display: none;
+  }
+}
+
+.admin-app .dropdown-notify .dropdown-trigger:hover .micon {
+  animation: kbBell 0.7s ease-in-out;
+}
+
+.admin-app .dropdown-trigger .chev {
+  transition: transform 0.4s var(--spring);
+}
+
+.admin-app .dropdown-trigger[aria-expanded="true"] .chev {
+  transform: rotate(180deg);
+}
+
+.admin-app :is(.btn, .action-btn, .clear-btn):hover .micon {
+  transform: scale(1.12);
+}
+
+.admin-app .crumb-current {
+  display: inline-block;
+  animation: kbCrumbIn 0.45s var(--glide);
+}
+
+/* Buttons and chips: springy lift on hover, a soft squash on press. */
+.admin-app :is(.btn, .action-btn, .icon-btn, .dropdown-trigger, .filter-chip, .pagination-btn,
+  .ud-quick-chip, .ud-type-tab, .clear-btn, .view-toggle button, .ud-filter-btn) {
+  transition-duration: 0.35s;
+  transition-timing-function: var(--spring);
+}
+
+.admin-app :is(.btn, .action-btn, .icon-btn, .dropdown-trigger, .filter-chip, .pagination-btn,
+  .ud-quick-chip, .ud-type-tab, .clear-btn, .view-toggle button, .ud-filter-btn, .hub-tab):active:not(:disabled) {
+  transform: scale(0.95);
+  transition-duration: 0.12s;
+}
+
+.admin-app .sidebar-item:active {
+  transform: scale(0.97);
+  transition-duration: 0.12s;
+}
+
+.admin-app .kb-ripple-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.admin-app .kb-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  animation: kbRipple 0.65s var(--glide) forwards;
+}
+
+/* Cards: springy lift with media zoom and icon tilt. */
+.admin-app :is(.data-card, .stat-card, .ud-card, .subs-plan, .ai-acc, .live-card) {
+  transition: transform 0.5s var(--spring), box-shadow 0.45s var(--glide);
+}
+
+.admin-app :is(.subs-plan, .ai-acc):hover {
+  transform: translateY(-4px);
+  box-shadow: var(--clay-hover);
+}
+
+.admin-app .data-card-media img {
+  transition: transform 0.7s var(--glide);
+}
+
+.admin-app .data-card:hover .data-card-media img {
+  transform: scale(1.07);
+}
+
+.admin-app .stat-icon {
+  transition: transform 0.5s var(--spring), box-shadow 0.4s var(--glide);
+}
+
+.admin-app .stat-card:hover .stat-icon {
+  transform: scale(1.12) rotate(-8deg);
+}
+
+.admin-app .stat-card:hover .stat-icon .micon,
+.admin-app .stat-card:hover .stat-icon svg {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+.admin-app .ud-card-avatar {
+  transition: transform 0.5s var(--spring);
+}
+
+.admin-app .ud-card:hover .ud-card-avatar {
+  transform: scale(1.07) rotate(-4deg);
+}
+
+.admin-app .data-table tbody tr,
+.admin-app .data-table tbody td:first-child {
+  transition: background 0.3s var(--glide), box-shadow 0.3s var(--glide);
+}
+
+.admin-app :is(.status-badge, .role-badge, .category-badge, .ud-type, .ud-quick-chip, .filter-chip) {
+  transition-property: background, color, box-shadow, transform;
+}
+
+/* Inputs: focus ring and label colour ease in. */
+.admin-app :is(.form-input, .form-select, .form-textarea, .search-box .search-input, .appbar-search, .cc-search, .dropdown-filter) {
+  transition: box-shadow 0.35s var(--glide), background 0.35s var(--glide), color 0.3s var(--glide);
+}
+
+.admin-app .form-group > label {
+  transition: color 0.3s var(--glide);
+}
+
+.admin-app .form-group:focus-within > label {
+  color: var(--primary);
+}
+
+.admin-app .search-box .search-icon,
+.admin-app .appbar-search .search-icon {
+  transition: color 0.3s var(--glide), transform 0.45s var(--spring);
+}
+
+.admin-app .search-box:focus-within .search-icon,
+.admin-app .appbar-search:focus-within .search-icon {
+  color: var(--primary);
+  transform: scale(1.12) rotate(-8deg);
+}
+
+/* Switch: the knob springs across and stretches while pressed. */
+.admin-app .kb-switch-track {
+  transition: background 0.4s var(--glide), box-shadow 0.3s var(--glide);
+}
+
+.admin-app .kb-switch-track::after {
+  transition: transform 0.5s var(--spring), width 0.3s var(--glide);
+}
+
+.admin-app .kb-switch:active input:not(:disabled) ~ .kb-switch-track::after {
+  width: 23px;
+}
+
+.admin-app .kb-switch:active input:checked:not(:disabled) ~ .kb-switch-track::after {
+  transform: translateX(13px);
+}
+
+/* Menus, modals and badges. */
+.admin-app .dropdown-menu,
+.admin-app .appbar-search-results {
+  transform-origin: top right;
+  animation: kbDrop 0.42s var(--spring);
+}
+
+.admin-app .dropdown-menu.align-start {
+  transform-origin: top left;
+}
+
+.admin-app .dropdown-item {
+  transition: background 0.25s var(--glide), color 0.25s var(--glide), box-shadow 0.25s var(--glide),
+    transform 0.35s var(--spring);
+}
+
+.admin-app .dropdown-item:hover {
+  transform: translateX(3px);
+}
+
+@media (min-width: 641px) {
+  .admin-app .kb-modal {
+    animation: kbModalIn 0.55s var(--spring);
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-app .kb-modal {
+    animation: kb-sheet-up 0.45s var(--glide);
+  }
+}
+
+.admin-app .kb-modal-overlay {
+  animation: kb-modal-fade 0.3s var(--glide);
+}
+
+.admin-app .nav-badge {
+  animation: kbBadgePop 0.5s var(--spring), kbBadgePulse 2.2s ease-out 0.6s 3;
+}
+
+.admin-app .loading {
+  animation: kbBreathe 1.6s ease-in-out infinite;
+}
+
+.admin-app .loading::before {
+  content: '';
+  display: block;
+  width: 30px;
+  height: 30px;
+  margin: 0 auto 0.85rem;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  border-top-color: var(--primary);
+  animation: kbSpin 0.8s linear infinite;
+}
+
+/* Theme switch: the new theme grows out of the toggle as a circle. */
+html.admin-theme-reveal::view-transition-old(root),
+html.admin-theme-reveal::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-app *,
+  .admin-app *::before,
+  .admin-app *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ======================================================================
+ * Feedback: toasts and confirm dialog
+ * ==================================================================== */
+.admin-app {
+  --tone-success: #059669;
+  --tone-error: #e11d48;
+  --tone-warning: #d97706;
+  --tone-info: #2563eb;
+}
+
+.admin-app .kb-toasts {
+  position: fixed;
+  top: 1.1rem;
+  right: 1.1rem;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.7rem;
+  width: min(390px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.admin-app .kb-toast {
+  --tone: var(--tone-success);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.9rem 0.8rem 1.05rem 0.9rem;
+  overflow: hidden;
+  border-radius: 22px;
+  background: var(--card);
+  box-shadow: var(--clay), 0 18px 40px -18px color-mix(in srgb, var(--tone) 55%, transparent);
+  pointer-events: auto;
+  animation: kbToastIn 0.55s var(--spring);
+}
+
+.admin-app .kb-toast::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--tone) 14%, transparent), transparent 55%);
+  pointer-events: none;
+}
+
+.admin-app .kb-toast.tone-error { --tone: var(--tone-error); }
+.admin-app .kb-toast.tone-warning { --tone: var(--tone-warning); }
+.admin-app .kb-toast.tone-info { --tone: var(--tone-info); }
+
+.admin-app .kb-toast.is-leaving {
+  animation: kbToastOut 0.28s var(--glide) forwards;
+}
+
+@keyframes kbToastIn {
+  from { opacity: 0; transform: translateX(60px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes kbToastOut {
+  to { opacity: 0; transform: translateX(70px) scale(0.92); }
+}
+
+.admin-app .kb-toast-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--tone) 78%, #ffffff), var(--tone) 55%, color-mix(in srgb, var(--tone) 70%, #000000));
+  color: #ffffff;
+  box-shadow: 4px 6px 14px color-mix(in srgb, var(--tone) 40%, transparent),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.35), inset -3px -3px 6px rgba(0, 0, 0, 0.2);
+  animation: kbIconPop 0.6s var(--spring) 0.1s backwards;
+}
+
+.admin-app .kb-toast-icon .micon {
+  font-size: 23px;
+}
+
+.admin-app .kb-toast-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding-top: 0.1rem;
+}
+
+.admin-app .kb-toast-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 900;
+  color: var(--text);
+}
+
+.admin-app .kb-toast-count {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  font-size: 0.7rem;
+  font-weight: 900;
+  color: var(--tone);
+}
+
+.admin-app .kb-toast-text {
+  margin-top: 0.15rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.admin-app .kb-toast-close {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.25s var(--glide), color 0.25s var(--glide), transform 0.35s var(--spring);
+}
+
+.admin-app .kb-toast-close:hover {
+  background: var(--background-secondary);
+  color: var(--text);
+  transform: rotate(90deg);
+}
+
+.admin-app .kb-toast-close .micon {
+  font-size: 18px;
+}
+
+.admin-app .kb-toast-progress {
+  position: absolute;
+  left: 0.9rem;
+  right: 0.9rem;
+  bottom: 0.45rem;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--tone);
+  opacity: 0.55;
+  transform-origin: left center;
+  animation: kbToastTimer linear forwards;
+}
+
+.admin-app .kb-toast.is-paused .kb-toast-progress {
+  animation-play-state: paused;
+}
+
+@keyframes kbToastTimer {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@media (max-width: 640px) {
+  .admin-app .kb-toasts {
+    top: 0.75rem;
+    right: 50%;
+    align-items: stretch;
+    transform: translateX(50%);
+  }
+
+  @keyframes kbToastIn {
+    from { opacity: 0; transform: translateY(-30px) scale(0.92); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes kbToastOut {
+    to { opacity: 0; transform: translateY(-30px) scale(0.92); }
+  }
+}
+
+/* Confirm dialog */
+.admin-app .kb-confirm-overlay {
+  z-index: 1250;
+  align-items: center !important;
+  padding: 1.25rem !important;
+}
+
+.admin-app .kb-confirm-overlay.is-leaving {
+  animation: kbFadeOut 0.18s var(--glide) forwards;
+}
+
+@keyframes kbFadeOut {
+  to { opacity: 0; }
+}
+
+.admin-app .kb-confirm {
+  --tone: var(--tone-success);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(430px, 100%);
+  padding: 2rem 1.6rem 1.5rem;
+  overflow: hidden;
+  border-radius: 30px;
+  background: var(--card);
+  box-shadow: var(--clay), 0 30px 70px -20px rgba(2, 6, 23, 0.45);
+  text-align: center;
+  animation: kbModalIn 0.5s var(--spring);
+}
+
+.admin-app .kb-confirm::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 140px;
+  background: radial-gradient(70% 100% at 50% 0%, color-mix(in srgb, var(--tone) 18%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.admin-app .kb-confirm.tone-danger { --tone: var(--tone-error); }
+.admin-app .kb-confirm.tone-warning { --tone: var(--tone-warning); }
+.admin-app .kb-confirm.tone-primary { --tone: var(--primary); }
+
+.admin-app .kb-confirm-overlay.is-leaving .kb-confirm {
+  animation: kbConfirmOut 0.18s var(--glide) forwards;
+}
+
+@keyframes kbConfirmOut {
+  to { opacity: 0; transform: scale(0.94) translateY(8px); }
+}
+
+.admin-app .kb-confirm-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 1.1rem;
+  border-radius: 26px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--tone) 75%, #ffffff), var(--tone) 55%, color-mix(in srgb, var(--tone) 70%, #000000));
+  color: #ffffff;
+  box-shadow: 8px 12px 26px color-mix(in srgb, var(--tone) 40%, transparent),
+    inset 3px 3px 6px rgba(255, 255, 255, 0.35), inset -4px -4px 8px rgba(0, 0, 0, 0.22);
+  animation: kbIconPop 0.7s var(--spring) 0.08s backwards;
+}
+
+.admin-app .kb-confirm-icon::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 30px;
+  border: 2px solid color-mix(in srgb, var(--tone) 45%, transparent);
+  animation: kbConfirmRing 1.8s ease-out 0.4s infinite;
+}
+
+@keyframes kbConfirmRing {
+  from { opacity: 0.9; transform: scale(0.92); }
+  to { opacity: 0; transform: scale(1.25); }
+}
+
+.admin-app .kb-confirm-icon .micon {
+  font-size: 38px;
+}
+
+.admin-app .kb-confirm-title {
+  position: relative;
+  margin: 0 0 0.45rem;
+  font-size: 1.25rem;
+  font-weight: 900;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.admin-app .kb-confirm-message {
+  position: relative;
+  max-width: 340px;
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.admin-app .kb-confirm-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 1rem 0 0;
+  padding: 0.8rem 0.95rem;
+  border-radius: 18px;
+  background: var(--background-secondary);
+  box-shadow: var(--clay-pressed);
+  list-style: none;
+  text-align: left;
+}
+
+.admin-app .kb-confirm-details li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.admin-app .kb-confirm-details .micon {
+  font-size: 18px;
+  color: var(--tone);
+}
+
+.admin-app .kb-confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 1.5rem;
+}
+
+.admin-app .kb-confirm-actions .btn {
+  justify-content: center;
+  min-height: 46px;
+  border-radius: 16px;
+  font-size: 0.9rem;
+}
+
+.admin-app .kb-confirm-go {
+  border: none;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--tone) 80%, #ffffff), var(--tone) 50%, color-mix(in srgb, var(--tone) 72%, #000000));
+  color: #ffffff;
+  box-shadow: 6px 8px 18px color-mix(in srgb, var(--tone) 38%, transparent),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.3), inset -3px -3px 6px rgba(0, 0, 0, 0.2);
+}
+
+.admin-app .kb-confirm-go:hover {
+  color: #ffffff;
+  transform: translateY(-2px);
+  filter: brightness(1.06);
+}
+
+.admin-app .kb-confirm-go:focus-visible,
+.admin-app .kb-confirm-actions .btn-secondary:focus-visible {
+  outline: none;
+  box-shadow: var(--clay-soft), 0 0 0 3px color-mix(in srgb, var(--tone) 35%, transparent);
+}
+
+@media (max-width: 420px) {
+  .admin-app .kb-confirm-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-app .kb-confirm-actions .kb-confirm-go {
+    order: -1;
+  }
+}

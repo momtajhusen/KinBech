@@ -34,9 +34,26 @@ async function postWebhook(alert) {
   }
 }
 
-/** Opens a platform alert (bell + live activity + optional webhook). One per type per 30 min. */
-async function raiseAlert({ type, title, message, metricValue = 0, baselineValue = 0, key = type }) {
+/**
+ * Opens a platform alert (bell + live activity + optional webhook). One per type per 30 min.
+ * `ongoing` alerts describe a state (e.g. low disk): while one is still open it is refreshed
+ * in place instead of stacking a new alert every cooldown.
+ */
+async function raiseAlert({ type, title, message, metricValue = 0, baselineValue = 0, key = type, ongoing = false }) {
   const now = Date.now();
+  if (ongoing) {
+    try {
+      const existing = await PlatformAlert.findOneAndUpdate(
+        { type, status: { $in: ['open', 'acknowledged'] } },
+        { $set: { title, message, metricValue, baselineValue } },
+        { sort: { createdAt: -1 }, new: true }
+      );
+      if (existing) return existing;
+    } catch (error) {
+      console.warn('[alerts] could not refresh alert:', error.message);
+      return null;
+    }
+  }
   if (now - (lastRaised.get(key) || 0) < COOLDOWN_MS) return null;
   lastRaised.set(key, now);
   try {
@@ -107,6 +124,19 @@ function trackResponses(req, res, next) {
   next();
 }
 
+/** Keeps only the newest open alert of a type; older copies are marked resolved. */
+async function closeDuplicateAlerts(type) {
+  const active = await PlatformAlert.find({ type, status: { $in: ['open', 'acknowledged'] } })
+    .sort({ createdAt: -1 })
+    .select('_id')
+    .lean();
+  if (active.length < 2) return;
+  await PlatformAlert.updateMany(
+    { _id: { $in: active.slice(1).map((item) => item._id) } },
+    { $set: { status: 'resolved' } }
+  );
+}
+
 async function checkDisk() {
   if (typeof fs.promises.statfs !== 'function') return;
   try {
@@ -116,14 +146,21 @@ async function checkDisk() {
     if (!total) return;
     const freePct = Math.round((free / total) * 100);
     const minPct = Number(process.env.ALERT_DISK_FREE_PCT) || 10;
+    await closeDuplicateAlerts('disk_low');
     if (freePct < minPct) {
-      raiseAlert({
+      await raiseAlert({
         type: 'disk_low',
         title: 'Disk space low',
         message: `Only ${freePct}% (${(free / 1024 ** 3).toFixed(1)} GB) free on the uploads disk.`,
         metricValue: freePct,
         baselineValue: minPct,
+        ongoing: true,
       });
+    } else {
+      await PlatformAlert.updateMany(
+        { type: 'disk_low', status: { $in: ['open', 'acknowledged'] } },
+        { $set: { status: 'resolved' } }
+      );
     }
   } catch (error) {
     if (error.code !== 'ENOENT') console.warn('[alerts] disk check failed:', error.message);

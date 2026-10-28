@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { Check, Copy, KeyRound, Store, User, UserCog, UserPlus, X } from 'lucide-react';
 import api from '../services/api';
 import Modal, { OptionCards } from '../components/Modal';
+import { confirmAction, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import PostLimitStepper, { PostLimitPresets, clampPosts, postLimitLabel } from '../components/PostLimitStepper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { roleMenuAccess } from '../navigation';
 
 const POST_LIMIT_ROWS = [
   {
@@ -29,7 +31,6 @@ function DailyPostLimits({ settings, canEdit, onSaved }) {
   };
   const [draft, setDraft] = useState(saved);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(null);
   const changed = POST_LIMIT_ROWS.some(({ key }) => draft[key] !== saved[key]);
 
   useEffect(() => {
@@ -41,13 +42,12 @@ function DailyPostLimits({ settings, canEdit, onSaved }) {
 
   const save = async () => {
     setBusy(true);
-    setMessage(null);
     try {
       const response = await api.put('/auth/admin/settings', draft);
       if (response.data.settings) onSaved(response.data.settings);
-      setMessage({ tone: 'ok', text: 'Daily post limits saved. They apply to the next post.' });
-    } catch (error) {
-      setMessage({ tone: 'error', text: error.response?.data?.message || 'Could not save the limits' });
+      toast.success('They apply from the next post.', { title: 'Daily post limits saved' });
+    } catch {
+      /* the API layer shows the error */
     } finally {
       setBusy(false);
     }
@@ -95,15 +95,12 @@ function DailyPostLimits({ settings, canEdit, onSaved }) {
           accounts stay at 5 a day, and Watch-tier sellers follow Trust → Settings, whichever is lower.
           Admin accounts are not limited. To give one person a different limit, open them in Users.
         </p>
-        {message ? (
-          <div className={message.tone === 'ok' ? 'u360-notice' : 'u360-error'}>{message.text}</div>
-        ) : null}
         <div className="form-actions">
           <button type="button" className="btn btn-primary" onClick={save} disabled={!canEdit || busy || !changed}>
             {busy ? 'Saving…' : 'Save limits'}
           </button>
           {changed && !busy ? (
-            <button type="button" className="btn btn-secondary" onClick={() => { setDraft(saved); setMessage(null); }}>
+            <button type="button" className="btn btn-secondary" onClick={() => setDraft(saved)}>
               Reset
             </button>
           ) : null}
@@ -172,8 +169,8 @@ const Settings = () => {
   const roleOptions = [
     { value: 'super_admin', label: 'Super Admin', description: 'Full access to all features' },
     { value: 'admin', label: 'Admin', description: 'Everything except managing admins' },
-    { value: 'moderator', label: 'Moderator', description: 'Listings & reports management' },
-    { value: 'support', label: 'Support', description: 'Users & tickets management' },
+    { value: 'moderator', label: 'Moderator', description: 'Listings, shops, reports and reviews' },
+    { value: 'support', label: 'Support', description: 'Users, support tickets and reports' },
   ];
 
   const getRoleBadge = (role) => {
@@ -254,10 +251,9 @@ const Settings = () => {
     try {
       const response = await api.put('/auth/admin/settings', platformSettings);
       if (response.data.settings) setPlatformSettings(response.data.settings);
-      alert('Platform settings saved');
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-      alert(error.response?.data?.message || 'Failed to save settings');
+      toast.success('Expiry, minimum price, currency and support email are updated.', { title: 'Platform settings saved' });
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -274,6 +270,7 @@ const Settings = () => {
         role: editingAdmin.role,
       });
       setEditingAdmin(null);
+      toast.success(`${editingAdmin.name.trim()} updated`);
       fetchAdmins();
     } catch (error) {
       setModalError(error.response?.data?.message || 'Failed to update admin');
@@ -283,26 +280,38 @@ const Settings = () => {
   };
 
   const handleResetTwoFactor = async (admin) => {
-    if (!window.confirm(`Reset two-step verification for ${admin.email}? They will be signed out and must set it up again.`)) return;
+    const ok = await confirmAction({
+      title: 'Reset two-step verification?',
+      message: `${admin.email} will be signed out and must set up their authenticator again.`,
+      confirmLabel: 'Reset 2FA',
+      tone: 'warning',
+      icon: 'phonelink_lock',
+    });
+    if (!ok) return;
     try {
       const response = await api.post(`/auth/admin/${admin.id}/reset-2fa`);
-      alert(response.data.message);
+      toast.success(response.data.message || `2FA reset for ${admin.email}`);
       fetchAdmins();
-    } catch (error) {
-      alert(error.response?.data?.message || 'Could not reset two-step verification');
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
-  const handleRemoveAdmin = async (adminId) => {
-    if (window.confirm('Are you sure you want to remove this admin?')) {
-      try {
-        await api.delete(`/auth/admin/${adminId}`);
-        alert('Admin removed successfully');
-        fetchAdmins(); // Refresh the list
-      } catch (error) {
-        console.error('Failed to remove admin:', error);
-        alert('Failed to remove admin');
-      }
+  const handleRemoveAdmin = async (admin) => {
+    const ok = await confirmAction({
+      title: `Remove ${admin.name || admin.email}?`,
+      message: 'They lose access to the admin panel right away. Their past actions stay in the activity log.',
+      confirmLabel: 'Remove admin',
+      tone: 'danger',
+      icon: 'person_remove',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/auth/admin/${admin.id}`);
+      toast.success(`${admin.name || admin.email} no longer has admin access`, { title: 'Admin removed' });
+      fetchAdmins();
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -451,7 +460,7 @@ const Settings = () => {
                           ) : null}
                           {admin.role !== 'super_admin' && (
                             <button
-                              onClick={() => handleRemoveAdmin(admin.id)}
+                              onClick={() => handleRemoveAdmin(admin)}
                               className="action-btn small delete"
                             >
                               Remove
@@ -566,25 +575,25 @@ const Settings = () => {
                     <span className="role-description">{role.description}</span>
                   </div>
                   <div className="role-access-list">
-                    {role.value === 'super_admin' && (
-                      <span className="access-item allowed"><Check className="item-icon" aria-hidden /> All Access</span>
-                    )}
-                    {role.value === 'moderator' && (
-                      <>
-                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Listings Management</span>
-                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Reports Management</span>
-                        <span className="access-item denied"><X className="item-icon" aria-hidden /> User Management</span>
-                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Settings Access</span>
-                      </>
-                    )}
-                    {role.value === 'support' && (
-                      <>
-                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> User Management</span>
-                        <span className="access-item allowed"><Check className="item-icon" aria-hidden /> Support Tickets</span>
-                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Listings Management</span>
-                        <span className="access-item denied"><X className="item-icon" aria-hidden /> Reports Management</span>
-                      </>
-                    )}
+                    {roleMenuAccess(role.value).map((section) => (
+                      <span
+                        key={section.key}
+                        className={`access-item ${section.allowed ? 'allowed' : 'denied'}`}
+                        title={section.partial ? `Only: ${section.partial.join(', ')}` : undefined}
+                      >
+                        {section.allowed
+                          ? <Check className="item-icon" aria-hidden />
+                          : <X className="item-icon" aria-hidden />}
+                        {section.label}
+                        {section.partial ? <small className="access-partial">({section.partial.join(', ')})</small> : null}
+                      </span>
+                    ))}
+                    <span className={`access-item ${role.value === 'super_admin' ? 'allowed' : 'denied'}`}>
+                      {role.value === 'super_admin'
+                        ? <Check className="item-icon" aria-hidden />
+                        : <X className="item-icon" aria-hidden />}
+                      Add or edit admins
+                    </span>
                   </div>
                 </div>
               ))}

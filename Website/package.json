@@ -9,6 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.5.0",
+    "@mui/material": "^9.5.0",
     "agora-rtc-sdk-ng": "^4.24.9",
     "axios": "^1.20.0",
     "leaflet": "^1.9.4",

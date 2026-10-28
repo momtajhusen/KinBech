@@ -531,6 +531,10 @@ async function updatePreferences(req, res, next) {
       req.user.preferences = req.user.preferences || {};
       req.user.preferences.notifications = Boolean(req.body.notifications);
     }
+    if (req.body.dailyDigest !== undefined) {
+      req.user.preferences = req.user.preferences || {};
+      req.user.preferences.dailyDigest = Boolean(req.body.dailyDigest);
+    }
     if (req.body.language !== undefined) {
       req.user.preferences = req.user.preferences || {};
       req.user.preferences.language = String(req.body.language);

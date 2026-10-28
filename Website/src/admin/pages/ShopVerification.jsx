@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../services/api';
+import { confirmAction, errorMessage, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
@@ -76,7 +77,16 @@ function ReviewPanel({ shop, onSaved }) {
       setError('Pick or write a reason. The owner will see it.');
       return;
     }
-    if (decision === 'revoke' && !window.confirm(`Remove the verified badge from ${shop.name}?`)) return;
+    if (decision === 'revoke') {
+      const ok = await confirmAction({
+        title: `Remove ${shop.name}'s verified badge?`,
+        message: 'The badge goes away right away, and the owner sees your reason.',
+        confirmLabel: 'Remove badge',
+        tone: 'danger',
+        icon: 'remove_moderator',
+      });
+      if (!ok) return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -206,7 +216,6 @@ export default function ShopVerification() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
-  const [notice, setNotice] = useState('');
   const debounced = useDebounce(searchTerm);
 
   const load = useCallback(async () => {
@@ -215,7 +224,7 @@ export default function ShopVerification() {
       const response = await api.get('/shops/admin/verification', { params: { status, q: debounced || undefined, page, limit: LIMIT } });
       setData(response.data);
     } catch (error) {
-      setNotice(errorText(error, 'Could not load the queue'));
+      toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load the queue' });
     } finally {
       setLoading(false);
     }
@@ -230,9 +239,13 @@ export default function ShopVerification() {
   }, [status, debounced]);
 
   const onSaved = (shop, decision) => {
-    const copy = { save: 'Review saved', approve: `${shop.name} is now verified`, reject: `${shop.name} rejected, owner notified`, revoke: `Badge removed from ${shop.name}` };
-    setNotice(copy[decision] || 'Saved');
-    window.setTimeout(() => setNotice(''), 4000);
+    const copy = {
+      save: ['Review saved', 'The checklist and note are kept for the next look.'],
+      approve: ['Shop verified', `${shop.name} now shows the verified badge.`],
+      reject: ['Verification rejected', `${shop.name}'s owner is told why.`],
+      revoke: ['Badge removed', `${shop.name} is no longer verified.`],
+    }[decision] || ['Saved', ''];
+    toast.success(copy[1] || copy[0], copy[1] ? { title: copy[0] } : undefined);
     if (decision === 'save') {
       setData((prev) => ({ ...prev, shops: prev.shops.map((row) => (row.id === shop.id ? { ...row, ...shop } : row)) }));
     } else {
@@ -267,8 +280,6 @@ export default function ShopVerification() {
           </div>
         </div>
       </div>
-
-      {notice ? <div className="u360-notice">{notice}</div> : null}
 
       {loading && !data ? (
         <div className="loading">Loading verification queue...</div>

@@ -8,6 +8,7 @@ import { useGeolocation } from '../hooks/useGeolocation';
 import { formatPrice } from '../utils/listing';
 import Footer from '../components/Footer';
 import { IconLocation } from '../components/Icons';
+import Breadcrumb from '../components/Breadcrumb';
 
 const DEFAULT_CENTER = { lat: 27.7172, lng: 85.3240 };
 const RADIUS_OPTIONS = [2, 5, 10];
@@ -108,16 +109,10 @@ export default function MapPage() {
     <div className="map-page">
       <header className="map-page-header">
         <div className="container map-page-header-inner">
-          <nav className="detail-breadcrumb" aria-label="Breadcrumb">
-            <Link to="/">Home</Link>
-            <span>/</span>
-            <Link to="/explore">Explore</Link>
-            <span>/</span>
-            <span className="detail-breadcrumb-current">Nearby map</span>
-          </nav>
+          <Breadcrumb trail={[{ to: '/explore', label: 'Explore' }, { label: 'Nearby map' }]} />
           <div className="map-page-title-row">
             <div>
-              <h1>Hyperlocal map</h1>
+              <h1>Hyperlocal map <span className="ne-inline" lang="ne">· नजिकको नक्सा</span></h1>
               <p>
                 {loading
                   ? 'Loading nearby listings…'

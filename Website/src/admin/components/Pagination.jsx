@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import MIcon from './MIcon';
 
 const Pagination = ({ page, totalPages, total, limit, onPageChange }) => {
   if (totalPages <= 1) return null;
@@ -36,7 +36,7 @@ const Pagination = ({ page, totalPages, total, limit, onPageChange }) => {
           disabled={page === 1}
           title="Previous Page"
         >
-          <ChevronLeft className="item-icon" />
+          <MIcon name="chevron_left" />
         </button>
 
         {getPageNumbers().map(p => (
@@ -55,7 +55,7 @@ const Pagination = ({ page, totalPages, total, limit, onPageChange }) => {
           disabled={page === totalPages}
           title="Next Page"
         >
-          <ChevronRight className="item-icon" />
+          <MIcon name="chevron_right" />
         </button>
       </div>
     </div>

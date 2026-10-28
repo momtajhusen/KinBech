@@ -72,6 +72,7 @@ function phoneVisible(user) {
 function publicUser(user, options = {}) {
   const defaultPrefs = {
     notifications: true,
+    dailyDigest: true,
     language: 'English',
     currency: 'NPR (₨)',
     showPhone: false,

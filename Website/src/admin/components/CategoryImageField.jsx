@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Cropper from 'react-easy-crop';
 import { getCroppedBlob } from '../utils/cropImage';
+import { errorMessage, toast } from './Feedback';
 import { modalRoot } from './Modal';
 import api from '../services/api';
 
@@ -21,7 +22,7 @@ export default function CategoryImageField({ imageUrl, onChange }) {
     event.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) {
-      alert('Please choose an image file');
+      toast.warning('Pick a JPG, PNG or WebP image.', { title: 'That file is not an image' });
       return;
     }
     setSource(URL.createObjectURL(file));
@@ -41,7 +42,7 @@ export default function CategoryImageField({ imageUrl, onChange }) {
       URL.revokeObjectURL(source);
       setSource('');
     } catch (error) {
-      alert(error.response?.data?.message || 'Failed to upload image');
+      toast.error(errorMessage(error, 'Could not upload the image'), { title: 'Upload failed' });
     } finally {
       setUploading(false);
     }

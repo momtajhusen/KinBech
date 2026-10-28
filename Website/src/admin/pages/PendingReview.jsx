@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import api from '../services/api';
+import { errorMessage, toast } from '../components/Feedback';
 import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
@@ -126,7 +127,6 @@ export default function PendingReview() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
-  const [notice, setNotice] = useState('');
   const debounced = useDebounce(searchTerm);
 
   const load = useCallback(async () => {
@@ -137,7 +137,7 @@ export default function PendingReview() {
       });
       setData(response.data);
     } catch (error) {
-      setNotice(errorText(error, 'Could not load the review queue'));
+      toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load the review queue' });
     } finally {
       setLoading(false);
     }
@@ -152,8 +152,8 @@ export default function PendingReview() {
   }, [debounced]);
 
   const onDone = (listing, decision) => {
-    setNotice(decision === 'approve' ? `"${listing.title}" approved and live` : `"${listing.title}" rejected, seller notified`);
-    window.setTimeout(() => setNotice(''), 4000);
+    if (decision === 'approve') toast.success(`"${listing.title}" is live in the app.`, { title: 'Listing approved' });
+    else toast.success(`"${listing.title}" is hidden and the seller is told why.`, { title: 'Listing rejected' });
     setOpenId(null);
     load();
   };
@@ -177,8 +177,6 @@ export default function PendingReview() {
           </button>
         </div>
       </div>
-
-      {notice ? <div className="u360-notice">{notice}</div> : null}
 
       {loading && !data ? (
         <div className="loading">Loading review queue...</div>

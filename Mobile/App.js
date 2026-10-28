@@ -11,6 +11,7 @@ import { WishlistProvider } from './src/context/WishlistContext';
 import { ThemeProvider } from './src/theme';
 import { getAuthToken, getWorkingApiBaseUrl } from './src/services/api';
 import { reportMobileError } from './src/utils/errorReporting';
+import { queueAlertOpen } from './src/services/pushAlerts';
 import {
   getFCMToken,
   getInitialNotification,
@@ -60,21 +61,13 @@ export default function App() {
     const setupFCM = async () => {
       // Check if app was opened from notification
       const initialNotification = await getInitialNotification();
-      if (initialNotification) {
-        // Handle navigation based on notification data
-        console.log('Initial notification:', initialNotification);
-      }
+      if (initialNotification) queueAlertOpen(initialNotification.data);
 
       await getFCMToken();
       syncDeviceToken().catch(() => {});
 
       // Setup notification listeners
-      const cleanup = setupFCMListeners((remoteMessage) => {
-        // Handle notification tap
-        console.log('Notification tapped:', remoteMessage);
-        // Navigate based on notification data
-        // Example: navigation.navigate('ChatScreen', { chatId: remoteMessage.data.chatId });
-      });
+      const cleanup = setupFCMListeners((remoteMessage) => queueAlertOpen(remoteMessage?.data));
 
       return cleanup;
     };

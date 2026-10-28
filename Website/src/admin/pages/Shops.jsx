@@ -8,6 +8,7 @@ import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
 import RecordModal from '../components/RecordModal';
+import { confirmAction, errorMessage, toast } from '../components/Feedback';
 
 const Shops = () => {
   const { colors } = useTheme();
@@ -32,7 +33,7 @@ const Shops = () => {
       const { data } = await api.get(`/shops/admin/${selected.id}/tax-ids`);
       setTaxIds(data);
     } catch (error) {
-      alert(error.response?.data?.message || 'Could not load tax IDs');
+      toast.error(errorMessage(error, 'Please try again.'), { title: 'Could not load tax IDs' });
     } finally {
       setRevealing(false);
     }
@@ -132,7 +133,32 @@ const Shops = () => {
     return colors.category[category?.toLowerCase()] || colors.primary;
   };
 
-  const handleShopAction = async (shopId, action) => {
+  const SHOP_ACTION_CONFIRM = {
+    reject: (name) => ({
+      title: `Reject ${name}?`,
+      message: 'The shop stays hidden from buyers and is not verified.',
+      confirmLabel: 'Reject shop',
+      tone: 'danger',
+      icon: 'storefront',
+    }),
+    suspend: (name) => ({
+      title: `Suspend ${name}?`,
+      message: 'The shop is hidden from buyers and loses its verified badge.',
+      confirmLabel: 'Suspend shop',
+      tone: 'danger',
+      icon: 'block',
+    }),
+  };
+
+  const SHOP_ACTION_DONE = {
+    approve: ['Shop approved', (name) => `${name} is live and verified.`],
+    reject: ['Shop rejected', (name) => `${name} is hidden from buyers.`],
+    suspend: ['Shop suspended', (name) => `${name} is hidden from buyers.`],
+  };
+
+  const handleShopAction = async (shop, action) => {
+    const shopId = shop.id;
+    if (SHOP_ACTION_CONFIRM[action] && !(await confirmAction(SHOP_ACTION_CONFIRM[action](shop.name)))) return;
     try {
       let status, isVerified;
       
@@ -148,9 +174,11 @@ const Shops = () => {
       }
 
       await api.patch(`/shops/admin/${shopId}/status`, { status, isVerified });
+      const [title, text] = SHOP_ACTION_DONE[action];
+      toast.success(text(shop.name), { title });
       fetchShops(); // Refresh the list
-    } catch (error) {
-      console.error('Failed to update shop status:', error);
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -159,12 +187,12 @@ const Shops = () => {
       <button type="button" className="action-btn view" onClick={() => setSelected(shop)}>View</button>
       {shop.status === 'pending' && (
         <>
-          <button className="action-btn approve" onClick={() => handleShopAction(shop.id, 'approve')}>Approve</button>
-          <button className="action-btn reject" onClick={() => handleShopAction(shop.id, 'reject')}>Reject</button>
+          <button className="action-btn approve" onClick={() => handleShopAction(shop, 'approve')}>Approve</button>
+          <button className="action-btn reject" onClick={() => handleShopAction(shop, 'reject')}>Reject</button>
         </>
       )}
       {shop.status === 'verified' && (
-        <button className="action-btn suspend" onClick={() => handleShopAction(shop.id, 'suspend')}>Suspend</button>
+        <button className="action-btn suspend" onClick={() => handleShopAction(shop, 'suspend')}>Suspend</button>
       )}
     </div>
   );

@@ -42,6 +42,7 @@ import {
   ensureAlertChannel,
   subscribeAlertPress,
   subscribeNativeChatAlert,
+  subscribeQueuedAlertOpen,
 } from '../services/pushAlerts';
 import { useTheme } from '../theme';
 import AllCategoriesScreen from '../screens/AllCategoriesScreen';
@@ -203,6 +204,16 @@ function IncomingCallBridge() {
   return null;
 }
 
+const DIRECT_ALERT_ROUTES = new Set([
+  'TesterMode',
+  'Subscription',
+  'MyListings',
+  'PostListing',
+  'EditProfile',
+  'Wishlist',
+  'Notifications',
+]);
+
 function PushAlertBridge() {
   const navigation = useNavigation();
   const { ready, isLoggedIn } = useAuth();
@@ -221,7 +232,22 @@ function PushAlertBridge() {
         });
         return;
       }
-      if (data.route === 'TesterMode' || data.route === 'Subscription') {
+      if (data.route === 'ItemDetail' && data.listingId) {
+        navigation.navigate('ItemDetail', { listingId: String(data.listingId) });
+        return;
+      }
+      if (data.route === 'Explore') {
+        navigation.navigate('MainTabs', {
+          screen: 'Explore',
+          params: { category: data.category || undefined, ts: Date.now() },
+        });
+        return;
+      }
+      if (data.route === 'Chats') {
+        navigation.navigate('MainTabs', { screen: 'Chats' });
+        return;
+      }
+      if (DIRECT_ALERT_ROUTES.has(data.route)) {
         navigation.navigate(data.route);
         return;
       }
@@ -234,6 +260,7 @@ function PushAlertBridge() {
     });
     const unsubscribe = subscribeAlertPress(openAlert);
     const unsubscribeNative = subscribeNativeChatAlert(openAlert);
+    const unsubscribeQueued = subscribeQueuedAlertOpen(openAlert);
     ensureAlertChannel().catch(() => {});
 
     const tick = async () => {
@@ -268,6 +295,11 @@ function PushAlertBridge() {
             image: item.params?.image || '',
             listingImage: item.params?.listingImage || '',
             listingTitle: item.params?.listingTitle || '',
+            route: item.route || '',
+            listingId: item.params?.listingId ? String(item.params.listingId) : '',
+            category: item.params?.category || '',
+            bigPicture: item.params?.bigPicture || '',
+            digest: item.params?.digest ? '1' : '',
           },
         });
       }
@@ -279,6 +311,7 @@ function PushAlertBridge() {
       clearInterval(timer);
       unsubscribe();
       unsubscribeNative();
+      unsubscribeQueued();
       primedRef.current = false;
       seenRef.current = new Set();
     };

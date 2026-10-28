@@ -1,12 +1,11 @@
 import { useEffect } from 'react';
-import ExploreFilterBar from './ExploreFilterBar';
+import ExploreRefinePanel from './ExploreRefinePanel';
 
 export default function ExploreFilterSheet({
   open,
   onClose,
-  filterBarProps,
-  activeFilterCount,
-  onClearFilters,
+  refineProps,
+  resultLabel,
 }) {
   useEffect(() => {
     if (!open) return undefined;
@@ -35,21 +34,16 @@ export default function ExploreFilterSheet({
         <div className="explore-filter-sheet-handle" aria-hidden />
         <div className="explore-filter-sheet-head">
           <h2>Filters</h2>
-          <button type="button" className="explore-filter-sheet-close" onClick={onClose}>
+          <button type="button" className="explore-filter-sheet-close" onClick={onClose} aria-label="Close">
             ×
           </button>
         </div>
         <div className="explore-filter-sheet-body">
-          <ExploreFilterBar {...filterBarProps} layout="sheet" />
+          <ExploreRefinePanel {...refineProps} showSort className="refine-panel--sheet" />
         </div>
         <div className="explore-filter-sheet-foot">
-          {activeFilterCount > 0 ? (
-            <button type="button" className="btn btn-outline" onClick={onClearFilters}>
-              Clear all
-            </button>
-          ) : null}
           <button type="button" className="btn btn-primary" onClick={onClose}>
-            Show results
+            {resultLabel || 'Show results'}
           </button>
         </div>
       </div>

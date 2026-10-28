@@ -56,5 +56,14 @@
     "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1"
   },
-  "private": true
+  "private": true,
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-camera"
+        ]
+      }
+    }
+  }
 }

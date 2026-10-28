@@ -28,6 +28,14 @@ export const PAGE_SCOPES = {
   activity: 'audit',
 };
 
+/** Mirror of ROLE_SCOPES in Backend/src/utils/adminScopes.js — keep both in sync. */
+export const ROLE_SCOPES = {
+  super_admin: ['dashboard', 'users', 'listings', 'shops', 'reports', 'reviews', 'categories', 'moderation', 'notifications', 'errors', 'ai', 'settings', 'audit', 'admins'],
+  admin: ['dashboard', 'users', 'listings', 'shops', 'reports', 'reviews', 'categories', 'moderation', 'notifications', 'errors', 'ai', 'settings', 'audit'],
+  moderator: ['dashboard', 'listings', 'shops', 'reports', 'reviews', 'moderation'],
+  support: ['dashboard', 'users', 'reports', 'errors'],
+};
+
 export const ROLE_LABELS = {
   super_admin: 'Super Admin',
   admin: 'Admin',

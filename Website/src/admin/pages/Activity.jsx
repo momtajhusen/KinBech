@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Filter, Search, X } from 'lucide-react';
 import api from '../services/api';
 import Pagination from '../components/Pagination';
@@ -42,6 +42,7 @@ export default function Activity() {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearch = useDebounce(searchTerm);
   const [selected, setSelected] = useState(null);
+  const panelRef = useRef(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -78,6 +79,14 @@ export default function Activity() {
   useEffect(() => {
     setPage(1);
   }, [group, debouncedSearch, from, to]);
+
+  // On narrower screens the panel sits below the table, so bring it into view.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (selected && panel && panel.getBoundingClientRect().top > window.innerHeight * 0.6) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selected]);
 
   const filtered = group || searchTerm || from || to;
 
@@ -158,7 +167,7 @@ export default function Activity() {
                       <span className={`status-badge ${isWarning(log.action) ? 'severity-warning' : 'active'}`}>{log.action}</span>
                     </td>
                     <td><div className="error-msg-cell" title={log.summary}>{log.summary || '—'}</div></td>
-                    <td><code className="error-path">{log.ip || '—'}</code></td>
+                    <td><code className="error-path" title={log.ip || ''}>{log.ip || '—'}</code></td>
                   </tr>
                 ))}
               </tbody>
@@ -167,7 +176,7 @@ export default function Activity() {
             <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
           </div>
 
-          <aside className="error-detail-panel">
+          <aside className="error-detail-panel" ref={panelRef}>
             {!selected ? (
               <div className="empty-state">Select an entry to see the full details</div>
             ) : (

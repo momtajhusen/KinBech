@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import CategoryImageField from '../components/CategoryImageField';
 import Modal, { ModalSwitch } from '../components/Modal';
+import { confirmAction, toast } from '../components/Feedback';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
 import Pagination from '../components/Pagination';
 import api from '../services/api';
@@ -270,13 +271,20 @@ const Categories = () => {
     });
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this category?')) return;
+  const handleDelete = async (cat) => {
+    const ok = await confirmAction({
+      title: `Delete "${cat.name}"?`,
+      message: 'Sellers can no longer pick this category for new posts.',
+      confirmLabel: 'Delete category',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/categories/admin/${id}`);
+      await api.delete(`/categories/admin/${cat.id}`);
+      toast.success(`"${cat.name}" deleted`);
       await fetchCategories(type);
-    } catch (error) {
-      alert(error.response?.data?.message || 'Failed to delete category');
+    } catch {
+      /* the API layer shows the error */
     }
   };
 
@@ -367,7 +375,7 @@ const Categories = () => {
                     <button className="action-btn view" onClick={() => openEdit(cat)}>
                       Edit
                     </button>
-                    <button className="action-btn suspend" onClick={() => handleDelete(cat.id)}>
+                    <button className="action-btn suspend" onClick={() => handleDelete(cat)}>
                       Delete
                     </button>
                   </div>
@@ -434,7 +442,7 @@ const Categories = () => {
                       <button className="action-btn view" onClick={() => openEdit(cat)}>
                         Edit
                       </button>
-                      <button className="action-btn suspend" onClick={() => handleDelete(cat.id)}>
+                      <button className="action-btn suspend" onClick={() => handleDelete(cat)}>
                         Delete
                       </button>
                     </div>

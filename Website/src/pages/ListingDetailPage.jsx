@@ -13,6 +13,12 @@ import ProductCard from '../components/ProductCard';
 import VariantPicker, { getDefaultVariantSelection } from '../components/VariantPicker';
 import Footer from '../components/Footer';
 import { IconLocation, IconShield, IconStar } from '../components/Icons';
+import Breadcrumb from '../components/Breadcrumb';
+import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
+import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
+import LocationCityRounded from '@mui/icons-material/LocationCityRounded';
+import PhonelinkLockRounded from '@mui/icons-material/PhonelinkLockRounded';
+import VisibilityRounded from '@mui/icons-material/VisibilityRounded';
 import { formatListingPrice } from '../utils/listingVariants';
 
 function ListingGallery({ photos, title }) {
@@ -129,13 +135,7 @@ export default function ListingDetailPage() {
     <div className="detail-page">
       <header className="detail-header">
         <div className="container detail-header-inner">
-          <nav className="detail-breadcrumb" aria-label="Breadcrumb">
-            <Link to="/">Home</Link>
-            <span>/</span>
-            <Link to="/explore">Explore</Link>
-            <span>/</span>
-            <span className="detail-breadcrumb-current">{card?.title || 'Item'}</span>
-          </nav>
+          <Breadcrumb trail={[{ to: '/explore', label: 'Explore' }, { label: card?.title || 'Item' }]} />
           <button type="button" className="detail-back-btn" onClick={() => navigate(-1)}>
             ← Back
           </button>
@@ -185,16 +185,17 @@ export default function ListingDetailPage() {
               ) : null}
 
               <div className="listing-modal-chips">
-                {card.condition ? <span>{card.condition}</span> : null}
+                {card.condition ? <span><AutoAwesomeRounded aria-hidden /> {card.condition}</span> : null}
                 {listing.status ? <span className={`detail-status detail-status-${listing.status}`}>{listing.status}</span> : null}
                 {distanceLabel ? <span><IconLocation width={14} height={14} /> {distanceLabel}</span> : null}
-                {card.location ? <span>{card.location}</span> : null}
-                {listing.views ? <span>{listing.views} views</span> : null}
+                {card.location ? <span><LocationCityRounded aria-hidden /> {card.location}</span> : null}
+                {listing.views ? <span><VisibilityRounded aria-hidden /> {listing.views} views</span> : null}
               </div>
 
               {listing.meetupOption ? (
                 <p className="detail-meetup">
-                  <strong>Meetup:</strong> {listing.meetupOption}
+                  <HandshakeRounded aria-hidden />
+                  <span><strong>Meetup:</strong> {listing.meetupOption}</span>
                 </p>
               ) : null}
 
@@ -225,7 +226,7 @@ export default function ListingDetailPage() {
                         <span className="seller-verified"><IconShield width={14} height={14} /> Business Verified</span>
                       ) : null}
                       {!shop && (card.verificationKind === 'phone' || card.verified || listing.sellerType !== 'shop') ? (
-                        <span className="seller-verified seller-verified-phone">Phone Verified</span>
+                        <span className="seller-verified seller-verified-phone"><PhonelinkLockRounded aria-hidden /> Phone Verified</span>
                       ) : null}
                       {shop?.ratingAverage ? (
                         <span><IconStar width={14} height={14} /> {shop.ratingAverage} ({shop.reviewCount || 0} reviews)</span>

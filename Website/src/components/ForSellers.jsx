@@ -1,74 +1,55 @@
+import AddAPhotoRounded from '@mui/icons-material/AddAPhotoRounded';
+import HandshakeRounded from '@mui/icons-material/HandshakeRounded';
+import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
+import PinDropRounded from '@mui/icons-material/PinDropRounded';
+import QrCode2Rounded from '@mui/icons-material/QrCode2Rounded';
+import StorefrontRounded from '@mui/icons-material/StorefrontRounded';
+import TrendingUpRounded from '@mui/icons-material/TrendingUpRounded';
+import VerifiedRounded from '@mui/icons-material/VerifiedRounded';
 import SectionHeader from './SectionHeader';
 import Reveal from './Reveal';
-import { IconCheck, IconShop, IconUser } from './Icons';
+import SiteImage from './SiteImage';
+import IconList from './IconList';
 
 const INDIVIDUAL_FEATURES = [
-  'List in under a minute with photos',
-  'Set city & district location',
-  'Choose public meetup preference',
-  'Manage listings from My Listings',
+  { icon: AddAPhotoRounded, text: 'List in under a minute with photos' },
+  { icon: PinDropRounded, text: 'Set city & district location' },
+  { icon: HandshakeRounded, text: 'Choose public meetup preference' },
+  { icon: Inventory2Rounded, text: 'Manage listings from My Listings' },
 ];
 
 const SHOP_FEATURES = [
-  'Shop logo, category & opening hours',
-  'Stock, SKU & brand on listings',
-  'Verified badge after admin review',
-  'Featured in Explore & search',
+  { icon: StorefrontRounded, text: 'Shop logo, category & opening hours' },
+  { icon: QrCode2Rounded, text: 'Stock, SKU & brand on listings' },
+  { icon: VerifiedRounded, text: 'Verified badge after admin review' },
+  { icon: TrendingUpRounded, text: 'Featured in Explore & search' },
 ];
 
 export default function ForSellers({ embedded = false }) {
   const grid = (
         <div className="seller-grid">
           <Reveal as="article" className="seller-card seller-card--individual" variant="left" delay={0}>
-            <div className="seller-card-visual">
-              <div className="seller-mock seller-mock--user">
-                <IconUser width={32} height={32} />
-              </div>
-              <div className="seller-mock-pills">
-                <span>Quick post</span>
-                <span>1 item</span>
-              </div>
-            </div>
+            <SiteImage name="sellers-individual" className="seller-card-art" />
             <span className="seller-tag">Individual</span>
             <h3>Sell personal items</h3>
+            <p className="ne-sub ne-sub--card" lang="ne">आफ्ना पुराना सामान बेच्नुहोस्</p>
             <p>
               Perfect for one-off sales — phones, furniture, bikes, books. Quick listing flow,
               no business paperwork.
             </p>
-            <ul className="seller-features">
-              {INDIVIDUAL_FEATURES.map((item) => (
-                <li key={item}>
-                  <IconCheck width={16} height={16} />
-                  {item}
-                </li>
-              ))}
-            </ul>
+            <IconList items={INDIVIDUAL_FEATURES} tone="blue" className="seller-features" />
           </Reveal>
 
           <Reveal as="article" className="seller-card seller-card--shop" variant="right" delay={120}>
-            <div className="seller-card-visual">
-              <div className="seller-mock seller-mock--shop">
-                <IconShop width={32} height={32} />
-              </div>
-              <div className="seller-mock-pills">
-                <span>Verified</span>
-                <span>Catalog</span>
-              </div>
-            </div>
+            <SiteImage name="sellers-shop" className="seller-card-art" />
             <span className="seller-tag seller-tag--shop">Shop owner</span>
             <h3>Run your store</h3>
+            <p className="ne-sub ne-sub--card" lang="ne">आफ्नो पसल अनलाइन चलाउनुहोस्</p>
             <p>
               For mobile shops, electronics stores, and local businesses. Get a public shop page
               with reviews and verification.
             </p>
-            <ul className="seller-features">
-              {SHOP_FEATURES.map((item) => (
-                <li key={item}>
-                  <IconCheck width={16} height={16} />
-                  {item}
-                </li>
-              ))}
-            </ul>
+            <IconList items={SHOP_FEATURES} className="seller-features" />
           </Reveal>
         </div>
   );

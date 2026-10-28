@@ -6,6 +6,7 @@ import Pagination from '../components/Pagination';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import RecordModal from '../components/RecordModal';
+import { confirmAction } from '../components/Feedback';
 
 const Reviews = () => {
   const { colors } = useTheme();
@@ -76,6 +77,16 @@ const Reviews = () => {
   ];
 
   const handleReviewAction = async (reviewId, action) => {
+    if (action === 'remove') {
+      const ok = await confirmAction({
+        title: 'Remove this review?',
+        message: 'It disappears from the seller profile and stops counting toward their rating.',
+        confirmLabel: 'Remove review',
+        tone: 'danger',
+        icon: 'rate_review',
+      });
+      if (!ok) return;
+    }
     try {
       let status;
       

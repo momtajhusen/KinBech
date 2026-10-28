@@ -73,6 +73,15 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "KinBech uses the camera when you take listing photos or record a short product video.",
+          "microphonePermission": "KinBech uses the microphone for voice search, voice calls, and short listing videos.",
+          "recordAudioAndroid": true,
+          "barcodeScannerEnabled": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow KinBech to use your location while the app is open to show nearby listings and auto-fill city or district.",
@@ -95,9 +104,10 @@
         {
           "android": {
             "usesCleartextTraffic": false,
+            "useLegacyPackaging": true,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "extraProguardRules": "-keep class com.codersalpha.kinbech.** { *; }"
+            "extraProguardRules": "-keep class com.codersalpha.kinbech.** { *; }\n-dontwarn com.google.mlkit.vision.**"
           }
         }
       ],
@@ -114,6 +124,8 @@
       "./plugins/withCertificatePinning",
       "./plugins/withGradleMemory",
       "./plugins/withAgoraSlim",
+      "./plugins/withReleaseSigning",
+      "./plugins/withReleaseSigning",
       [
         "expo-speech-recognition",
         {

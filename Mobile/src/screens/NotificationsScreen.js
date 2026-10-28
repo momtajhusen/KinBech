@@ -277,6 +277,13 @@ export default function NotificationsScreen({ navigation }) {
       navigation.navigate(ROUTES.CHAT, { ...(item.params || {}), chatId, name: entry.name || item.params?.name });
       return;
     }
+    if (item.route === 'Explore' || item.route === 'Chats') {
+      navigation.navigate('MainTabs', {
+        screen: item.route,
+        params: item.route === 'Explore' ? { category: item.params?.category || undefined, ts: Date.now() } : undefined,
+      });
+      return;
+    }
     if (item.route && item.route !== 'dashboard') navigation.navigate(item.route, item.params || undefined);
   };
 

@@ -7,6 +7,7 @@ const STEPS = [
     icon: IconPhone,
     tone: 'emerald',
     title: 'Sign up with phone',
+    ne: 'फोन नम्बरबाट साइन अप',
     text: 'Enter your Nepal mobile number (+977). Verify with OTP — no email required.',
     detail: '~30 sec setup',
   },
@@ -14,6 +15,7 @@ const STEPS = [
     icon: IconSearch,
     tone: 'blue',
     title: 'Browse or list',
+    ne: 'खोज्नुहोस् वा सामान राख्नुहोस्',
     text: 'Search nearby items or post your own with photos, price, and location in minutes.',
     detail: 'Up to 8 photos',
   },
@@ -21,6 +23,7 @@ const STEPS = [
     icon: IconChat,
     tone: 'violet',
     title: 'Chat & agree',
+    ne: 'कुरा गरेर मूल्य मिलाउनुहोस्',
     text: 'Talk to the buyer or seller in-app. Agree on price and pick a public meetup spot.',
     detail: 'In-app messaging',
   },
@@ -28,6 +31,7 @@ const STEPS = [
     icon: IconHandshake,
     tone: 'amber',
     title: 'Meet & deal',
+    ne: 'भेटेर कारोबार गर्नुहोस्',
     text: 'Inspect the item in person, pay how you agree (cash, eSewa, Khalti), and leave a review.',
     detail: 'Face-to-face only',
   },
@@ -53,6 +57,7 @@ export default function HowItWorks({ embedded = false }) {
                   </div>
                 </div>
                 <h3>{step.title}</h3>
+                <p className="ne-sub ne-sub--card" lang="ne">{step.ne}</p>
                 <p>{step.text}</p>
                 <span className="step-detail">{step.detail}</span>
                 {index < STEPS.length - 1 ? <span className="step-connector" aria-hidden /> : null}

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AdminThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
+import { FeedbackHost } from './components/Feedback';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import LiveActivity from './pages/LiveActivity';
@@ -33,6 +34,7 @@ import Security from './pages/Security';
 import { adminPath } from './routes';
 import { PAGE_SCOPES, canAccess, firstAllowedPath } from './utils/access';
 import './admin.css';
+import './admin-clay.css';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -98,6 +100,7 @@ function PublicRoute({ children }) {
 export default function AdminApp() {
   return (
     <AdminThemeProvider>
+      <FeedbackHost />
       <AuthProvider>
         <Routes>
           <Route

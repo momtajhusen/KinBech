@@ -24,6 +24,7 @@ export const api = {
   getListings: (params) => request(`/listings${toQuery(params)}`),
   searchListings: (params) => request(`/listings/search${toQuery(params)}`),
   getCategoryCounts: (params) => request(`/listings/category-counts${toQuery(params)}`),
+  getSearchSuggestions: (q, options) => request(`/listings/suggestions${toQuery({ q })}`, options),
   getListing: (id) => request(`/listings/${id}`),
 
   getFeaturedSellers: (params) => request(`/sellers/featured${toQuery(params)}`),

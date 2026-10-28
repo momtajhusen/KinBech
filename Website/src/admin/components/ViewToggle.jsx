@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutGrid, List } from 'lucide-react';
+import MIcon from './MIcon';
 
 const STORAGE_PREFIX = 'kinbech.admin.view.';
 
@@ -36,7 +36,7 @@ export default function ViewToggle({ view, onChange }) {
         title="List view"
         aria-pressed={view === 'list'}
       >
-        <List className="item-icon" aria-hidden />
+        <MIcon name="view_list" filled={view === 'list'} />
       </button>
       <button
         type="button"
@@ -45,7 +45,7 @@ export default function ViewToggle({ view, onChange }) {
         title="Card view"
         aria-pressed={view === 'card'}
       >
-        <LayoutGrid className="item-icon" aria-hidden />
+        <MIcon name="grid_view" filled={view === 'card'} />
       </button>
     </div>
   );

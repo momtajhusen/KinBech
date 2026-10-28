@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const AiSettings = require('../models/AiSettings');
 const AiUsageDaily = require('../models/AiUsageDaily');
+const AiCallLog = require('../models/AiCallLog');
 
 // Free-tier quota is counted per model, so later entries keep AI working after
 // the preferred model hits its daily limit.
@@ -98,6 +99,9 @@ function presentAccount(account) {
     blockedModels: (account.modelBlocks || [])
       .filter((item) => item.blockedUntil && new Date(item.blockedUntil).getTime() > Date.now())
       .map((item) => item.name),
+    modelBlocks: (account.modelBlocks || [])
+      .filter((item) => item.blockedUntil && new Date(item.blockedUntil).getTime() > Date.now())
+      .map((item) => ({ name: item.name, blockedUntil: item.blockedUntil })),
   };
 }
 
@@ -255,7 +259,7 @@ async function clearModelBlock(name) {
 }
 
 /** Counts every HTTP call to Gemini; failures here must never break a request. */
-function recordUsage(model, { ok = false, quota = false, error = '' } = {}) {
+function recordUsage(model, { ok = false, quota = false, error = '', account = null, purpose = '', ms = 0 } = {}) {
   const now = new Date();
   const inc = ok ? { success: 1 } : quota ? { quotaHits: 1 } : { failed: 1 };
   const set = { lastUsedAt: now };
@@ -266,6 +270,31 @@ function recordUsage(model, { ok = false, quota = false, error = '' } = {}) {
   AiUsageDaily.updateOne({ day: quotaDay(now), model }, { $inc: inc, $set: set }, { upsert: true })
     .exec()
     .catch((err) => console.warn('[ai] could not record usage:', err.message));
+  AiCallLog.create({
+    at: now,
+    day: quotaDay(now),
+    accountId: account?.id || '',
+    accountLabel: account?.label || '',
+    model,
+    result: ok ? 'ok' : quota ? 'limit' : 'failed',
+    purpose,
+    ms: Math.max(0, Math.round(ms) || 0),
+    error: ok ? '' : String(error || '').slice(0, 300),
+  }).catch((err) => console.warn('[ai] could not log call:', err.message));
+}
+
+/** Next Gemini daily quota reset (midnight Pacific time). */
+function nextQuotaReset(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    hourCycle: 'h23',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(now);
+  const get = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const elapsedMs = (get('hour') * 3600 + get('minute') * 60 + get('second')) * 1000 + now.getMilliseconds();
+  return new Date(now.getTime() - elapsedMs + 24 * 60 * 60 * 1000);
 }
 
 module.exports = {
@@ -283,6 +312,7 @@ module.exports = {
   markAccountModelBlocked,
   markModelBlocked,
   modelsForAccount,
+  nextQuotaReset,
   presentAccount,
   quotaDay,
   recordUsage,

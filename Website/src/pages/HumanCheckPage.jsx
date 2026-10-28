@@ -53,7 +53,7 @@ export default function HumanCheckPage() {
   };
 
   return (
-    <PageShell label="Security" title="Quick human check" subtitle="This keeps bots away from KinBech sign-in.">
+    <PageShell label="Security" title="Quick human check" titleNe="तपाईं रोबोट होइन भनी छोटो जाँच" subtitle="This keeps bots away from KinBech sign-in." image="security-hero">
       <div className="container">
         <section className="page-info-card human-check">
           {status === 'missing' && <p>This link is incomplete. Go back to the KinBech app and try again.</p>}

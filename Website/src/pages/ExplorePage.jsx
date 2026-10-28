@@ -3,6 +3,14 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { toCardItem, toSellerCard } from '../utils/listing';
 import { normalizeCategoriesResponse } from '../utils/categories';
+import {
+  DEFAULT_FILTERS,
+  countActiveFilters,
+  formatNpr,
+  readFilters,
+  sortOptions,
+  writeFilters,
+} from '../utils/exploreFilters';
 import { useGeolocation } from '../hooks/useGeolocation';
 import ProductCard from '../components/ProductCard';
 import SellerCard from '../components/SellerCard';
@@ -11,11 +19,16 @@ import ExploreFilterSheet from '../components/ExploreFilterSheet';
 import ExploreMobileRail from '../components/ExploreMobileRail';
 import ExploreSidebar from '../components/ExploreSidebar';
 import ExplorePagination from '../components/ExplorePagination';
-import { IconSearch } from '../components/Icons';
+import ExploreRefinePanel from '../components/ExploreRefinePanel';
+import ExploreSearchBox from '../components/ExploreSearchBox';
+import { IconLocation, IconMobile } from '../components/Icons';
 import Footer from '../components/Footer';
+import SiteImage from '../components/SiteImage';
+import Breadcrumb from '../components/Breadcrumb';
 import { BRAND_TAGLINE } from '../content/brand';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 24;
+const DENSITY_KEY = 'kb-explore-density';
 
 const SEARCH_TABS = [
   { id: 'all', label: 'All' },
@@ -24,108 +37,165 @@ const SEARCH_TABS = [
   { id: 'stores', label: 'Stores' },
 ];
 
-const DEFAULT_FILTERS = {
-  sort: 'newest',
-  condition: 'All',
-  minPrice: '',
-  maxPrice: '',
-  radius: '',
-  sellerType: 'all',
-};
+function useDebounced(value, delay) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
 
-function SkeletonGrid({ count = 8 }) {
+function SkeletonGrid({ count = 12, compact = false }) {
   return (
-    <div className="explore-grid explore-grid-dense">
+    <div className={`explore-grid-v2${compact ? ' is-compact' : ''}`} aria-hidden>
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="skeleton-card" />
+        <div key={i} className="explore-skeleton">
+          <span className="explore-skeleton-img" />
+          <span className="explore-skeleton-line" />
+          <span className="explore-skeleton-line short" />
+        </div>
       ))}
     </div>
   );
 }
 
-function buildListingParams(geoParams, filters, category, query, page = 1) {
-  const params = {
-    ...geoParams,
-    sort: filters.sort,
-    page,
-    limit: PAGE_SIZE,
-  };
-  if (category && category !== 'All') params.category = category;
-  if (filters.condition && filters.condition !== 'All') params.condition = filters.condition;
+function buildListingParams({ geo, filters, category, q, page }) {
+  const hasGeo = geo.lat != null;
+  let sort = filters.sort || (q ? 'relevance' : 'newest');
+  if (sort === 'distance' && !hasGeo) sort = q ? 'relevance' : 'newest';
+  const params = { ...geo, sort, page, limit: PAGE_SIZE };
+  if (category !== 'All') params.category = category;
+  if (filters.condition !== 'All') params.condition = filters.condition;
   if (filters.minPrice) params.minPrice = filters.minPrice;
   if (filters.maxPrice) params.maxPrice = filters.maxPrice;
-  if (filters.radius) params.radius = filters.radius;
-  if (filters.sellerType && filters.sellerType !== 'all') params.sellerType = filters.sellerType;
-  if (query?.trim()) params.q = query.trim();
+  if (filters.radius && hasGeo) params.radius = filters.radius;
+  if (filters.sellerType !== 'all') params.sellerType = filters.sellerType;
+  if (q) params.q = q;
   return params;
 }
 
-function buildCountParams(geoParams, filters, query) {
-  const params = { ...geoParams };
-  if (filters.condition && filters.condition !== 'All') params.condition = filters.condition;
-  if (filters.minPrice) params.minPrice = filters.minPrice;
-  if (filters.maxPrice) params.maxPrice = filters.maxPrice;
-  if (filters.sellerType && filters.sellerType !== 'all') params.sellerType = filters.sellerType;
-  if (query?.trim()) params.q = query.trim();
-  return params;
+function fetchFeed(request, page) {
+  const params = buildListingParams({ ...request, page });
+  return (request.q ? api.searchListings(params) : api.getListings(params)).then((res) => {
+    const items = (res.listings || []).map(toCardItem).filter(Boolean);
+    return {
+      items,
+      total: res.total ?? items.length,
+      page: res.page ?? page,
+      hasMore: Boolean(res.hasMore),
+    };
+  });
 }
 
 export default function ExplorePage() {
   const [params, setParams] = useSearchParams();
   const { coords, status: geoStatus } = useGeolocation();
+  const hasLocation = Boolean(coords);
+
+  const category = params.get('category') || 'All';
+  const q = (params.get('q') || '').trim();
+  const filters = useMemo(() => readFilters(params), [params]);
+  const isSearch = q.length > 0;
+
+  const [query, setQuery] = useState(q);
+  const writtenQueryRef = useRef(q);
+  const debouncedQuery = useDebounced(query.trim(), 320);
 
   const [tab, setTab] = useState('products');
-  const [query, setQuery] = useState(params.get('q') || '');
   const [searchTab, setSearchTab] = useState('all');
-  const [category, setCategory] = useState(params.get('category') || 'All');
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [density, setDensity] = useState(() => {
+    try {
+      return localStorage.getItem(DENSITY_KEY) || 'comfort';
+    } catch {
+      return 'comfort';
+    }
+  });
+  const compact = density === 'compact';
+
   const [categories, setCategories] = useState([]);
   const [categoryCounts, setCategoryCounts] = useState({ counts: {}, total: 0 });
   const [countsLoading, setCountsLoading] = useState(true);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
-  const [listings, setListings] = useState([]);
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-
-  const [featured, setFeatured] = useState([]);
-  const [popular, setPopular] = useState([]);
-  const [nearby, setNearby] = useState([]);
-  const [searchListings, setSearchListings] = useState([]);
-  const [searchSellers, setSearchSellers] = useState([]);
-  const [searchPage, setSearchPage] = useState(1);
-  const [searchTotal, setSearchTotal] = useState(0);
-  const [searchTotalPages, setSearchTotalPages] = useState(1);
-  const [searchHasMore, setSearchHasMore] = useState(false);
-
-  const [loading, setLoading] = useState(true);
+  const [feed, setFeed] = useState({ items: [], total: 0, page: 1, hasMore: false });
+  const [feedStatus, setFeedStatus] = useState('loading');
+  const [feedError, setFeedError] = useState('');
   const [loadingMore, setLoadingMore] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
+  const feedReqRef = useRef(0);
+  const feedRef = useRef(feed);
+  feedRef.current = feed;
+  const loadingMoreRef = useRef(false);
+
+  const [searchSellers, setSearchSellers] = useState([]);
+  const [sellerGroups, setSellerGroups] = useState({ featured: [], popular: [], nearby: [] });
   const [sellersLoading, setSellersLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [sellersError, setSellersError] = useState('');
 
-  const sellersLoadedRef = useRef(false);
-  const filterKey = useMemo(
-    () => JSON.stringify({ filters, category, geoParams: coords, query: query.trim(), isSearch: query.trim().length > 0 }),
-    [filters, category, coords, query],
-  );
+  const [showTop, setShowTop] = useState(false);
+  const resultsRef = useRef(null);
 
-  const geoParams = useMemo(
-    () => (coords ? { lat: coords.lat, lng: coords.lng } : {}),
-    [coords],
-  );
+  const geo = useMemo(() => (coords ? { lat: coords.lat, lng: coords.lng } : {}), [coords]);
 
-  const isSearchMode = query.trim().length > 0;
+  // Typing writes ?q= after a short pause; back/forward and links write the box.
+  useEffect(() => {
+    if (q !== writtenQueryRef.current) {
+      writtenQueryRef.current = q;
+      setQuery(q);
+    }
+  }, [q]);
+
+  const commitQuery = useCallback((text) => {
+    const value = (text ?? '').trim();
+    writtenQueryRef.current = value;
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set('q', value);
+      else next.delete('q');
+      return next;
+    }, { replace: true });
+  }, [setParams]);
 
   useEffect(() => {
-    const cat = params.get('category');
-    if (cat) setCategory(cat);
-    const q = params.get('q');
-    if (q != null) setQuery(q);
-  }, [params]);
+    if (debouncedQuery !== writtenQueryRef.current) commitQuery(debouncedQuery);
+  }, [debouncedQuery, commitQuery]);
+
+  const scrollToResults = useCallback(() => {
+    const node = resultsRef.current;
+    if (!node) return;
+    const top = node.getBoundingClientRect().top + window.scrollY - 96;
+    if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
+  }, []);
+
+  const setFilter = useCallback((key, value) => {
+    setParams((prev) => writeFilters(prev, { ...readFilters(prev), [key]: value }), { replace: true });
+    scrollToResults();
+  }, [setParams, scrollToResults]);
+
+  const setPrice = useCallback((minPrice, maxPrice) => {
+    setParams((prev) => writeFilters(prev, { ...readFilters(prev), minPrice, maxPrice }), { replace: true });
+    scrollToResults();
+  }, [setParams, scrollToResults]);
+
+  const setCategory = useCallback((name) => {
+    setTab('products');
+    setParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (name && name !== 'All') next.set('category', name);
+      else next.delete('category');
+      return next;
+    });
+    scrollToResults();
+  }, [setParams, scrollToResults]);
+
+  const clearFilters = useCallback(() => {
+    setParams((prev) => {
+      const next = writeFilters(prev, DEFAULT_FILTERS);
+      next.delete('category');
+      return next;
+    }, { replace: true });
+  }, [setParams]);
 
   useEffect(() => {
     api.getCategories('product').then((res) => {
@@ -134,19 +204,33 @@ export default function ExplorePage() {
     }).catch(() => {});
   }, []);
 
-  const countFilterKey = useMemo(
-    () => JSON.stringify({ filters, geoParams: coords, query: query.trim() }),
-    [filters, coords, query],
-  );
+  useEffect(() => {
+    try {
+      localStorage.setItem(DENSITY_KEY, density);
+    } catch {
+      /* private mode */
+    }
+  }, [density]);
 
   useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 900);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const countKey = JSON.stringify({ q, filters, geo });
+  useEffect(() => {
+    const { q: cq, filters: cf, geo: cg } = JSON.parse(countKey);
+    const countParams = buildListingParams({ geo: cg, filters: cf, category: 'All', q: cq, page: 1 });
+    delete countParams.sort;
+    delete countParams.page;
+    delete countParams.limit;
     let cancelled = false;
     setCountsLoading(true);
-    api.getCategoryCounts(buildCountParams(geoParams, filters, query.trim()))
+    api.getCategoryCounts(countParams)
       .then((res) => {
-        if (!cancelled) {
-          setCategoryCounts({ counts: res.counts || {}, total: res.total ?? 0 });
-        }
+        if (!cancelled) setCategoryCounts({ counts: res.counts || {}, total: res.total ?? 0 });
       })
       .catch(() => {
         if (!cancelled) setCategoryCounts({ counts: {}, total: 0 });
@@ -155,323 +239,268 @@ export default function ExplorePage() {
         if (!cancelled) setCountsLoading(false);
       });
     return () => { cancelled = true; };
-  }, [countFilterKey, geoParams, filters, query]);
+  }, [countKey]);
 
-  const fetchListings = useCallback(async (pageNum, append = false) => {
-    const requestParams = buildListingParams(geoParams, filters, category, '', pageNum);
-    const res = await api.getListings(requestParams);
-    const items = (res.listings || []).map(toCardItem).filter(Boolean);
-    setListings((prev) => (append ? [...prev, ...items] : items));
-    setTotal(res.total ?? items.length);
-    setPage(res.page ?? pageNum);
-    setTotalPages(res.totalPages ?? 1);
-    setHasMore(Boolean(res.hasMore));
-    return res;
-  }, [geoParams, filters, category]);
-
-  const fetchSearchListings = useCallback(async (pageNum, append = false) => {
-    const q = query.trim();
-    const requestParams = buildListingParams(
-      geoParams,
-      { ...filters, sort: 'relevance' },
-      category,
-      q,
-      pageNum,
-    );
-    const res = await api.searchListings(requestParams);
-    const items = (res.listings || []).map(toCardItem).filter(Boolean);
-    setSearchListings((prev) => (append ? [...prev, ...items] : items));
-    setSearchTotal(res.total ?? items.length);
-    setSearchPage(res.page ?? pageNum);
-    setSearchTotalPages(res.totalPages ?? 1);
-    setSearchHasMore(Boolean(res.hasMore));
-    return res;
-  }, [geoParams, filters, category, query]);
-
-  const loadSellers = useCallback(async () => {
-    setSellersLoading(true);
-    try {
-      const [featRes, popRes, nearRes] = await Promise.all([
-        api.getFeaturedSellers(geoParams),
-        api.getPopularSellers(geoParams),
-        api.getNearbySellers(geoParams),
-      ]);
-      setFeatured((featRes.sellers || []).map(toSellerCard).filter(Boolean));
-      setPopular((popRes.sellers || []).map(toSellerCard).filter(Boolean));
-      setNearby((nearRes.sellers || []).map(toSellerCard).filter(Boolean));
-      sellersLoadedRef.current = true;
-    } catch (e) {
-      setError(e.message || 'Could not load sellers.');
-    } finally {
-      setSellersLoading(false);
-    }
-  }, [geoParams]);
+  const wantsProducts = isSearch ? searchTab === 'all' || searchTab === 'products' : tab === 'products';
+  const feedKey = JSON.stringify({ q, category, filters, geo, reloadTick });
 
   useEffect(() => {
-    if (isSearchMode) return undefined;
-
-    let cancelled = false;
-    setLoading(true);
-    setError('');
-    setPage(1);
-
-    fetchListings(1, false)
-      .catch((e) => {
-        if (!cancelled) setError(e.message || 'Could not load listings. Please try again in a moment.');
+    if (!wantsProducts) return;
+    const request = JSON.parse(feedKey);
+    const id = ++feedReqRef.current;
+    setFeedStatus(feedRef.current.items.length ? 'refreshing' : 'loading');
+    setFeedError('');
+    fetchFeed(request, 1)
+      .then((next) => {
+        if (id !== feedReqRef.current) return;
+        setFeed(next);
+        setFeedStatus('ready');
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+      .catch((e) => {
+        if (id !== feedReqRef.current) return;
+        setFeedError(e.message || 'Could not load listings. Please try again in a moment.');
+        setFeedStatus('error');
       });
+  }, [feedKey, wantsProducts]);
 
-    return () => { cancelled = true; };
-  }, [filterKey, isSearchMode, fetchListings]);
-
-  useEffect(() => {
-    if (!isSearchMode) return undefined;
-
-    const timer = setTimeout(async () => {
-      setSearching(true);
-      setError('');
-      setSearchPage(1);
-      try {
-        const q = query.trim();
-        const type = searchTab === 'products' ? 'products' : searchTab;
-        const tasks = [];
-
-        if (searchTab === 'all' || searchTab === 'products') {
-          tasks.push(fetchSearchListings(1, false));
-        } else {
-          setSearchListings([]);
-          setSearchTotal(0);
-          setSearchHasMore(false);
-        }
-
-        if (searchTab === 'all' || searchTab === 'sellers' || searchTab === 'stores') {
-          tasks.push(
-            api.searchSellers({ q, type, ...geoParams, category: category !== 'All' ? category : undefined })
-              .then((r) => setSearchSellers((r.sellers || []).map(toSellerCard).filter(Boolean))),
-          );
-        } else {
-          setSearchSellers([]);
-        }
-
-        await Promise.all(tasks);
-      } catch (e) {
-        setError(e.message || 'Search failed');
-      } finally {
-        setSearching(false);
-      }
-    }, 350);
-
-    return () => clearTimeout(timer);
-  }, [query, searchTab, category, filters, geoParams, isSearchMode, fetchSearchListings]);
-
-  useEffect(() => {
-    if (tab === 'sellers' && !isSearchMode && !sellersLoadedRef.current) {
-      loadSellers();
-    }
-  }, [tab, isSearchMode, loadSellers]);
-
-  useEffect(() => {
-    sellersLoadedRef.current = false;
-  }, [geoParams]);
-
-  const activeFilterCount = useMemo(() => {
-    let n = 0;
-    if (category !== 'All') n += 1;
-    if (filters.condition !== 'All') n += 1;
-    if (filters.minPrice) n += 1;
-    if (filters.maxPrice) n += 1;
-    if (filters.radius) n += 1;
-    if (filters.sellerType !== 'all') n += 1;
-    if (filters.sort !== 'newest') n += 1;
-    return n;
-  }, [category, filters]);
-
-  const updateFilter = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleCategoryChange = (name) => {
-    setCategory(name);
-    setTab('products');
-    const next = new URLSearchParams(params);
-    if (name !== 'All') next.set('category', name);
-    else next.delete('category');
-    setParams(next);
-  };
-
-  const clearFilters = () => {
-    setCategory('All');
-    setFilters(DEFAULT_FILTERS);
-    const next = new URLSearchParams(params);
-    next.delete('category');
-    setParams(next);
-  };
-
-  const onSearchSubmit = (e) => {
-    e.preventDefault();
-    const next = new URLSearchParams(params);
-    if (query.trim()) next.set('q', query.trim());
-    else next.delete('q');
-    if (category !== 'All') next.set('category', category);
-    else next.delete('category');
-    setParams(next);
-  };
-
-  const handleLoadMore = async () => {
-    if (!hasMore || loadingMore) return;
+  const loadMore = useCallback(async () => {
+    const current = feedRef.current;
+    if (!current.hasMore || loadingMoreRef.current) return;
+    const id = feedReqRef.current;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
-      await fetchListings(page + 1, true);
-    } catch (e) {
-      setError(e.message || 'Could not load more listings.');
+      const next = await fetchFeed(JSON.parse(feedKey), current.page + 1);
+      if (id !== feedReqRef.current) return;
+      setFeed((prev) => {
+        const seen = new Set(prev.items.map((item) => item.id));
+        return {
+          items: [...prev.items, ...next.items.filter((item) => !seen.has(item.id))],
+          total: next.total,
+          page: next.page,
+          hasMore: next.hasMore,
+        };
+      });
+    } catch {
+      /* the Load more button stays for a manual retry */
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  };
+  }, [feedKey]);
 
-  const handleSearchLoadMore = async () => {
-    if (!searchHasMore || searchLoadingMore) return;
-    setSearchLoadingMore(true);
-    try {
-      await fetchSearchListings(searchPage + 1, true);
-    } catch (e) {
-      setError(e.message || 'Could not load more results.');
-    } finally {
-      setSearchLoadingMore(false);
+  useEffect(() => {
+    if (!isSearch || searchTab === 'products') {
+      setSearchSellers([]);
+      return undefined;
     }
-  };
+    let cancelled = false;
+    api.searchSellers({ q, type: searchTab, ...geo, category: category !== 'All' ? category : undefined })
+      .then((r) => {
+        if (!cancelled) setSearchSellers((r.sellers || []).map(toSellerCard).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setSearchSellers([]);
+      });
+    return () => { cancelled = true; };
+  }, [isSearch, q, searchTab, category, geo]);
 
-  const showProductsChrome = tab === 'products' || isSearchMode;
-  const filterBarProps = {
-    sort: filters.sort,
-    onSortChange: (v) => updateFilter('sort', v),
-    condition: filters.condition,
-    onConditionChange: (v) => updateFilter('condition', v),
-    minPrice: filters.minPrice,
-    maxPrice: filters.maxPrice,
-    onMinPriceChange: (v) => updateFilter('minPrice', v),
-    onMaxPriceChange: (v) => updateFilter('maxPrice', v),
-    radius: filters.radius,
-    onRadiusChange: (v) => updateFilter('radius', v),
-    sellerType: filters.sellerType,
-    onSellerTypeChange: (v) => updateFilter('sellerType', v),
+  useEffect(() => {
+    if (isSearch || tab !== 'sellers') return undefined;
+    let cancelled = false;
+    setSellersLoading(true);
+    setSellersError('');
+    Promise.all([
+      api.getFeaturedSellers(geo),
+      api.getPopularSellers(geo),
+      api.getNearbySellers(geo),
+    ])
+      .then(([featRes, popRes, nearRes]) => {
+        if (cancelled) return;
+        setSellerGroups({
+          featured: (featRes.sellers || []).map(toSellerCard).filter(Boolean),
+          popular: (popRes.sellers || []).map(toSellerCard).filter(Boolean),
+          nearby: (nearRes.sellers || []).map(toSellerCard).filter(Boolean),
+        });
+      })
+      .catch((e) => {
+        if (!cancelled) setSellersError(e.message || 'Could not load sellers.');
+      })
+      .finally(() => {
+        if (!cancelled) setSellersLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [isSearch, tab, geo]);
+
+  const activeFilterCount = countActiveFilters(filters, category);
+  const sorts = sortOptions(isSearch);
+  const showProductsChrome = tab === 'products' || isSearch;
+
+  const quickCategories = useMemo(() => (
+    Object.entries(categoryCounts.counts || {})
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([name]) => name)
+  ), [categoryCounts]);
+
+  const activeChips = [];
+  if (category !== 'All') activeChips.push({ key: 'cat', label: category, clear: () => setCategory('All') });
+  if (filters.condition !== 'All') activeChips.push({ key: 'cond', label: filters.condition, clear: () => setFilter('condition', 'All') });
+  if (filters.sellerType !== 'all') {
+    activeChips.push({ key: 'seller', label: filters.sellerType === 'shop' ? 'Shops' : 'Individuals', clear: () => setFilter('sellerType', 'all') });
+  }
+  if (filters.radius) activeChips.push({ key: 'radius', label: `Within ${filters.radius} km`, clear: () => setFilter('radius', '') });
+  if (filters.minPrice || filters.maxPrice) {
+    const label = filters.minPrice && filters.maxPrice
+      ? `Rs ${formatNpr(filters.minPrice)} – ${formatNpr(filters.maxPrice)}`
+      : filters.minPrice ? `Rs ${formatNpr(filters.minPrice)}+` : `Under Rs ${formatNpr(filters.maxPrice)}`;
+    activeChips.push({ key: 'price', label, clear: () => setPrice('', '') });
+  }
+  if (filters.sort) {
+    activeChips.push({ key: 'sort', label: sorts.find((s) => s.value === filters.sort)?.label || filters.sort, clear: () => setFilter('sort', '') });
+  }
+
+  const refineProps = {
+    filters,
+    onFilterChange: setFilter,
+    onPriceChange: setPrice,
+    hasLocation,
+    isSearch,
     activeFilterCount,
     onClearFilters: clearFilters,
   };
 
-  const renderSection = (title, items, horizontal = true) => {
-    if (!items.length) return null;
-    return (
-      <section className="explore-section">
-        <div className="explore-section-head">
-          <h2>{title}</h2>
-          <span className="explore-section-count">{items.length}</span>
+  const title = isSearch
+    ? <>Results for <q className="explore-title-query">{q}</q></>
+    : tab === 'sellers' ? 'Sellers near you' : category !== 'All' ? category : 'All products';
+  const countLabel = feedStatus === 'loading' ? '' : `${feed.total.toLocaleString('en-IN')} item${feed.total === 1 ? '' : 's'}`;
+  const busy = feedStatus === 'refreshing';
+
+  const renderTabs = (className = '') => (isSearch ? (
+    <div className={`explore-search-tabs ${className}`.trim()}>
+      {SEARCH_TABS.map((t) => (
+        <button key={t.id} type="button" className={searchTab === t.id ? 'active' : ''} onClick={() => setSearchTab(t.id)}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  ) : (
+    <div className={`explore-main-tabs ${className}`.trim()}>
+      <button type="button" className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Products</button>
+      <button type="button" className={tab === 'sellers' ? 'active' : ''} onClick={() => setTab('sellers')}>Sellers</button>
+    </div>
+  ));
+
+  const renderSellerSection = (heading, items) => (items.length ? (
+    <section className="explore-section" key={heading}>
+      <div className="explore-section-head">
+        <h2>{heading}</h2>
+        <span className="explore-section-count">{items.length}</span>
+      </div>
+      <div className="explore-seller-grid">
+        {items.map((s) => <SellerCard key={s.id} seller={s} />)}
+      </div>
+    </section>
+  ) : null);
+
+  const empty = (heading, text) => (
+    <div className="explore-empty">
+      <SiteImage name="explore-empty" className="empty-art" />
+      <h3>{heading}</h3>
+      <p>{text}</p>
+      {activeFilterCount > 0 || isSearch ? (
+        <div className="explore-empty-actions">
+          {activeFilterCount > 0 ? <button type="button" className="btn btn-primary" onClick={clearFilters}>Clear filters</button> : null}
+          {isSearch ? <button type="button" className="btn btn-outline" onClick={() => { setQuery(''); commitQuery(''); }}>Clear search</button> : null}
         </div>
-        <div className={horizontal ? 'explore-carousel' : 'explore-grid explore-grid-dense'}>
-          {items.map((s) => (
-            <SellerCard key={s.id} seller={s} />
-          ))}
+      ) : null}
+    </div>
+  );
+
+  const productGrid = (
+    <section className="explore-section explore-section-compact">
+      {feedStatus === 'loading' ? <SkeletonGrid compact={compact} count={compact ? 18 : 12} /> : null}
+      {feedStatus === 'error' ? (
+        <div className="explore-error">
+          <p>{feedError}</p>
+          <button type="button" className="btn btn-primary" onClick={() => setReloadTick((n) => n + 1)}>Try again</button>
         </div>
-      </section>
-    );
-  };
-
-  const displayListings = isSearchMode ? searchListings : listings;
-
-  const resultsTitle = !isSearchMode && tab === 'products'
-    ? (category !== 'All' ? category : 'All products')
-    : !isSearchMode && tab === 'sellers'
-      ? 'Sellers near you'
-      : isSearchMode
-        ? 'Search results'
-        : 'All listings';
-
-  const resultsMeta = isSearchMode
-    ? `${searchTotal + searchSellers.length} results`
-    : tab === 'products'
-      ? (loading ? 'Loading…' : `${total} items`)
-      : '';
+      ) : null}
+      {(feedStatus === 'ready' || busy) && feed.items.length ? (
+        <>
+          <div className={`explore-grid-v2${compact ? ' is-compact' : ''}${busy ? ' is-busy' : ''}`}>
+            {feed.items.map((item, i) => (
+              <ProductCard key={item.id} item={item} style={{ '--i': i % PAGE_SIZE }} />
+            ))}
+          </div>
+          <ExplorePagination
+            shown={feed.items.length}
+            total={feed.total}
+            hasMore={feed.hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label={isSearch ? 'results' : 'listings'}
+          />
+        </>
+      ) : null}
+      {feedStatus === 'ready' && !feed.items.length && !(isSearch && searchSellers.length)
+        ? empty(isSearch ? 'No matching items' : 'No listings found', isSearch
+          ? 'Try a shorter word, a different spelling, or fewer filters.'
+          : 'Try another category or loosen your filters.')
+        : null}
+    </section>
+  );
 
   return (
-    <div className="explore-page">
-      <header className="explore-header explore-header-compact">
-        <div className="container explore-header-mobile">
-          <Link to="/" className="explore-back explore-back-mobile">← Home</Link>
-          <h1>Explore</h1>
-          <p className="explore-header-sub">{BRAND_TAGLINE}</p>
-          <div className="explore-header-desktop">
-            <div className="explore-header-bar">
-              <div className="explore-header-title">
-                <Link to="/" className="explore-back">← Home</Link>
-                <h1>Explore</h1>
-              </div>
-              <form className="explore-search-form explore-search-form-inline" onSubmit={onSearchSubmit}>
-                <div className="explore-search">
-                  <IconSearch width={18} height={18} />
-                  <input
-                    type="search"
-                    placeholder="Search phones, furniture, shops…"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                  {query ? (
-                    <button type="button" className="explore-search-clear" onClick={() => setQuery('')}>×</button>
-                  ) : null}
+    <div className="explore-page explore-v2">
+      <header className="explore-header explore-header-compact explore-hero-v2">
+        <div className="container explore-wide explore-hero-row">
+          <div className="explore-hero-copy">
+            <Breadcrumb trail={[{ label: 'Explore' }]} className="kb-crumbs--slab" />
+            <h1>Explore <span className="ne-inline ne-inline--slab" lang="ne">· नजिकैका सामान</span></h1>
+            <p className="explore-header-sub">
+              {countsLoading || !categoryCounts.total
+                ? BRAND_TAGLINE
+                : `${categoryCounts.total.toLocaleString('en-IN')} item${categoryCounts.total === 1 ? '' : 's'} for sale${hasLocation ? ' around you' : ' across Nepal'}`}
+            </p>
+          </div>
+          <div className="explore-hero-search">
+            <ExploreSearchBox
+              value={query}
+              onChange={setQuery}
+              onSubmit={commitQuery}
+              onPickCategory={setCategory}
+            />
+            <div className="explore-hero-meta">
+              {quickCategories.length ? (
+                <div className="explore-quick-cats" aria-label="Popular categories">
+                  {quickCategories.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={category === name ? 'active' : ''}
+                      onClick={() => setCategory(category === name ? 'All' : name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
                 </div>
-              </form>
-              {geoStatus === 'denied' ? (
-                <span className="explore-geo-hint">Enable location</span>
               ) : null}
+              <span className={`explore-geo-pill${hasLocation ? ' is-on' : ''}`}>
+                <IconLocation width={13} height={13} />
+                {hasLocation ? 'Near you' : geoStatus === 'loading' ? 'Locating…' : 'Location off'}
+              </span>
             </div>
           </div>
         </div>
       </header>
 
-      <div className="container explore-search-float">
-        <form className="explore-search-form" onSubmit={onSearchSubmit}>
-          <div className="explore-search">
-            <IconSearch width={18} height={18} />
-            <input
-              type="search"
-              placeholder="Search sellers, stores or products…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            {query ? (
-              <button type="button" className="explore-search-clear" onClick={() => setQuery('')}>×</button>
-            ) : null}
-          </div>
-        </form>
-        {geoStatus === 'denied' ? (
-          <span className="explore-geo-hint explore-geo-hint-float">Enable location</span>
-        ) : null}
-      </div>
-
       <div className="explore-body">
-        <div className="container explore-body-inner">
+        <div className="container explore-wide explore-body-inner">
           <div className="explore-toolbar explore-toolbar-top">
             <div className="explore-mobile-bar">
-              {isSearchMode ? (
-                <div className="explore-search-tabs explore-segmented-tabs">
-                  {SEARCH_TABS.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={searchTab === t.id ? 'active' : ''}
-                      onClick={() => setSearchTab(t.id)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="explore-main-tabs explore-segmented-tabs">
-                  <button type="button" className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Products</button>
-                  <button type="button" className={tab === 'sellers' ? 'active' : ''} onClick={() => setTab('sellers')}>Sellers</button>
-                </div>
-              )}
+              {renderTabs('explore-segmented-tabs')}
               {showProductsChrome ? (
                 <button
                   type="button"
@@ -482,70 +511,13 @@ export default function ExplorePage() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
                     <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                   </svg>
-                  {activeFilterCount > 0 ? (
-                    <span className="explore-filter-btn-badge">{activeFilterCount}</span>
-                  ) : null}
+                  {activeFilterCount > 0 ? <span className="explore-filter-btn-badge">{activeFilterCount}</span> : null}
                 </button>
-              ) : null}
-            </div>
-
-            <div className="explore-desktop-bar">
-              <div className="explore-toolbar-head">
-                <div className="explore-toolbar-left">
-                  {!isSearchMode && tab === 'products' ? (
-                    <h2 className="explore-content-title">
-                      {category !== 'All' ? category : 'All listings'}
-                      {!loading ? (
-                        <span className="explore-section-count"> ({total})</span>
-                      ) : null}
-                    </h2>
-                  ) : null}
-                  {!isSearchMode && tab === 'sellers' ? (
-                    <h2 className="explore-content-title">Sellers near you</h2>
-                  ) : null}
-                  {isSearchMode && !searching ? (
-                    <h2 className="explore-content-title">
-                      Search results
-                      <span className="explore-section-count"> ({searchTotal + searchSellers.length})</span>
-                    </h2>
-                  ) : null}
-                </div>
-
-                <div className="explore-toolbar-right">
-                  <Link to="/map" className="btn btn-outline explore-map-link">
-                    Map view
-                  </Link>
-                  {isSearchMode ? (
-                    <div className="explore-search-tabs">
-                      {SEARCH_TABS.map((t) => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          className={searchTab === t.id ? 'active' : ''}
-                          onClick={() => setSearchTab(t.id)}
-                        >
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="explore-main-tabs">
-                      <button type="button" className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}>Products</button>
-                      <button type="button" className={tab === 'sellers' ? 'active' : ''} onClick={() => setTab('sellers')}>Sellers</button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {showProductsChrome ? (
-                <div className="explore-toolbar-controls">
-                  <ExploreFilterBar {...filterBarProps} />
-                </div>
               ) : null}
             </div>
           </div>
 
-          <div className={`explore-layout${showProductsChrome ? '' : ' explore-layout--full'}`}>
+          <div className={`explore-layout explore-layout-v2${showProductsChrome ? '' : ' explore-layout--full'}`}>
             {showProductsChrome ? (
               <>
                 <ExploreMobileRail
@@ -553,158 +525,152 @@ export default function ExplorePage() {
                   category={category}
                   categoryCounts={categoryCounts}
                   countsLoading={countsLoading}
-                  onCategoryChange={handleCategoryChange}
+                  onCategoryChange={setCategory}
                 />
                 <ExploreSidebar
                   categories={categories}
                   category={category}
                   categoryCounts={categoryCounts}
                   countsLoading={countsLoading}
-                  onCategoryChange={handleCategoryChange}
-                  resultTotal={isSearchMode ? searchTotal : total}
+                  onCategoryChange={setCategory}
+                  resultTotal={feed.total}
                   className="explore-sidebar-desktop"
                 />
               </>
             ) : null}
 
-            <div className="explore-content">
-            {showProductsChrome && tab === 'products' && !isSearchMode ? (
-              <div className="explore-results-bar explore-mobile-only">
-                <h2 className="explore-results-title">{resultsTitle}</h2>
-                <span className="explore-results-meta">{resultsMeta}</span>
+            <div className="explore-content" ref={resultsRef}>
+              <div className="explore-results-head">
+                <div className="explore-results-title-wrap">
+                  <h2 className="explore-results-title-v2">{title}</h2>
+                  {showProductsChrome && countLabel ? <span className="explore-results-count">{countLabel}</span> : null}
+                  {busy ? <span className="explore-spinner explore-spinner--inline" aria-label="Updating" /> : null}
+                </div>
+                <div className="explore-results-actions">
+                  {renderTabs('explore-results-tabs')}
+                  {showProductsChrome ? (
+                    <>
+                      <label className={`explore-sort${filters.sort ? ' is-set' : ''}`}>
+                        <span>Sort</span>
+                        <select value={filters.sort} onChange={(e) => setFilter('sort', e.target.value)} aria-label="Sort by">
+                          {sorts.map((o) => (
+                            <option key={o.value} value={o.value} disabled={o.needsLocation && !hasLocation}>{o.label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="explore-density" role="group" aria-label="Card size">
+                        <button type="button" className={!compact ? 'active' : ''} onClick={() => setDensity('comfort')} aria-label="Large cards" title="Large cards">
+                          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><rect x="1" y="1" width="6" height="6" rx="1.6" /><rect x="9" y="1" width="6" height="6" rx="1.6" /><rect x="1" y="9" width="6" height="6" rx="1.6" /><rect x="9" y="9" width="6" height="6" rx="1.6" /></svg>
+                        </button>
+                        <button type="button" className={compact ? 'active' : ''} onClick={() => setDensity('compact')} aria-label="Small cards" title="Small cards">
+                          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden><rect x="1" y="1" width="4" height="4" rx="1" /><rect x="6" y="1" width="4" height="4" rx="1" /><rect x="11" y="1" width="4" height="4" rx="1" /><rect x="1" y="6" width="4" height="4" rx="1" /><rect x="6" y="6" width="4" height="4" rx="1" /><rect x="11" y="6" width="4" height="4" rx="1" /><rect x="1" y="11" width="4" height="4" rx="1" /><rect x="6" y="11" width="4" height="4" rx="1" /><rect x="11" y="11" width="4" height="4" rx="1" /></svg>
+                        </button>
+                      </div>
+                    </>
+                  ) : null}
+                  <Link to="/map" className="explore-map-btn">
+                    <IconLocation width={15} height={15} />
+                    Map
+                  </Link>
+                </div>
               </div>
-            ) : null}
-            {activeFilterCount > 0 ? (
-              <div className="explore-active-filters">
-                {category !== 'All' ? (
-                  <button type="button" onClick={() => handleCategoryChange('All')}>{category} ×</button>
-                ) : null}
-                {filters.condition !== 'All' ? (
-                  <button type="button" onClick={() => updateFilter('condition', 'All')}>{filters.condition} ×</button>
-                ) : null}
-                {filters.sellerType !== 'all' ? (
-                  <button type="button" onClick={() => updateFilter('sellerType', 'all')}>
-                    {filters.sellerType === 'shop' ? 'Shops' : 'Individuals'} ×
-                  </button>
-                ) : null}
-                {filters.radius ? (
-                  <button type="button" onClick={() => updateFilter('radius', '')}>
-                    Within {filters.radius} km ×
-                  </button>
-                ) : null}
-                {(filters.minPrice || filters.maxPrice) ? (
-                  <button type="button" onClick={() => { updateFilter('minPrice', ''); updateFilter('maxPrice', ''); }}>
-                    NPR {filters.minPrice || '0'}–{filters.maxPrice || '∞'} ×
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
 
-            {error ? (
-              <div className="explore-error">
-                <p>{error}</p>
-                <button type="button" className="btn btn-primary" onClick={() => fetchListings(1, false)}>Retry</button>
-              </div>
-            ) : null}
+              {showProductsChrome ? (
+                <div className="explore-toolbar-filters">
+                  <ExploreFilterBar {...refineProps} />
+                </div>
+              ) : null}
 
-            {loading && !isSearchMode && tab === 'products' ? <SkeletonGrid /> : null}
-            {searching && isSearchMode ? <SkeletonGrid /> : null}
-            {sellersLoading && tab === 'sellers' ? <SkeletonGrid count={4} /> : null}
+              {showProductsChrome && activeChips.length ? (
+                <div className="explore-active-filters explore-active-filters-v2">
+                  {activeChips.map((chip) => (
+                    <button key={chip.key} type="button" onClick={chip.clear} aria-label={`Remove ${chip.label}`}>
+                      {chip.label}
+                      <span aria-hidden>×</span>
+                    </button>
+                  ))}
+                  {activeChips.length > 1 ? (
+                    <button type="button" className="explore-chip-clear" onClick={clearFilters}>Clear all</button>
+                  ) : null}
+                </div>
+              ) : null}
 
-            {!loading && !searching && !error && isSearchMode ? (
-              <>
-                {(searchTab === 'all' || searchTab === 'products') && displayListings.length ? (
-                  <section className="explore-section explore-section-compact">
-                    <div className="explore-grid explore-grid-dense">
-                      {displayListings.map((item) => (
-                        <ProductCard key={item.id} item={item} />
-                      ))}
-                    </div>
-                    <ExplorePagination
-                      shown={displayListings.length}
-                      total={searchTotal}
-                      page={searchPage}
-                      totalPages={searchTotalPages}
-                      hasMore={searchHasMore}
-                      loading={searchLoadingMore}
-                      onLoadMore={handleSearchLoadMore}
-                      label="results"
-                    />
-                  </section>
-                ) : null}
-                {(searchTab === 'all' || searchTab === 'sellers' || searchTab === 'stores') && searchSellers.length ? (
-                  <section className="explore-section">
-                    <h2>Sellers ({searchSellers.length})</h2>
-                    <div className="explore-carousel">
-                      {searchSellers.map((s) => (
-                        <SellerCard key={s.id} seller={s} />
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-                {!displayListings.length && !searchSellers.length ? (
-                  <div className="explore-empty">
-                    <h3>No results</h3>
-                    <p>Try a different search or adjust filters above.</p>
-                    <button type="button" className="btn btn-outline" onClick={clearFilters}>Clear filters</button>
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-
-            {!loading && !error && !isSearchMode && tab === 'products' ? (
-              <section className="explore-section explore-section-compact">
-                {displayListings.length ? (
-                  <>
-                    <div className="explore-grid explore-grid-dense">
-                      {displayListings.map((item) => (
-                        <ProductCard key={item.id} item={item} />
-                      ))}
-                    </div>
-                    <ExplorePagination
-                      shown={displayListings.length}
-                      total={total}
-                      page={page}
-                      totalPages={totalPages}
-                      hasMore={hasMore}
-                      loading={loadingMore}
-                      onLoadMore={handleLoadMore}
-                    />
-                  </>
-                ) : (
-                  <div className="explore-empty">
-                    <h3>No listings found</h3>
-                    <p>Try another category or loosen your filters.</p>
-                    <button type="button" className="btn btn-outline" onClick={clearFilters}>Clear filters</button>
-                  </div>
-                )}
-              </section>
-            ) : null}
-
-            {!sellersLoading && !error && !isSearchMode && tab === 'sellers' ? (
-              <>
-                {renderSection('Featured near you', featured)}
-                {renderSection('Popular sellers', popular)}
-                {renderSection('Sellers near you', nearby)}
-                {!featured.length && !popular.length && !nearby.length ? (
-                  <div className="explore-empty">
-                    <h3>No sellers yet</h3>
-                    <p>Shops and sellers will appear here.</p>
-                  </div>
-                ) : null}
-              </>
-            ) : null}
+              {isSearch ? (
+                <>
+                  {wantsProducts ? productGrid : null}
+                  {searchTab !== 'products' && searchSellers.length ? (
+                    <section className="explore-section">
+                      <div className="explore-section-head">
+                        <h2>{searchTab === 'stores' ? 'Stores' : 'Sellers & stores'}</h2>
+                        <span className="explore-section-count">{searchSellers.length}</span>
+                      </div>
+                      <div className="explore-seller-grid">
+                        {searchSellers.map((s) => <SellerCard key={s.id} seller={s} />)}
+                      </div>
+                    </section>
+                  ) : null}
+                  {!wantsProducts && !searchSellers.length
+                    ? empty('No sellers found', 'Try another name or search for products instead.')
+                    : null}
+                </>
+              ) : tab === 'products' ? productGrid : (
+                <>
+                  {sellersLoading ? <SkeletonGrid count={6} /> : null}
+                  {sellersError ? <div className="explore-error"><p>{sellersError}</p></div> : null}
+                  {!sellersLoading && !sellersError ? (
+                    <>
+                      {renderSellerSection('Featured near you', sellerGroups.featured)}
+                      {renderSellerSection('Popular sellers', sellerGroups.popular)}
+                      {renderSellerSection('Sellers near you', sellerGroups.nearby)}
+                      {!sellerGroups.featured.length && !sellerGroups.popular.length && !sellerGroups.nearby.length
+                        ? empty('No sellers yet', 'Shops and sellers will appear here.')
+                        : null}
+                    </>
+                  ) : null}
+                </>
+              )}
             </div>
+
+            {showProductsChrome ? (
+              <aside className="explore-refine-rail">
+                <ExploreRefinePanel {...refineProps} />
+                <Link to="/map" className="explore-rail-card explore-rail-card--map">
+                  <IconLocation width={20} height={20} />
+                  <span>
+                    <strong>See items on the map</strong>
+                    <small>Find what&apos;s for sale on your street</small>
+                  </span>
+                </Link>
+                <Link to="/download" className="explore-rail-card explore-rail-card--sell">
+                  <IconMobile width={20} height={20} />
+                  <span>
+                    <strong>Have something to sell?</strong>
+                    <small>Post it free in the KinBech app</small>
+                  </span>
+                </Link>
+              </aside>
+            ) : null}
           </div>
         </div>
       </div>
 
+      <button
+        type="button"
+        className={`explore-to-top${showTop ? ' is-visible' : ''}`}
+        onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        aria-label="Back to top"
+        tabIndex={showTop ? 0 : -1}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
       <ExploreFilterSheet
         open={filterSheetOpen}
         onClose={() => setFilterSheetOpen(false)}
-        filterBarProps={filterBarProps}
-        activeFilterCount={activeFilterCount}
-        onClearFilters={clearFilters}
+        refineProps={refineProps}
+        resultLabel={feedStatus === 'ready' ? `Show ${feed.total.toLocaleString('en-IN')} result${feed.total === 1 ? '' : 's'}` : 'Show results'}
       />
 
       <Footer />

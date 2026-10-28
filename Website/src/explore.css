@@ -305,14 +305,6 @@ body.explore-filter-sheet-lock {
   margin-bottom: 20px;
 }
 
-.explore-back {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 600;
-  opacity: 0.85;
-  margin-bottom: 2px;
-}
-
 .explore-header h1 {
   font-size: clamp(28px, 5vw, 36px);
   font-weight: 900;
@@ -1113,28 +1105,6 @@ body.explore-filter-sheet-lock {
   gap: 16px;
 }
 
-.detail-breadcrumb {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.detail-breadcrumb a:hover {
-  color: var(--primary);
-}
-
-.detail-breadcrumb-current {
-  color: var(--text);
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .detail-back-btn {
   border: 1px solid var(--border);
   background: var(--glass-bg-strong);
@@ -1550,19 +1520,6 @@ body.explore-filter-sheet-lock {
 
 .seller-profile-topbar {
   width: 100%;
-}
-
-.seller-profile-breadcrumb,
-.seller-profile-breadcrumb a {
-  color: rgba(255, 255, 255, 0.88);
-}
-
-.seller-profile-breadcrumb .detail-breadcrumb-current {
-  color: #fff;
-}
-
-.seller-profile-breadcrumb a:hover {
-  color: #fff;
 }
 
 .seller-profile-hero-content {
