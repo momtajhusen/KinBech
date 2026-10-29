@@ -13,8 +13,8 @@ import ForSellers from '../components/ForSellers';
 import IconList, { IconTitle } from '../components/IconList';
 
 const INDIVIDUAL = [
-  { icon: PhonelinkLockRounded, text: 'Phone OTP verified account' },
-  { icon: PhotoLibraryRounded, text: 'Up to 8 photos per listing' },
+  { icon: PhonelinkLockRounded, text: 'One-tap Google sign-in' },
+  { icon: PhotoLibraryRounded, text: 'Up to 4 photos and a 30s video per listing' },
   { icon: PinDropRounded, text: 'Set city & district location' },
   { icon: Inventory2Rounded, text: 'Manage from My Listings' },
 ];

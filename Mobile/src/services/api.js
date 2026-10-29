@@ -730,6 +730,52 @@ export const api = {
   getShopReviews: (shopId) => request(`/shops/${shopId}/reviews`),
   getAllShops: (params = {}) => request(`/shops${toQuery(params)}`),
   getCategories: (type) => request(`/categories${toQuery(type ? { type } : {})}`),
+
+  // Platform admin (in-app admin panel)
+  adminDashboard: () => request('/auth/admin/dashboard-stats', { timeoutMs: 15000 }),
+  adminNavCounts: () => request('/auth/admin/nav-counts'),
+  adminReports: (params = {}) => request(`/reports/admin/all${toQuery(params)}`),
+  adminUpdateReport: (reportId, payload) =>
+    request(`/reports/admin/${reportId}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminListings: (params = {}) => request(`/listings/admin/all${toQuery(params)}`),
+  adminUpdateListing: (listingId, payload) =>
+    request(`/listings/admin/${listingId}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminUsers: (params = {}) => request(`/auth/admin/user-directory${toQuery(params)}`, { timeoutMs: 15000 }),
+  adminUpdateUserStatus: (userId, action) =>
+    request(`/auth/admin/users/${userId}/status`, { method: 'PATCH', body: JSON.stringify({ action }) }),
+  adminShops: (params = {}) => request(`/shops/admin/all${toQuery(params)}`),
+  adminUpdateShop: (shopId, payload) =>
+    request(`/shops/admin/${shopId}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminReviews: (params = {}) => request(`/reviews/admin/all${toQuery(params)}`),
+  adminUpdateReview: (reviewId, status) =>
+    request(`/reviews/admin/${reviewId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  adminPayments: (params = {}) => request(`/subscriptions/admin/requests${toQuery(params)}`),
+  adminApprovePayment: (requestId) =>
+    request(`/subscriptions/admin/requests/${requestId}/approve`, { method: 'POST' }),
+  adminRejectPayment: (requestId, reason) =>
+    request(`/subscriptions/admin/requests/${requestId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  adminSupportTickets: (params = {}) => request(`/auth/admin/support-tickets${toQuery(params)}`),
+  adminUpdateTicket: (ticketId, payload) =>
+    request(`/auth/admin/support-tickets/${ticketId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminUserDetail: (userId) => request(`/auth/admin/users/${userId}`, { timeoutMs: 15000 }),
+  adminModerateUser: (userId, payload) =>
+    request(`/auth/admin/users/${userId}/moderate`, { method: 'POST', body: JSON.stringify(payload) }),
+  adminStrikeUser: (userId, reason) =>
+    request(`/moderation/trust/sellers/${userId}/strike`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  adminCancelDeletion: (userId) => request(`/auth/admin/deletions/${userId}/cancel`, { method: 'POST' }),
+  adminTesters: (params = {}) => request(`/auth/admin/testers${toQuery(params)}`, { timeoutMs: 15000 }),
+  adminMakeTester: (userId) => request(`/auth/admin/testers/${userId}`, { method: 'POST' }),
+  adminRestoreTester: (userId) =>
+    request(`/auth/admin/testers/${userId}/restore`, { method: 'POST', timeoutMs: 30000 }),
+  adminDeleteTester: (userId) => request(`/auth/admin/testers/${userId}`, { method: 'DELETE', timeoutMs: 30000 }),
+  adminScamFlags: (params = {}) => request(`/moderation/scam${toQuery(params)}`, { timeoutMs: 15000 }),
+  adminReviewScamFlag: (messageId, payload) =>
+    request(`/moderation/scam/${messageId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminActOnScamFlag: (messageId, payload) =>
+    request(`/moderation/scam/${messageId}/action`, { method: 'POST', body: JSON.stringify(payload) }),
 };
 
 export default api;

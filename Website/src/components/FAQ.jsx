@@ -3,11 +3,13 @@ import ExpandMoreRounded from '@mui/icons-material/ExpandMoreRounded';
 import GppGoodRounded from '@mui/icons-material/GppGoodRounded';
 import LocationCityRounded from '@mui/icons-material/LocationCityRounded';
 import PaymentsRounded from '@mui/icons-material/PaymentsRounded';
+import PhoneAndroidRounded from '@mui/icons-material/PhoneAndroidRounded';
 import SellRounded from '@mui/icons-material/SellRounded';
 import StorefrontRounded from '@mui/icons-material/StorefrontRounded';
 import SupportAgentRounded from '@mui/icons-material/SupportAgentRounded';
 import SectionHeader from './SectionHeader';
 import Reveal from './Reveal';
+import { MIN_ANDROID, SUPPORT_EMAIL, SUPPORT_PHONE } from '../content/brand';
 
 const FAQS = [
   {
@@ -15,7 +17,14 @@ const FAQS = [
     tone: 'green',
     q: 'Is KinBech free to use?',
     qNe: 'के KinBech प्रयोग गर्न निःशुल्क छ?',
-    a: 'Yes. Creating an account, browsing listings, and posting items is free. We may introduce optional paid features for shops in the future.',
+    a: 'Yes. Signing in, browsing, chatting and calling are free, and every seller gets free posts each day. If you need to post more, pick a posting plan and pay with eSewa inside the app.',
+  },
+  {
+    icon: PhoneAndroidRounded,
+    tone: 'violet',
+    q: 'Which phones can use the app?',
+    qNe: 'एप कुन फोनमा चल्छ?',
+    a: `Any Android phone on ${MIN_ANDROID} or newer. Install KinBech from Google Play and sign in with your Google account. On other devices you can browse listings on this website.`,
   },
   {
     icon: PaymentsRounded,
@@ -29,7 +38,7 @@ const FAQS = [
     tone: 'violet',
     q: 'Which cities are supported?',
     qNe: 'कुन-कुन सहरमा चल्छ?',
-    a: 'KinBech works anywhere in Nepal. We are focusing launch density in Kathmandu Valley first, then expanding to Pokhara, Biratnagar, and other cities.',
+    a: 'KinBech works anywhere in Nepal. Listings are sorted by distance, so you always see what is closest to you first, whether you are in Kathmandu, Pokhara, Biratnagar or a smaller town.',
   },
   {
     icon: StorefrontRounded,
@@ -50,7 +59,7 @@ const FAQS = [
     tone: 'blue',
     q: 'How can I contact support?',
     qNe: 'सहयोगका लागि कसरी सम्पर्क गर्ने?',
-    a: 'Use Help & Support inside the app to submit a ticket, or email support@kinbech.com.',
+    a: `Use Help & Support inside the app to submit a ticket, email ${SUPPORT_EMAIL}, or call ${SUPPORT_PHONE}.`,
   },
 ];
 

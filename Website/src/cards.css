@@ -1,0 +1,409 @@
+/* ---------- Product card (mirrors the app ProductCard) ---------- */
+.kb-public .pcard {
+  --pc-price: #059669;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-theme="dark"] .pcard {
+  --pc-price: #34d399;
+}
+
+.kb-public .pcard .product-card-image {
+  position: relative;
+  aspect-ratio: 5 / 4;
+}
+
+.kb-public .pcard-featured {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 10px rgba(217, 119, 6, 0.35);
+}
+
+.kb-public .pcard-featured svg {
+  font-size: 12px;
+}
+
+.kb-public .pcard .pcard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  padding: 10px 12px 12px;
+  min-width: 0;
+}
+
+.kb-public .pcard .pcard-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-public .pcard-price-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kb-public .pcard-price {
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--pc-price);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-public :is(.pcard-away, .pcard-ago, .pcard-meta) {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.kb-public .pcard-away {
+  flex-shrink: 0;
+}
+
+.kb-public :is(.pcard-away, .pcard-ago, .pcard-meta) svg {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.kb-public .pcard-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kb-public .pcard-cond {
+  --tone: var(--primary);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 13%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-public .pcard-cond--success { --tone: #059669; }
+.kb-public .pcard-cond--info { --tone: #2563eb; }
+.kb-public .pcard-cond--warning { --tone: #d97706; }
+
+[data-theme="dark"] .pcard-cond--success { --tone: #34d399; }
+[data-theme="dark"] .pcard-cond--primary { --tone: #6ee7b7; }
+[data-theme="dark"] .pcard-cond--info { --tone: #60a5fa; }
+[data-theme="dark"] .pcard-cond--warning { --tone: #fbbf24; }
+
+.kb-public .pcard-meta {
+  display: flex;
+  margin: 0;
+}
+
+.kb-public .pcard-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-public .pcard-seller {
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.kb-public .pcard-seller > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.kb-public .pcard-seller svg:first-child {
+  color: var(--primary);
+}
+
+[data-theme="dark"] .pcard-seller svg:first-child {
+  color: #34d399;
+}
+
+.kb-public .pcard-seller .pcard-verified {
+  font-size: 13px;
+  color: #2563eb;
+}
+
+.kb-public .pcard-seller .pcard-chevron {
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+.kb-public .explore-grid-v2.is-compact .pcard .pcard-body {
+  padding: 8px 9px 10px;
+  gap: 4px;
+}
+
+.kb-public .explore-grid-v2.is-compact .pcard .pcard-title {
+  font-size: 12px;
+}
+
+.kb-public .explore-grid-v2.is-compact .pcard-price {
+  font-size: 14px;
+}
+
+/* ---------- Seller card (mirrors the app SellerProfileCard) ---------- */
+.kb-public .scard {
+  --sc-accent: #047857;
+  --sc-soft: rgba(4, 120, 87, 0.1);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  min-width: 0;
+  padding: 14px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.kb-public .scard--person {
+  --sc-accent: #2563eb;
+  --sc-soft: rgba(37, 99, 235, 0.1);
+}
+
+[data-theme="dark"] .scard {
+  --sc-accent: #34d399;
+  --sc-soft: rgba(52, 211, 153, 0.14);
+}
+
+[data-theme="dark"] .scard--person {
+  --sc-accent: #60a5fa;
+  --sc-soft: rgba(96, 165, 250, 0.14);
+}
+
+.kb-public .scard-type {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px 3px 6px;
+  border-radius: 999px;
+  background: var(--sc-soft);
+  color: var(--sc-accent);
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.kb-public .scard-type svg {
+  font-size: 12px;
+}
+
+.kb-public .scard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.kb-public .scard-logo {
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--sc-soft);
+  color: var(--sc-accent);
+}
+
+.kb-public .scard--person .scard-logo {
+  border-radius: 50%;
+}
+
+.kb-public .scard-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kb-public .scard-logo svg {
+  font-size: 24px;
+}
+
+.kb-public .scard-rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 7px 3px 5px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+[data-theme="dark"] .scard-rating {
+  color: #fbbf24;
+}
+
+.kb-public .scard-rating svg {
+  font-size: 13px;
+  color: #f59e0b;
+}
+
+.kb-public .scard-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kb-public .scard-name-row h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-public .scard-verified {
+  flex-shrink: 0;
+  font-size: 15px;
+  color: var(--sc-accent);
+}
+
+.kb-public .scard-sub {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--sc-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-public .scard-divider {
+  display: block;
+  height: 1px;
+  margin: 10px 0;
+  background: var(--border);
+}
+
+.kb-public .scard-loc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.kb-public .scard-loc > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-public .scard-loc-icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--sc-soft);
+  color: var(--sc-accent);
+}
+
+.kb-public .scard-loc-icon svg {
+  font-size: 13px;
+}
+
+.kb-public .scard-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.kb-public .scard-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.kb-public .scard-stats svg {
+  font-size: 13px;
+}
+
+.kb-public .scard-btn {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  font-weight: 800;
+  transition: filter 0.2s ease, background 0.2s ease;
+}
+
+.kb-public .scard--shop .scard-btn {
+  background: #047857;
+  color: #fff;
+}
+
+[data-theme="dark"] .scard--shop .scard-btn {
+  background: #059669;
+}
+
+.kb-public .scard--person .scard-btn {
+  border: 1.5px solid var(--sc-accent);
+  color: var(--sc-accent);
+}
+
+.kb-public .scard:hover .scard-btn {
+  filter: brightness(1.08);
+}
+
+.kb-public .scard--person:hover .scard-btn {
+  background: var(--sc-soft);
+}

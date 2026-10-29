@@ -3,6 +3,7 @@ import { announceSignIn } from '../components/SignedInModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { signInWithGoogle } from '../services/googleAuth';
+import { isAdminUser } from '../utils/admin';
 
 /**
  * Native Google account chooser -> KinBech session.
@@ -30,6 +31,7 @@ export function useGoogleLogin() {
       }
 
       await saveSession(data.token, data.user);
+      if (isAdminUser(data.user)) return { status: 'ok', needsProfile: false, admin: true };
       const needsProfile = Boolean(data.isNewUser || !data.user?.profileComplete);
       const deletionCancelled = Boolean(data.deletionCancelled);
       announceSignIn({ user: data.user, google: account.user, isNew: needsProfile, deletionCancelled });

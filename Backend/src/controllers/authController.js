@@ -23,7 +23,7 @@ const { haversineDistanceKm } = require('../utils/listing');
 const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
 const { emitActivity } = require('../utils/realtime');
 const { recordAudit } = require('../utils/audit');
-const { ADMIN_ROLES, scopesForRole } = require('../utils/adminScopes');
+const { ADMIN_ROLES, isAdminRole, isPlatformAdminEmail, scopesForRole } = require('../utils/adminScopes');
 const { SUSPENDED_MESSAGE } = require('../middleware/auth');
 const { cancelDeletion } = require('../utils/accountDeletion');
 const { sendOtpSms, smsConfigured } = require('../utils/sms');
@@ -284,6 +284,42 @@ async function verifyOtp(req, res, next) {
   }
 }
 
+/** The platform Google account opens the in-app admin panel with an audited admin session. */
+async function platformAdminGoogleLogin(req, res, profile) {
+  let user =
+    (await User.findOne({ googleId: profile.sub })) ||
+    (await User.findOne({ email: new RegExp(`^${escapeRegex(profile.email)}$`, 'i') }));
+
+  if (user?.googleId && user.googleId !== profile.sub) {
+    return res.status(401).json({ message: 'Google sign-in could not be verified. Please try again.' });
+  }
+
+  if (!user) {
+    user = await User.create({
+      googleId: profile.sub,
+      email: profile.email.toLowerCase(),
+      name: profile.name || 'KinBech Admin',
+      avatarUrl: profile.picture,
+      role: 'admin',
+      profileComplete: true,
+    });
+  } else {
+    if (!user.googleId) user.googleId = profile.sub;
+    if (!isAdminRole(user.role)) user.role = 'admin';
+    if (!user.name && profile.name) user.name = profile.name;
+    if (!user.avatarUrl && profile.picture) user.avatarUrl = profile.picture;
+    user.profileComplete = true;
+  }
+
+  if (user.status === 'suspended') {
+    return res.status(403).json({ message: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' });
+  }
+
+  user.lastActiveAt = new Date();
+  await user.save();
+  return finishAdminLogin(req, res, user);
+}
+
 async function googleLogin(req, res, next) {
   try {
     const idToken = String(req.body.idToken || '').trim();
@@ -302,6 +338,10 @@ async function googleLogin(req, res, next) {
     }
     if (!profile.sub || !profile.email || !profile.emailVerified) {
       return res.status(401).json({ message: 'Please use a Google account with a verified email.' });
+    }
+
+    if (isPlatformAdminEmail(profile.email)) {
+      return platformAdminGoogleLogin(req, res, profile);
     }
 
     let user = await User.findOne({ googleId: profile.sub });

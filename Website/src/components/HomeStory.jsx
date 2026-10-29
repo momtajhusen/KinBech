@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { GooglePlayBadge } from './Download';
 import MediaRow from './MediaRow';
 import Reveal from './Reveal';
 import SectionHeader from './SectionHeader';
@@ -116,15 +117,15 @@ export function HomeDownloadBand() {
         <Reveal className="home-download" variant="scale">
           <div className="home-download-copy">
             <span className="section-label">Get the app</span>
-            <h2>KinBech is coming to Android and iPhone</h2>
-            <p className="ne-title ne-title--slab" lang="ne">KinBech एप एन्ड्रोइड र आइफोनमा छिट्टै आउँदैछ</p>
+            <h2>Your local market, in your pocket</h2>
+            <p className="ne-title ne-title--slab" lang="ne">नजिकको बजार, तपाईंको फोनमा</p>
             <p>
-              Browse listings on the web today. The app adds chat, posting, saved items and meetup tools,
-              all signed in with your +977 number.
+              Chat, voice calls, posting, saved items and daily updates in one Android app.
+              Sign in with your Google account in one tap.
             </p>
             <div className="hero-actions">
-              <Link to="/download" className="btn btn-primary">Download app</Link>
-              <Link to="/explore" className="btn btn-ghost">Explore listings</Link>
+              <GooglePlayBadge />
+              <Link to="/download" className="btn btn-ghost">More about the app</Link>
             </div>
           </div>
           <SiteImage name="home-download" className="home-download-art" />

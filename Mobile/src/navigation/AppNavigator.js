@@ -99,6 +99,20 @@ import TesterModeScreen from '../screens/TesterModeScreen';
 import ContactUsScreen from '../screens/ContactUsScreen';
 import ListingSuccessScreen from '../screens/ListingSuccessScreen';
 import ShopStorefrontQrScreen from '../screens/ShopStorefrontQrScreen';
+import AdminTabBar from '../components/admin/AdminTabBar';
+import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
+import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
+import AdminListingsScreen from '../screens/admin/AdminListingsScreen';
+import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
+import AdminMoreScreen from '../screens/admin/AdminMoreScreen';
+import AdminShopsScreen from '../screens/admin/AdminShopsScreen';
+import AdminReviewsScreen from '../screens/admin/AdminReviewsScreen';
+import AdminPaymentsScreen from '../screens/admin/AdminPaymentsScreen';
+import AdminSupportScreen from '../screens/admin/AdminSupportScreen';
+import AdminUserDetailScreen from '../screens/admin/AdminUserDetailScreen';
+import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
+import AdminScamScreen from '../screens/admin/AdminScamScreen';
+import { ADMIN_ROUTES, isAdminUser } from '../utils/admin';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -411,6 +425,16 @@ function AndroidBackHandler() {
           navigationRef.navigate('MainTabs', { screen: 'Home' });
           return true;
         }
+      } else if (route?.name === 'AdminTabs') {
+        const tab = route.state;
+        const tabName = tab?.routes?.[tab.index ?? 0]?.name || 'AdminDashboard';
+        if (tabName !== 'AdminDashboard') {
+          navigationRef.navigate('AdminTabs', { screen: 'AdminDashboard' });
+          return true;
+        }
+      } else if (ADMIN_ROUTES.has(route?.name)) {
+        navigationRef.reset({ index: 0, routes: [{ name: 'AdminTabs' }] });
+        return true;
       } else if (route?.name && route.name !== 'Login' && route.name !== 'Onboarding' && route.name !== 'Splash') {
         navigationRef.reset({
           index: 0,
@@ -456,8 +480,42 @@ function MainTabs() {
   );
 }
 
+function AdminTabs() {
+  return (
+    <Tab.Navigator tabBar={(props) => <AdminTabBar {...props} />} screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Dashboard' }} />
+      <Tab.Screen name="AdminReports" component={AdminReportsScreen} options={{ title: 'Reports' }} />
+      <Tab.Screen name="AdminListings" component={AdminListingsScreen} options={{ title: 'Listings' }} />
+      <Tab.Screen name="AdminUsers" component={AdminUsersScreen} options={{ title: 'Users' }} />
+      <Tab.Screen name="AdminMore" component={AdminMoreScreen} options={{ title: 'More' }} />
+    </Tab.Navigator>
+  );
+}
+
+/** Platform admins only see the admin panel; everyone else never lands on it. */
+function syncAdminRoot(user, isLoggedIn) {
+  if (!navigationRef.isReady()) return;
+  const state = navigationRef.getRootState();
+  const name = state?.routes?.[state.index]?.name;
+  if (!name || name === 'Splash' || (isLoggedIn && !user)) return;
+  const admin = isLoggedIn && isAdminUser(user);
+  if (admin && !ADMIN_ROUTES.has(name)) {
+    navigationRef.reset({ index: 0, routes: [{ name: 'AdminTabs' }] });
+  } else if (!admin && ADMIN_ROUTES.has(name)) {
+    navigationRef.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+  }
+}
+
 export default function AppNavigator() {
   const { colors, isDark } = useTheme();
+  const { user, isLoggedIn } = useAuth();
+  const adminMode = isLoggedIn && isAdminUser(user);
+  const authRef = useRef({ user, isLoggedIn });
+  authRef.current = { user, isLoggedIn };
+
+  useEffect(() => {
+    syncAdminRoot(user, isLoggedIn);
+  }, [user, isLoggedIn]);
 
   const navigationTheme = useMemo(() => {
     const base = isDark ? DarkTheme : DefaultTheme;
@@ -482,13 +540,18 @@ export default function AppNavigator() {
       ref={navigationRef}
       theme={navigationTheme}
       onReady={flushPendingCallNavigation}
+      onStateChange={() => syncAdminRoot(authRef.current.user, authRef.current.isLoggedIn)}
     >
       <AndroidBackHandler />
-      <IncomingCallBridge />
-      <DeviceTokenBridge />
-      <PushAlertBridge />
-      <MessageSoundBridge />
-      <CallSetupModal />
+      {adminMode ? null : (
+        <>
+          <IncomingCallBridge />
+          <DeviceTokenBridge />
+          <PushAlertBridge />
+          <MessageSoundBridge />
+          <CallSetupModal />
+        </>
+      )}
       <Stack.Navigator
         initialRouteName="Splash"
         screenOptions={{
@@ -508,6 +571,14 @@ export default function AppNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
         <Stack.Screen name="MainTabs" component={MainTabs} />
+        <Stack.Screen name="AdminTabs" component={AdminTabs} />
+        <Stack.Screen name="AdminShops" component={AdminShopsScreen} />
+        <Stack.Screen name="AdminReviews" component={AdminReviewsScreen} />
+        <Stack.Screen name="AdminPayments" component={AdminPaymentsScreen} />
+        <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
+        <Stack.Screen name="AdminUserDetail" component={AdminUserDetailScreen} />
+        <Stack.Screen name="AdminTesters" component={AdminTestersScreen} />
+        <Stack.Screen name="AdminScam" component={AdminScamScreen} />
 
         <Stack.Screen name="AllCategories" component={AllCategoriesScreen} />
         <Stack.Screen name="SearchResults" component={SearchResultsScreen} />

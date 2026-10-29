@@ -38,7 +38,7 @@ const TIPS = [
 ];
 
 const TRUST_BADGES = [
-  { label: 'Phone OTP', value: 'Verified', icon: PhonelinkLockRounded },
+  { label: 'Accounts', value: 'Google sign-in', icon: PhonelinkLockRounded },
   { label: 'Shop badge', value: 'Admin reviewed', icon: VerifiedRounded },
   { label: 'Report system', value: '24h review', icon: FlagRounded },
 ];
@@ -74,11 +74,11 @@ export default function Safety({ embedded = false }) {
             <div className="trust-panel-icon">
               <IconShield width={36} height={36} />
             </div>
-            <h3>Phone verified sellers</h3>
-            <p className="ne-title ne-title--slab" lang="ne">फोन प्रमाणित बिक्रेता</p>
+            <h3>Real accounts, real reviews</h3>
+            <p className="ne-title ne-title--slab" lang="ne">वास्तविक खाता, वास्तविक समीक्षा</p>
             <p>
-              Every account signs up with a verified Nepal mobile number. Shop sellers can earn
-              an additional business verified badge after review.
+              Every account signs in with Google, and buyers rate sellers after a deal. Shop sellers
+              can earn an additional business verified badge after review.
             </p>
             <div className="trust-badges">
               {TRUST_BADGES.map(({ icon: BadgeIcon, ...badge }, index) => (

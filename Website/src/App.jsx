@@ -1,5 +1,5 @@
 import { lazy, Suspense, useLayoutEffect } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigationType } from 'react-router-dom';
 import AmbientBackground from './components/AmbientBackground';
 import Navbar from './components/Navbar';
 
@@ -21,6 +21,24 @@ import LegalDocumentPage from './pages/LegalDocumentPage';
 import HumanCheckPage from './pages/HumanCheckPage';
 import SecurityPolicyPage from './pages/SecurityPolicyPage';
 
+// Back/forward (POP) keeps the browser's own scroll restore; query changes on one page do not jump.
+function ScrollToTop() {
+  const { pathname, hash } = useLocation();
+  const navigationType = useNavigationType();
+
+  useLayoutEffect(() => {
+    if (navigationType === 'POP') return;
+    const target = hash ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      return;
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [pathname, hash, navigationType]);
+
+  return null;
+}
+
 function PublicSite() {
   useLayoutEffect(() => {
     document.documentElement.classList.add('kb-public');
@@ -29,6 +47,7 @@ function PublicSite() {
 
   return (
     <>
+      <ScrollToTop />
       <AmbientBackground />
       <Navbar />
       <Routes>

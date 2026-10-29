@@ -247,6 +247,11 @@ export default function LoginScreen({ navigation }) {
   const continueWithGoogle = async () => {
     const result = await signIn();
     if (result.status !== 'ok') return;
+    if (result.admin) {
+      clearPendingLogin();
+      navigation.reset({ index: 0, routes: [{ name: 'AdminTabs' }] });
+      return;
+    }
     if (result.needsProfile) {
       navigation.replace(ROUTES.PROFILE_SETUP);
       return;

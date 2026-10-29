@@ -20,7 +20,8 @@ const INDIVIDUAL_FEATURES = [
 
 const SHOP_FEATURES = [
   { icon: StorefrontRounded, text: 'Shop logo, category & opening hours' },
-  { icon: QrCode2Rounded, text: 'Stock, SKU & brand on listings' },
+  { icon: QrCode2Rounded, text: 'Shop QR code customers can scan' },
+  { icon: Inventory2Rounded, text: 'Stock, SKU & brand on listings' },
   { icon: VerifiedRounded, text: 'Verified badge after admin review' },
   { icon: TrendingUpRounded, text: 'Featured in Explore & search' },
 ];

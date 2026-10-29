@@ -160,6 +160,7 @@ export function LoginPromptHost() {
     const action = actionRef.current;
     actionRef.current = null;
     setVisible(false);
+    if (result.admin) return;
     if (result.needsProfile) {
       // ProfileSetup calls finishLogin, which pops back here and runs the action.
       pendingAction = action;

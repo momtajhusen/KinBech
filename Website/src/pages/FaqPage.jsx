@@ -4,6 +4,7 @@ import PageShell from '../components/PageShell';
 import FAQ from '../components/FAQ';
 import { IconTitle } from '../components/IconList';
 import SiteImage from '../components/SiteImage';
+import { SUPPORT_EMAIL, SUPPORT_PHONE, SUPPORT_PHONE_HREF } from '../content/brand';
 
 export default function FaqPage() {
   return (
@@ -23,8 +24,9 @@ export default function FaqPage() {
           <div>
             <IconTitle icon={SupportAgentRounded} ne="अझै सहयोग चाहियो?">Still need help?</IconTitle>
             <p>
-              Open Help & Support inside the app to submit a ticket, or email{' '}
-              <a href="mailto:support@kinbech.com">support@kinbech.com</a>.
+              Open Help & Support inside the app to submit a ticket, email{' '}
+              <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>, or call{' '}
+              <a href={SUPPORT_PHONE_HREF}>{SUPPORT_PHONE}</a>.
             </p>
             <div className="page-cta-row">
               <Link to="/safety" className="btn btn-outline">Safety tips</Link>

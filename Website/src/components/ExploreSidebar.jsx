@@ -43,6 +43,8 @@ export default function ExploreSidebar({
   categoryCounts,
   onCategoryChange,
   resultTotal,
+  resultNoun = 'listing',
+  title = 'Categories',
   countsLoading,
   className = '',
 }) {
@@ -55,7 +57,7 @@ export default function ExploreSidebar({
     <aside className={`explore-sidebar ${className}`.trim()}>
       <div className="explore-sidebar-card">
         <div className="explore-sidebar-head">
-          <h2>Categories</h2>
+          <h2>{title}</h2>
         </div>
 
         <ul className="explore-sidebar-categories">
@@ -84,7 +86,7 @@ export default function ExploreSidebar({
           {countsLoading ? (
             <span className="explore-sidebar-foot-loading">Updating…</span>
           ) : (
-            <span>{resultTotal ?? 0} listing{(resultTotal ?? 0) === 1 ? '' : 's'} shown</span>
+            <span>{resultTotal ?? 0} {resultNoun}{(resultTotal ?? 0) === 1 ? '' : 's'} shown</span>
           )}
         </div>
       </div>

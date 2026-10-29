@@ -10,8 +10,8 @@ const STATS = [
   },
   {
     icon: IconPhone,
-    value: '+977 OTP',
-    label: 'Phone-verified accounts — no email needed',
+    value: 'Google sign-in',
+    label: 'One tap to join — no password to remember',
     tone: 'blue',
   },
   {

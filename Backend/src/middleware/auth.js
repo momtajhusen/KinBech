@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { touchLastActive } = require('../utils/platformBI');
-const { isAdminRole, hasScope } = require('../utils/adminScopes');
+const { isAdminRole, isPlatformAdminEmail, hasScope } = require('../utils/adminScopes');
 const { findLiveSession, touchSession } = require('../utils/sessions');
 
 const SUSPENDED_MESSAGE =
@@ -117,6 +117,8 @@ async function requireAdmin(req, res, next) {
     if (
       process.env.ADMIN_2FA_REQUIRED === 'true' &&
       !user.twoFactorEnabled &&
+      // Google-only platform admins have no password to set up 2FA with; Google guards their sign-in.
+      !(user.googleId && isPlatformAdminEmail(user.email)) &&
       !TWO_FACTOR_SETUP_PATHS.test(req.path)
     ) {
       return res.status(403).json({

@@ -31,7 +31,7 @@ function listingPoint(listing) {
 }
 
 /**
- * Individual (OTP) sellers → Phone Verified
+ * Individual (Google sign-in) sellers → Verified account
  * Business-verified shops → Business Verified
  */
 function resolveListingVerification(listing) {
@@ -57,7 +57,7 @@ function resolveListingVerification(listing) {
     };
   }
 
-  // Individual — KinBech accounts are created via phone OTP
+  // Individual — KinBech accounts are created via Google sign-in
   const seller = listing?.seller;
   if (!seller) {
     return {
@@ -73,8 +73,8 @@ function resolveListingVerification(listing) {
     return {
       verified: true,
       verificationKind: 'phone',
-      verificationLabel: 'Phone Verified',
-      // Every account is OTP-verified, so this says nothing extra; seller score ranks instead.
+      verificationLabel: 'Verified account',
+      // Every account signs in with Google, so this says nothing extra; seller score ranks instead.
       trustBoost: 0,
     };
   }

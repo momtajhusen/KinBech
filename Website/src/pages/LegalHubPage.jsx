@@ -58,7 +58,7 @@ export default function LegalHubPage() {
         <p className="legal-hub-meta">
           {LEGAL_COMPANY.name} · {LEGAL_COMPANY.address}
           <br />
-          {LEGAL_COMPANY.supportEmail} · {LEGAL_COMPANY.privacyEmail}
+          {LEGAL_COMPANY.supportEmail} · {LEGAL_COMPANY.supportPhone}
           <br />
           Last updated: {LEGAL_LAST_UPDATED}
         </p>

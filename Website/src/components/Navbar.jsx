@@ -125,7 +125,7 @@ export default function Navbar() {
                   </span>
                   <span className="nav-more-text">
                     <strong>Get the KinBech app</strong>
-                    <small>Chat, post and meet with your +977 number</small>
+                    <small>Chat, call and post · Android</small>
                   </span>
                   <IconChevronRight width={16} height={16} className="nav-more-promo-arrow" />
                 </Link>

@@ -195,7 +195,7 @@ async function getAllReports(req, res, next) {
       Report.find(filter)
         .populate('reporter', 'name phone avatarUrl')
         .populate('reportedUser', 'name phone avatarUrl')
-        .populate('reportedListing', 'title photos')
+        .populate('reportedListing', 'title photos status')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

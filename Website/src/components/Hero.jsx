@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import SiteImage from './SiteImage';
 import {
@@ -18,6 +18,104 @@ const POPULAR = [
   { name: 'Furniture', icon: IconFurniture },
   { name: 'Laptops', icon: IconLaptop },
 ];
+
+const HERO_SLIDES = [
+  'home-hero',
+  'categories-hero',
+  'features-hero',
+  'how-hero',
+  'sellers-hero',
+  'download-hero',
+  'safety-hero',
+  'faq-hero',
+  'legal-hero',
+  'security-hero',
+];
+const SLIDE_MS = 4500;
+const SWIPE_PX = 40;
+
+function HeroSlider() {
+  const count = HERO_SLIDES.length;
+  const [index, setIndex] = useState(0);
+  const [prev, setPrev] = useState(-1);
+  const [paused, setPaused] = useState(false);
+  // Only the current and next slides are mounted, so the home page does not download every illustration up front.
+  const [mounted, setMounted] = useState(() => new Set([0, 1]));
+  const indexRef = useRef(0);
+  const touchX = useRef(null);
+
+  const go = useCallback((target) => {
+    const next = (target + count) % count;
+    if (next === indexRef.current) return;
+    setPrev(indexRef.current);
+    indexRef.current = next;
+    setIndex(next);
+    const ahead = (next + 1) % count;
+    setMounted((set) => (set.has(next) && set.has(ahead) ? set : new Set([...set, next, ahead])));
+  }, [count]);
+
+  useEffect(() => {
+    if (paused) return undefined;
+    let timer;
+    const tick = () => {
+      if (document.hidden) timer = setTimeout(tick, SLIDE_MS);
+      else go(indexRef.current + 1);
+    };
+    timer = setTimeout(tick, SLIDE_MS);
+    return () => clearTimeout(timer);
+  }, [paused, go, index]);
+
+  const onTouchStart = (e) => {
+    touchX.current = e.touches[0]?.clientX ?? null;
+  };
+
+  const onTouchEnd = (e) => {
+    if (touchX.current == null) return;
+    const dx = (e.changedTouches[0]?.clientX ?? touchX.current) - touchX.current;
+    touchX.current = null;
+    if (Math.abs(dx) > SWIPE_PX) go(indexRef.current + (dx < 0 ? 1 : -1));
+  };
+
+  return (
+    <div
+      className="hero-slider"
+      aria-roledescription="carousel"
+      aria-label="KinBech illustrations"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
+      <div className="hero-slides">
+        {HERO_SLIDES.map((name, i) =>
+          mounted.has(i) ? (
+            <div
+              key={name}
+              className={`hero-slide${i === index ? ' is-active' : ''}${i === prev ? ' is-prev' : ''}`}
+              aria-hidden={i !== index}
+            >
+              <SiteImage name={name} priority={i === 0} />
+            </div>
+          ) : null,
+        )}
+      </div>
+      <div className="hero-slider-dots">
+        {HERO_SLIDES.map((name, i) => (
+          <button
+            key={name}
+            type="button"
+            className={i === index ? 'is-active' : ''}
+            aria-label={`Show illustration ${i + 1} of ${count}`}
+            aria-current={i === index ? 'true' : undefined}
+            onClick={() => go(i)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function Hero() {
   const navigate = useNavigate();
@@ -48,7 +146,7 @@ export default function Hero() {
             No shipping. <span className="hero-highlight">Just meet.</span>
           </h1>
           <p className="hero-ne" lang="ne">
-            नजिकै किन्नुहोस्, नजिकै बेच्नुहोस् — ढुवानी होइन, <span>भेटेरै कारोबार।</span>
+            नजिकै किन्नुहोस्, नजिकै बेच्नुहोस् — डेलिभरी कुर्नु पर्दैन, <span>भेटेरै कारोबार गर्नुहोस्।</span>
           </p>
           <p className="hero-lead">
             KinBech connects buyers and sellers in your city — phones, furniture, vehicles,
@@ -79,8 +177,8 @@ export default function Hero() {
 
           <div className="hero-stats">
             <div className="hero-stat">
-              <strong>+977</strong>
-              <span>Phone OTP login</span>
+              <strong>1 tap</strong>
+              <span>Google sign-in</span>
             </div>
             <div className="hero-stat">
               <strong>NPR</strong>
@@ -99,7 +197,7 @@ export default function Hero() {
             <span />
             <span />
           </div>
-          <SiteImage name="home-hero" priority />
+          <HeroSlider />
           <span className="hero-art-chip hero-art-chip--top">
             <IconLocation width={16} height={16} />
             800 m away

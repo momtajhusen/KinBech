@@ -41,7 +41,7 @@ export default function HowItWorksPage() {
       neFirst
       subtitle="Whether you're selling one item or running a shop, KinBech keeps every deal simple and local."
       image="how-hero"
-      highlights={['Phone OTP sign-in', 'Chat before you meet', 'Pay in person']}
+      highlights={['Google sign-in', 'Chat before you meet', 'Pay in person']}
     >
       <HowItWorks embedded />
       <div className="container">

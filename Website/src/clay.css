@@ -1634,6 +1634,85 @@ html.kb-public body {
   50% { transform: translateY(-8px); }
 }
 
+/* ---------- Hero illustration slider ---------- */
+.kb-public .hero-slider {
+  position: relative;
+  touch-action: pan-y;
+}
+
+.kb-public .hero-slides {
+  position: relative;
+  aspect-ratio: 1 / 1;
+}
+
+.kb-public .hero-slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateX(16%) scale(0.92);
+  transition: opacity 0.7s var(--glide), transform 0.9s var(--glide);
+  pointer-events: none;
+}
+
+.kb-public .hero-slide.is-prev {
+  transform: translateX(-16%) scale(0.92);
+}
+
+.kb-public .hero-slide.is-active {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.kb-public .hero-slide .site-image {
+  width: 100%;
+}
+
+.kb-public .hero-slider-dots {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.kb-public .hero-slider-dots button {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: width 0.35s var(--glide), background 0.35s ease;
+}
+
+.kb-public .hero-slider-dots button:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.kb-public .hero-slider-dots button.is-active {
+  width: 24px;
+  background: #a7f3d0;
+}
+
+.kb-public .hero-slider-dots button:focus-visible {
+  outline: 2px solid #a7f3d0;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-public .hero-slide,
+  .kb-public .hero-slide.is-prev {
+    transform: none;
+    transition: opacity 0.3s ease;
+  }
+}
+
 /* ---------- Page headers ---------- */
 .kb-public .page-hero {
   position: relative;
@@ -2493,12 +2572,24 @@ html.kb-public body {
   opacity: 0.85;
 }
 
+.kb-public .hero-copy {
+  container-type: inline-size;
+}
+
+/* The line is ~28× its font size wide, so 3.45cqi keeps it on one line at any column width. */
 .kb-public p.hero-ne {
   margin: -4px 0 12px;
-  font-size: clamp(18px, 2vw, 23px);
+  font-size: clamp(11px, 3.45cqi, 21px);
   font-weight: 700;
   line-height: 1.4;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.92);
+}
+
+@media (max-width: 340px) {
+  .kb-public p.hero-ne {
+    white-space: normal;
+  }
 }
 
 .kb-public .hero-badge .hero-badge-ne {
@@ -2598,7 +2689,6 @@ html.kb-public body {
   }
 
   .kb-public p.hero-ne {
-    font-size: 17px;
     margin-bottom: 12px;
   }
 

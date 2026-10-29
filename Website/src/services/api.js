@@ -24,13 +24,16 @@ export const api = {
   getListings: (params) => request(`/listings${toQuery(params)}`),
   searchListings: (params) => request(`/listings/search${toQuery(params)}`),
   getCategoryCounts: (params) => request(`/listings/category-counts${toQuery(params)}`),
+  getRelatedListings: (params) => request(`/listings/related${toQuery(params)}`),
   getSearchSuggestions: (q, options) => request(`/listings/suggestions${toQuery({ q })}`, options),
-  getListing: (id) => request(`/listings/${id}`),
+  getListing: (id, params) => request(`/listings/${id}${toQuery(params)}`),
 
   getFeaturedSellers: (params) => request(`/sellers/featured${toQuery(params)}`),
   getPopularSellers: (params) => request(`/sellers/popular${toQuery(params)}`),
   getNearbySellers: (params) => request(`/sellers/nearby${toQuery(params)}`),
   searchSellers: (params) => request(`/sellers/search${toQuery(params)}`),
+  getSellers: (params) => request(`/sellers${toQuery(params)}`),
+  getSellerCategoryCounts: () => request('/sellers/category-counts'),
   getSeller: (id, params) => request(`/sellers/${id}${toQuery(params)}`),
 
   getShopListings: (shopId, params) => request(`/shops/${shopId}/listings${toQuery(params)}`),

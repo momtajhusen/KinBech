@@ -10,13 +10,19 @@ import HealthAndSafetyRounded from '@mui/icons-material/HealthAndSafetyRounded';
 import HelpCenterRounded from '@mui/icons-material/HelpCenterRounded';
 import LocationOnRounded from '@mui/icons-material/LocationOnRounded';
 import PersonRemoveRounded from '@mui/icons-material/PersonRemoveRounded';
-import PhoneIphoneRounded from '@mui/icons-material/PhoneIphoneRounded';
+import PhoneAndroidRounded from '@mui/icons-material/PhoneAndroidRounded';
 import PhonelinkSetupRounded from '@mui/icons-material/PhonelinkSetupRounded';
 import PrivacyTipRounded from '@mui/icons-material/PrivacyTipRounded';
 import SearchRounded from '@mui/icons-material/SearchRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import StoreRounded from '@mui/icons-material/StoreRounded';
-import { BRAND_TAGLINE } from '../content/brand';
+import {
+  BRAND_TAGLINE,
+  CONTACT_ADDRESS,
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE,
+  SUPPORT_PHONE_HREF,
+} from '../content/brand';
 import BrandMark from './BrandMark';
 
 const COLUMNS = [
@@ -28,7 +34,7 @@ const COLUMNS = [
       { to: '/features', label: 'Features', icon: StarRounded },
       { to: '/how-it-works', label: 'How it works', icon: HandshakeRounded },
       { to: '/sellers', label: 'For sellers', icon: StoreRounded },
-      { to: '/download', label: 'Download', icon: PhoneIphoneRounded },
+      { to: '/download', label: 'Download', icon: PhoneAndroidRounded },
     ],
   },
   {
@@ -46,10 +52,10 @@ const COLUMNS = [
   {
     title: 'Contact',
     links: [
-      { href: 'mailto:support@kinbech.com', label: 'support@kinbech.com', icon: EmailRounded },
+      { href: SUPPORT_PHONE_HREF, label: SUPPORT_PHONE, icon: CallRounded },
+      { href: `mailto:${SUPPORT_EMAIL}`, label: SUPPORT_EMAIL, icon: EmailRounded },
+      { label: CONTACT_ADDRESS, icon: LocationOnRounded },
       { to: '/security', label: 'Report a security issue', icon: BugReportRounded },
-      { label: 'Kathmandu, Nepal', icon: LocationOnRounded },
-      { label: '+977 support line — coming soon', icon: CallRounded },
     ],
   },
 ];

@@ -13,6 +13,9 @@ import './map.css';
 import './animations.css';
 import './clay.css';
 import './explore-v2.css';
+import './download.css';
+import './cards.css';
+import './detail.css';
 import { installWindowErrorHandlers } from './utils/errorReporting';
 
 installWindowErrorHandlers({ source: 'website' });

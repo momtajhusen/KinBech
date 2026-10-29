@@ -369,7 +369,7 @@ async function sellNudge(ctx) {
   const variants = [
     () => ({ en: ['💡 Got something you no longer use?', `Phones, furniture, bikes… post in a minute and meet buyers in ${v.city}.`], ne: ['💡 प्रयोग नगरेको सामान छ?', `फोन, फर्निचर, बाइक… एक मिनेटमै पोस्ट गर्नुहोस्, ${v.cityNe}मै ग्राहक भेट्नुहोस्।`] }),
     () => ({ en: ['💰 Turn clutter into cash this week', `Buyers in ${v.city} are looking. Snap a photo and post.`], ne: ['💰 पुरानो सामानलाई पैसामा बदल्नुहोस्', `${v.cityNe}मा ग्राहक खोज्दैछन्। फोटो खिच्नुहोस् र पोस्ट गर्नुहोस्।`] }),
-    () => ({ en: ['📸 One photo, one minute, one new buyer', 'Post something today. No shipping, just meet.'], ne: ['📸 एउटा फोटो, एक मिनेट, नयाँ ग्राहक', 'आज केही पोस्ट गर्नुहोस्। ढुवानी होइन, भेटेरै कारोबार।'] }),
+    () => ({ en: ['📸 One photo, one minute, one new buyer', 'Post something today. No shipping, just meet.'], ne: ['📸 एउटा फोटो, एक मिनेट, नयाँ ग्राहक', 'आज केही पोस्ट गर्नुहोस्। डेलिभरी चाहिँदैन, भेटेरै कारोबार।'] }),
   ];
   return {
     kind: 'sell_nudge',

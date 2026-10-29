@@ -1,10 +1,44 @@
 import { Link } from 'react-router-dom';
-import { IconLocation, IconEye } from './Icons';
+import AccessTimeRounded from '@mui/icons-material/AccessTimeRounded';
+import AutoAwesomeRounded from '@mui/icons-material/AutoAwesomeRounded';
+import ChevronRightRounded from '@mui/icons-material/ChevronRightRounded';
+import LocationOnOutlined from '@mui/icons-material/LocationOnOutlined';
+import PersonRounded from '@mui/icons-material/PersonRounded';
+import StorefrontRounded from '@mui/icons-material/StorefrontRounded';
+import VerifiedRounded from '@mui/icons-material/VerifiedRounded';
+
+const CONDITION_TONE = {
+  New: 'success',
+  'Like New': 'info',
+  Good: 'primary',
+  Fair: 'warning',
+};
+
+function shortAgo(date) {
+  if (!date) return '';
+  const minutes = Math.floor((Date.now() - new Date(date).getTime()) / 60000);
+  if (!Number.isFinite(minutes)) return '';
+  if (minutes < 1) return 'now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+const cityOnly = (location) => String(location || '').split(',')[0].trim();
 
 export default function ProductCard({ item, onClick, style }) {
   if (!item) return null;
 
   const href = `/listing/${item.id}`;
+  const isShop = item.sellerType === 'shop';
+  const ago = shortAgo(item.createdAt);
+  const city = cityOnly(item.location);
+  const SellerIcon = isShop ? StorefrontRounded : PersonRounded;
+
   const inner = (
     <>
       <div className="product-card-image">
@@ -13,49 +47,54 @@ export default function ProductCard({ item, onClick, style }) {
         ) : (
           <div className="product-card-placeholder">{item.category?.slice(0, 1) || '?'}</div>
         )}
-        {item.category ? (
-          <span className="product-card-category">{item.category}</span>
-        ) : null}
-        {item.distanceLabel ? (
-          <span className="product-card-distance">
-            <IconLocation width={12} height={12} />
-            {item.distanceLabel}
+        {item.isFeatured ? (
+          <span className="pcard-featured">
+            <AutoAwesomeRounded />
+            Featured
           </span>
         ) : null}
       </div>
-      <div className="product-card-body">
-        <h3>{item.title}</h3>
-        <p className="product-card-price">{item.price}</p>
-        <div className="product-card-meta">
-          {item.condition ? <span className="product-card-condition">{item.condition}</span> : null}
-          {item.timeAgo ? <span>{item.timeAgo}</span> : null}
-          {item.views > 0 ? (
-            <span className="product-card-views">
-              <IconEye width={11} height={11} />
-              {item.views}
+      <div className="product-card-body pcard-body">
+        <h3 className="pcard-title">{item.title}</h3>
+        <div className="pcard-price-row">
+          <strong className="pcard-price">{item.price}</strong>
+          {item.distanceLabel ? (
+            <span className="pcard-away">
+              <LocationOnOutlined />
+              {item.distanceLabel}
             </span>
           ) : null}
         </div>
-        <div className="product-card-footer">
-          <p className="product-card-seller">{item.sellerName}</p>
-          {item.sellerType === 'shop' ? (
-            <span className="product-card-badge">Shop</span>
-          ) : null}
-          {item.verificationLabel || item.verified ? (
-            <span
-              className={`product-card-badge product-card-badge-verified ${
-                item.verificationKind === 'business'
-                  ? 'product-card-badge-business'
-                  : 'product-card-badge-phone'
-              }`}
-            >
-              {item.verificationLabel ||
-                (item.verificationKind === 'business' ? 'Business Verified' : 'Phone Verified')}
-            </span>
-          ) : null}
-        </div>
-        {item.location ? (
-          <p className="product-card-location">{item.location}</p>
+        {item.condition || ago ? (
+          <div className="pcard-detail-row">
+            {item.condition ? (
+              <span className={`pcard-cond pcard-cond--${CONDITION_TONE[item.condition] || 'primary'}`}>
+                {item.condition}
+              </span>
+            ) : null}
+            {ago ? (
+              <span className="pcard-ago">
+                <AccessTimeRounded />
+                {ago}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {city ? (
+          <p className="pcard-meta">
+            <LocationOnOutlined />
+            <span>{city}</span>
+          </p>
+        ) : null}
+        {item.sellerName ? (
+          <p className="pcard-meta pcard-seller">
+            <SellerIcon />
+            <span>{item.sellerName}</span>
+            {item.verificationKind === 'business' ? (
+              <VerifiedRounded className="pcard-verified" aria-label="Business Verified" />
+            ) : null}
+            <ChevronRightRounded className="pcard-chevron" />
+          </p>
         ) : null}
       </div>
     </>
@@ -64,7 +103,7 @@ export default function ProductCard({ item, onClick, style }) {
   if (onClick) {
     return (
       <article
-        className="product-card"
+        className="product-card pcard"
         style={style}
         onClick={() => onClick(item)}
         role="button"
@@ -77,7 +116,7 @@ export default function ProductCard({ item, onClick, style }) {
   }
 
   return (
-    <Link to={href} className="product-card product-card-link" style={style}>
+    <Link to={href} className="product-card product-card-link pcard" style={style}>
       {inner}
     </Link>
   );

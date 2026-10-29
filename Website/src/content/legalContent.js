@@ -2,8 +2,9 @@ export const LEGAL_LAST_UPDATED = 'October 2026';
 
 export const LEGAL_COMPANY = {
   name: 'KinBech Pvt. Ltd.',
-  address: 'Gairidhara - 2, Kathmandu 44600, Bagmati Province, Nepal',
+  address: 'Nepal',
   supportEmail: 'support@kinbech.com',
+  supportPhone: '+977 9815759505',
   privacyEmail: 'support@kinbech.com',
   legalEmail: 'support@kinbech.com',
   website: 'https://kinbech.codersalpha.com',
@@ -17,7 +18,6 @@ export const APP_PERMISSIONS = [
     id: 'account',
     name: 'Google account (name, email, profile photo)',
     android: 'Not a device permission — shared by Google when you sign in',
-    ios: 'Not a device permission — shared by Google when you sign in',
     required: true,
     when: 'Sign in with Google',
     why: 'To create your account, sign you in securely, and show your name and photo to people you deal with.',
@@ -28,7 +28,6 @@ export const APP_PERMISSIONS = [
     id: 'phone',
     name: 'Phone number (optional)',
     android: 'Not a device permission — typed by you',
-    ios: 'Not a device permission — typed by you',
     required: false,
     when: 'If you add a phone number to your profile',
     why: 'Lets buyers call you directly, only if you turn on "Show phone number" in Privacy settings.',
@@ -39,7 +38,6 @@ export const APP_PERMISSIONS = [
     id: 'location',
     name: 'Location (When In Use)',
     android: 'ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION',
-    ios: 'NSLocationWhenInUseUsageDescription',
     required: false,
     when: 'Home, Explore, posting a listing, profile setup, shop creation',
     why: 'Show listings near you, sort by distance, and auto-fill city/district on your profile or listing.',
@@ -50,7 +48,6 @@ export const APP_PERMISSIONS = [
     id: 'photos',
     name: 'Photos & media library',
     android: 'Android photo picker (no gallery permission on Android 13+); READ_EXTERNAL_STORAGE on Android 12 and below',
-    ios: 'NSPhotoLibraryUsageDescription',
     required: false,
     when: 'Profile photo, listing photos, shop logo, shop verification documents',
     why: 'Let you upload images for your profile, product listings, and shop.',
@@ -61,7 +58,6 @@ export const APP_PERMISSIONS = [
     id: 'camera',
     name: 'Camera',
     android: 'CAMERA',
-    ios: 'NSCameraUsageDescription',
     required: false,
     when: 'When you take a listing or profile photo, or record a short listing video (max 30 seconds)',
     why: 'Let you photograph items and record one short product video inside the app.',
@@ -72,7 +68,6 @@ export const APP_PERMISSIONS = [
     id: 'microphone',
     name: 'Microphone',
     android: 'RECORD_AUDIO, MODIFY_AUDIO_SETTINGS',
-    ios: 'NSMicrophoneUsageDescription, NSSpeechRecognitionUsageDescription',
     required: false,
     when: 'Voice calls, voice messages in chat, voice search, and listing video sound',
     why: 'Let you talk to buyers and sellers, send voice notes, and search by speaking.',
@@ -83,7 +78,6 @@ export const APP_PERMISSIONS = [
     id: 'calls',
     name: 'Incoming calls & background calling',
     android: 'MANAGE_OWN_CALLS, FOREGROUND_SERVICE_PHONE_CALL, FOREGROUND_SERVICE_MICROPHONE, USE_FULL_SCREEN_INTENT, WAKE_LOCK, VIBRATE, SYSTEM_ALERT_WINDOW, DISABLE_KEYGUARD, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS',
-    ios: 'Not applicable',
     required: false,
     when: 'When someone calls you on KinBech, and while a call is active',
     why: 'Ring and show the incoming call screen even when the phone is locked or the app is closed, and keep the call connected when you switch apps. Battery optimisation is turned off only if you approve it.',
@@ -94,7 +88,6 @@ export const APP_PERMISSIONS = [
     id: 'notifications',
     name: 'Notifications',
     android: 'POST_NOTIFICATIONS (Android 13+)',
-    ios: 'Push notification permission (when enabled)',
     required: false,
     when: 'If you enable notifications in Settings',
     why: 'Send incoming calls, chat replies, listing activity, and safety alerts.',
@@ -105,7 +98,6 @@ export const APP_PERMISSIONS = [
     id: 'internet',
     name: 'Network access',
     android: 'INTERNET',
-    ios: 'Standard network access',
     required: true,
     when: 'Always while using the app',
     why: 'Load listings, chat, and account data from KinBech servers.',
@@ -195,7 +187,7 @@ export const LEGAL_DOCUMENTS = {
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
       title: 'Questions?',
-      body: `Contact ${LEGAL_COMPANY.supportEmail} or use Contact Us in the app. Support hours: 8 AM – 10 PM NPT daily.`,
+      body: `Email ${LEGAL_COMPANY.supportEmail}, call ${LEGAL_COMPANY.supportPhone}, or use Contact Us in the app. Support hours: 8 AM – 10 PM NPT daily.`,
     },
     sections: [
       {
@@ -240,15 +232,15 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '11. Limitation of Liability',
-        body: 'TO THE MAXIMUM EXTENT PERMITTED BY LAW, KINBECH IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES FROM USER TRANSACTIONS OR THIRD-PARTY CONDUCT. TOTAL LIABILITY IS LIMITED TO FEES PAID TO US IN THE PRIOR 12 MONTHS (CURRENTLY ZERO FOR STANDARD USE).',
+        body: 'TO THE MAXIMUM EXTENT PERMITTED BY LAW, KINBECH IS NOT LIABLE FOR INDIRECT, INCIDENTAL, OR CONSEQUENTIAL DAMAGES FROM USER TRANSACTIONS OR THIRD-PARTY CONDUCT. TOTAL LIABILITY IS LIMITED TO FEES PAID TO US IN THE PRIOR 12 MONTHS.',
       },
       {
         title: '12. Disputes & Governing Law',
         body: 'Disputes between users should be resolved directly. For disputes with KinBech, governing law is the laws of Nepal. Courts in Kathmandu, Nepal have primary jurisdiction unless local consumer law requires otherwise.',
       },
       {
-        title: '13. Google Play / App Store',
-        body: 'If you downloaded KinBech from Google Play or Apple App Store, their store terms also apply. These Terms are between you and KinBech, not Google or Apple.',
+        title: '13. Google Play',
+        body: 'KinBech is distributed through Google Play, so Google Play terms also apply to your download. These Terms are between you and KinBech, not Google.',
       },
       {
         title: '14. Changes',
@@ -273,7 +265,7 @@ export const LEGAL_DOCUMENTS = {
         title: '2. Permissions we request',
         body: APP_PERMISSIONS.map(
           (p) =>
-            `${p.name} (${p.optional ? 'Optional' : 'Required'})\nWhen: ${p.when}\nWhy: ${p.why}\nData: ${p.data}\nAndroid: ${p.android}\niOS: ${p.ios}`,
+            `${p.name} (${p.optional ? 'Optional' : 'Required'})\nWhen: ${p.when}\nWhy: ${p.why}\nData: ${p.data}\nAndroid: ${p.android}`,
         ).join('\n\n'),
       },
       {
@@ -282,7 +274,7 @@ export const LEGAL_DOCUMENTS = {
       },
       {
         title: '4. How to revoke',
-        body: 'Android: Settings → Apps → KinBech → Permissions. iOS: Settings → KinBech. You can also toggle visibility (phone, location on profile) inside KinBech → Settings → Privacy & Security.',
+        body: 'Settings → Apps → KinBech → Permissions on your Android phone. You can also toggle visibility (phone, location on profile) inside KinBech → Settings → Privacy & Security.',
       },
       {
         title: '5. Data collected without a pop-up',
@@ -373,8 +365,8 @@ export const LEGAL_DOCUMENTS = {
     title: 'Refund & Cancellation Policy',
     lastUpdated: LEGAL_LAST_UPDATED,
     footer: {
-      title: 'Platform fees',
-      body: 'KinBech standard marketplace use is currently free. If paid promotions launch, refund terms will be shown before purchase.',
+      title: 'Posting plans',
+      body: `Signing in, browsing, chatting and calling are free, and sellers get free posts every day. Optional posting plans are paid through eSewa inside the app. If you were charged but your plan did not turn on, or you were charged twice, contact ${LEGAL_COMPANY.supportEmail} or ${LEGAL_COMPANY.supportPhone} with your eSewa transaction ID.`,
     },
     sections: [
       {
@@ -390,8 +382,8 @@ export const LEGAL_DOCUMENTS = {
         body: 'If a deal goes wrong, document chat and photos, report the user in-app, and contact local consumer protection or police for fraud. KinBech may suspend accounts but is not a party to private sales.',
       },
       {
-        title: '4. Future paid features',
-        body: 'Any future KinBech subscription or promoted listing fees will include clear pricing and applicable refund rules before you pay.',
+        title: '4. Posting plans',
+        body: 'Plan prices, daily post limits and duration are shown in the app before you pay. A plan starts as soon as eSewa confirms the payment, and every payment appears under Plan bills in the app.',
       },
     ],
   },

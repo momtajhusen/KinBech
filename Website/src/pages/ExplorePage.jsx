@@ -115,6 +115,7 @@ export default function ExplorePage() {
 
   const [categories, setCategories] = useState([]);
   const [categoryCounts, setCategoryCounts] = useState({ counts: {}, total: 0 });
+  const [countsReady, setCountsReady] = useState(false);
   const [countsLoading, setCountsLoading] = useState(true);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
@@ -132,6 +133,11 @@ export default function ExplorePage() {
   const [sellerGroups, setSellerGroups] = useState({ featured: [], popular: [], nearby: [] });
   const [sellersLoading, setSellersLoading] = useState(false);
   const [sellersError, setSellersError] = useState('');
+  const [shopCategories, setShopCategories] = useState([]);
+  const [sellerCounts, setSellerCounts] = useState({ counts: {}, total: 0 });
+  const [sellerCountsStatus, setSellerCountsStatus] = useState('loading');
+  const [sellerCategory, setSellerCategory] = useState('All');
+  const [categorySellers, setCategorySellers] = useState({ status: 'idle', items: [], error: '' });
 
   const [showTop, setShowTop] = useState(false);
   const resultsRef = useRef(null);
@@ -189,6 +195,11 @@ export default function ExplorePage() {
     scrollToResults();
   }, [setParams, scrollToResults]);
 
+  const pickSellerCategory = useCallback((name) => {
+    setSellerCategory(name || 'All');
+    scrollToResults();
+  }, [scrollToResults]);
+
   const clearFilters = useCallback(() => {
     setParams((prev) => {
       const next = writeFilters(prev, DEFAULT_FILTERS);
@@ -201,6 +212,9 @@ export default function ExplorePage() {
     api.getCategories('product').then((res) => {
       const list = normalizeCategoriesResponse(res, 'product');
       setCategories([{ name: 'All', id: 'all' }, ...list]);
+    }).catch(() => {});
+    api.getCategories('shop').then((res) => {
+      setShopCategories(normalizeCategoriesResponse(res, 'shop'));
     }).catch(() => {});
   }, []);
 
@@ -230,10 +244,14 @@ export default function ExplorePage() {
     setCountsLoading(true);
     api.getCategoryCounts(countParams)
       .then((res) => {
-        if (!cancelled) setCategoryCounts({ counts: res.counts || {}, total: res.total ?? 0 });
+        if (cancelled) return;
+        setCategoryCounts({ counts: res.counts || {}, total: res.total ?? 0 });
+        setCountsReady(true);
       })
       .catch(() => {
-        if (!cancelled) setCategoryCounts({ counts: {}, total: 0 });
+        if (cancelled) return;
+        setCategoryCounts({ counts: {}, total: 0 });
+        setCountsReady(false);
       })
       .finally(() => {
         if (!cancelled) setCountsLoading(false);
@@ -305,8 +323,51 @@ export default function ExplorePage() {
     return () => { cancelled = true; };
   }, [isSearch, q, searchTab, category, geo]);
 
+  const wantsSellerTab = !isSearch && tab === 'sellers';
+
+  // Store types and the product categories sellers list in, merged like the app.
   useEffect(() => {
-    if (isSearch || tab !== 'sellers') return undefined;
+    if (!wantsSellerTab) return undefined;
+    let cancelled = false;
+    api.getSellerCategoryCounts()
+      .then((res) => {
+        if (cancelled) return;
+        const counts = {};
+        const bump = (name, n) => {
+          if (name) counts[name] = Math.max(counts[name] || 0, Number(n) || 0);
+        };
+        Object.entries(res.categories || {}).forEach(([name, v]) => bump(name, v?.sellers));
+        Object.entries(res.storeTypes || {}).forEach(([name, n]) => bump(name, n));
+        setSellerCounts({ counts, total: res.totals?.sellers ?? 0 });
+        setSellerCountsStatus('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setSellerCountsStatus('error');
+      });
+    return () => { cancelled = true; };
+  }, [wantsSellerTab]);
+
+  useEffect(() => {
+    if (!wantsSellerTab || sellerCategory === 'All') return undefined;
+    let cancelled = false;
+    setCategorySellers({ status: 'loading', items: [], error: '' });
+    api.getSellers({ category: sellerCategory, ...geo })
+      .then((res) => {
+        if (cancelled) return;
+        const items = (res.sellers || [])
+          .map(toSellerCard)
+          .filter((s) => s && (s.listingCount > 0 || s.category === sellerCategory))
+          .sort((a, b) => (b.listingCount || 0) - (a.listingCount || 0));
+        setCategorySellers({ status: 'ready', items, error: '' });
+      })
+      .catch((e) => {
+        if (!cancelled) setCategorySellers({ status: 'error', items: [], error: e.message || 'Could not load sellers.' });
+      });
+    return () => { cancelled = true; };
+  }, [wantsSellerTab, sellerCategory, geo]);
+
+  useEffect(() => {
+    if (!wantsSellerTab || sellerCategory !== 'All') return undefined;
     let cancelled = false;
     setSellersLoading(true);
     setSellersError('');
@@ -330,11 +391,42 @@ export default function ExplorePage() {
         if (!cancelled) setSellersLoading(false);
       });
     return () => { cancelled = true; };
-  }, [isSearch, tab, geo]);
+  }, [wantsSellerTab, sellerCategory, geo]);
 
   const activeFilterCount = countActiveFilters(filters, category);
   const sorts = sortOptions(isSearch);
   const showProductsChrome = tab === 'products' || isSearch;
+
+  // Until counts arrive (or if they fail) keep every category so the list never comes up empty.
+  const visibleCategories = useMemo(() => {
+    if (!countsReady) return categories;
+    return categories.filter((cat) => (
+      cat.name === 'All' || cat.name === category || (categoryCounts.counts?.[cat.name] ?? 0) > 0
+    ));
+  }, [categories, category, categoryCounts, countsReady]);
+
+  const sellerCategoryList = useMemo(() => {
+    const seen = new Set(['All']);
+    const list = [{ name: 'All', id: 'all-sellers' }];
+    const add = (cat) => {
+      if (!cat?.name || seen.has(cat.name)) return;
+      seen.add(cat.name);
+      list.push(cat);
+    };
+    shopCategories.forEach(add);
+    categories.forEach(add);
+    Object.keys(sellerCounts.counts).forEach((name) => add({ name, id: `seller-${name}` }));
+    if (sellerCountsStatus !== 'ready') return list;
+    return list.filter((cat) => (
+      cat.name === 'All' || cat.name === sellerCategory || (sellerCounts.counts[cat.name] ?? 0) > 0
+    ));
+  }, [shopCategories, categories, sellerCounts, sellerCountsStatus, sellerCategory]);
+
+  const sellersShown = useMemo(() => {
+    if (sellerCategory !== 'All') return categorySellers.items.length;
+    const ids = new Set([...sellerGroups.featured, ...sellerGroups.popular, ...sellerGroups.nearby].map((s) => s.id));
+    return ids.size;
+  }, [sellerCategory, categorySellers, sellerGroups]);
 
   const quickCategories = useMemo(() => (
     Object.entries(categoryCounts.counts || {})
@@ -373,8 +465,29 @@ export default function ExplorePage() {
 
   const title = isSearch
     ? <>Results for <q className="explore-title-query">{q}</q></>
-    : tab === 'sellers' ? 'Sellers near you' : category !== 'All' ? category : 'All products';
-  const countLabel = feedStatus === 'loading' ? '' : `${feed.total.toLocaleString('en-IN')} item${feed.total === 1 ? '' : 's'}`;
+    : tab === 'sellers'
+      ? sellerCategory !== 'All' ? `${sellerCategory} sellers` : 'Sellers near you'
+      : category !== 'All' ? category : 'All products';
+  const sellersBusy = sellerCategory === 'All' ? sellersLoading : categorySellers.status === 'loading';
+  const countLabel = wantsSellerTab
+    ? sellersBusy ? '' : `${sellersShown} seller${sellersShown === 1 ? '' : 's'}`
+    : feedStatus === 'loading' ? '' : `${feed.total.toLocaleString('en-IN')} item${feed.total === 1 ? '' : 's'}`;
+
+  const navProps = wantsSellerTab
+    ? {
+      categories: sellerCategoryList,
+      category: sellerCategory,
+      categoryCounts: sellerCounts,
+      countsLoading: sellerCountsStatus === 'loading',
+      onCategoryChange: pickSellerCategory,
+    }
+    : {
+      categories: visibleCategories,
+      category,
+      categoryCounts,
+      countsLoading,
+      onCategoryChange: setCategory,
+    };
   const busy = feedStatus === 'refreshing';
 
   const renderTabs = (className = '') => (isSearch ? (
@@ -517,33 +630,21 @@ export default function ExplorePage() {
             </div>
           </div>
 
-          <div className={`explore-layout explore-layout-v2${showProductsChrome ? '' : ' explore-layout--full'}`}>
-            {showProductsChrome ? (
-              <>
-                <ExploreMobileRail
-                  categories={categories}
-                  category={category}
-                  categoryCounts={categoryCounts}
-                  countsLoading={countsLoading}
-                  onCategoryChange={setCategory}
-                />
-                <ExploreSidebar
-                  categories={categories}
-                  category={category}
-                  categoryCounts={categoryCounts}
-                  countsLoading={countsLoading}
-                  onCategoryChange={setCategory}
-                  resultTotal={feed.total}
-                  className="explore-sidebar-desktop"
-                />
-              </>
-            ) : null}
+          <div className={`explore-layout explore-layout-v2${showProductsChrome ? '' : ' explore-layout--no-rail'}`}>
+            <ExploreMobileRail {...navProps} />
+            <ExploreSidebar
+              {...navProps}
+              title={wantsSellerTab ? 'Store categories' : 'Categories'}
+              resultTotal={wantsSellerTab ? sellersShown : feed.total}
+              resultNoun={wantsSellerTab ? 'seller' : 'listing'}
+              className="explore-sidebar-desktop"
+            />
 
             <div className="explore-content" ref={resultsRef}>
               <div className="explore-results-head">
                 <div className="explore-results-title-wrap">
                   <h2 className="explore-results-title-v2">{title}</h2>
-                  {showProductsChrome && countLabel ? <span className="explore-results-count">{countLabel}</span> : null}
+                  {countLabel ? <span className="explore-results-count">{countLabel}</span> : null}
                   {busy ? <span className="explore-spinner explore-spinner--inline" aria-label="Updating" /> : null}
                 </div>
                 <div className="explore-results-actions">
@@ -613,7 +714,29 @@ export default function ExplorePage() {
                     ? empty('No sellers found', 'Try another name or search for products instead.')
                     : null}
                 </>
-              ) : tab === 'products' ? productGrid : (
+              ) : tab === 'products' ? productGrid : sellerCategory !== 'All' ? (
+                <>
+                  {categorySellers.status === 'loading' ? <SkeletonGrid count={6} /> : null}
+                  {categorySellers.status === 'error' ? <div className="explore-error"><p>{categorySellers.error}</p></div> : null}
+                  {categorySellers.status === 'ready' && categorySellers.items.length ? (
+                    <section className="explore-section">
+                      <div className="explore-seller-grid">
+                        {categorySellers.items.map((s) => <SellerCard key={s.id} seller={s} />)}
+                      </div>
+                    </section>
+                  ) : null}
+                  {categorySellers.status === 'ready' && !categorySellers.items.length ? (
+                    <div className="explore-empty">
+                      <SiteImage name="explore-empty" className="empty-art" />
+                      <h3>No {sellerCategory} sellers yet</h3>
+                      <p>Try another category, or see every seller near you.</p>
+                      <div className="explore-empty-actions">
+                        <button type="button" className="btn btn-primary" onClick={() => pickSellerCategory('All')}>All sellers</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
                 <>
                   {sellersLoading ? <SkeletonGrid count={6} /> : null}
                   {sellersError ? <div className="explore-error"><p>{sellersError}</p></div> : null}

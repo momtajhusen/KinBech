@@ -6,6 +6,7 @@ import BrandLogo from '../components/BrandLogo';
 import { BRAND_TAGLINE } from '../content/brand';
 import { useAuth } from '../context/AuthContext';
 import { ROUTES } from '../navigation/helpers';
+import { isAdminUser } from '../utils/admin';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 export default function SplashScreen({ navigation, route }) {
@@ -69,6 +70,10 @@ export default function SplashScreen({ navigation, route }) {
 
     const timer = setTimeout(() => {
       if (isLoggedIn) {
+        if (isAdminUser(user)) {
+          leaveSplash('AdminTabs');
+          return;
+        }
         if (!user?.profileComplete) {
           leaveSplash(ROUTES.PROFILE_SETUP);
           return;

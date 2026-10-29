@@ -1,60 +1,96 @@
 import SectionHeader from './SectionHeader';
 import Reveal from './Reveal';
+import AndroidRounded from '@mui/icons-material/AndroidRounded';
+import CallRounded from '@mui/icons-material/CallRounded';
+import EmailRounded from '@mui/icons-material/EmailRounded';
+import ForumRounded from '@mui/icons-material/ForumRounded';
+import LoginRounded from '@mui/icons-material/LoginRounded';
 import PublicRounded from '@mui/icons-material/PublicRounded';
 import SellRounded from '@mui/icons-material/SellRounded';
-import { IconMobile, IconPhone } from './Icons';
+import {
+  MIN_ANDROID,
+  PLAY_QR_SRC,
+  PLAY_STORE_URL,
+  SUPPORT_EMAIL,
+  SUPPORT_PHONE,
+  SUPPORT_PHONE_HREF,
+} from '../content/brand';
+
+const PERKS = [
+  { icon: LoginRounded, text: 'One-tap Google sign-in', ne: 'Google बाट साइन इन', tone: 'blue' },
+  { icon: ForumRounded, text: 'Chat, voice notes & calls', ne: 'च्याट, भ्वाइस नोट र कल', tone: 'violet' },
+  { icon: SellRounded, text: 'Free posts every day', ne: 'हरेक दिन निःशुल्क पोस्ट', tone: 'amber' },
+  { icon: PublicRounded, text: 'Works across Nepal', ne: 'नेपालभरि चल्छ', tone: 'green' },
+];
+
+export function GooglePlayBadge({ className = '' }) {
+  return (
+    <a
+      className={`play-badge ${className}`.trim()}
+      href={PLAY_STORE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Get KinBech on Google Play"
+    >
+      <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden>
+        <path fill="#00C853" d="M3.6 1.8 13.5 12l3.1-3.1L5 2.2c-.5-.3-1-.4-1.4-.4z" />
+        <path fill="#FFC107" d="M16.6 8.9 13.5 12l3.1 3.1 3.6-2.1c.8-.5.8-1.5 0-2l-3.6-2.1z" />
+        <path fill="#F44336" d="M3.6 22.2c.4 0 .9-.1 1.4-.4l11.6-6.7-3.1-3.1-9.9 10.2z" />
+        <path fill="#2196F3" d="M3.6 1.8c-.4.3-.6.7-.6 1.2v18c0 .5.2 1 .6 1.2L13.5 12 3.6 1.8z" />
+      </svg>
+      <span>
+        <small>Get it on</small>
+        <strong>Google Play</strong>
+      </span>
+    </a>
+  );
+}
 
 export default function Download({ embedded = false }) {
   const box = (
-        <Reveal as="div" className="download-box" variant="scale" delay={100}>
-          <div className="download-visual">
-            <div className="download-phone">
-              <IconMobile width={40} height={40} />
-            </div>
-            <div className="download-features">
-              <div className="download-feature icon-tone--green">
-                <span className="icon-tile"><IconPhone /></span>
-                <span>+977 phone login</span>
-              </div>
-              <div className="download-feature icon-tone--amber">
-                <span className="icon-tile"><SellRounded aria-hidden /></span>
-                <span>Free to browse &amp; list</span>
-              </div>
-              <div className="download-feature icon-tone--blue">
-                <span className="icon-tile"><PublicRounded aria-hidden /></span>
-                <span>Works across Nepal</span>
-              </div>
-            </div>
+    <Reveal as="div" className="download-card" variant="scale" delay={100}>
+      <div className="download-card-main">
+        <div className="download-app">
+          <img src="/app-icon.png" alt="" width="76" height="76" className="download-app-icon" />
+          <div className="download-app-text">
+            <strong>KinBech</strong>
+            <span>Buy &amp; sell near you</span>
+            <span className="download-app-meta">
+              <AndroidRounded aria-hidden /> {MIN_ANDROID}+ · Free
+            </span>
           </div>
-          <p className="download-text">
-            KinBech is coming soon to the App Store and Google Play. Browse listings on the web
-            today, or check back here for download links when we launch.
-          </p>
-          <div className="store-badges">
-            <div className="store-badge" title="Coming soon">
-              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden>
-                <path d="M18.7 12.1c-.1-2.1 1.7-3.1 1.8-3.2-1-.1-2-.6-2.6-1.5-.6-.9-.7-2-.2-3-.9.5-2 .4-2.7-.2-.7-.6-1-1.6-.7-2.5 1-.4 2.2.1 2.8 1 .6-2.4 3.4-3.6 5.6-2.7 1-.7 1.7-1.8 2.9-1.8 1.2 0 1.9.9 2.9.9 1.2 0 2-1.1 3.4-.9.6.1 2.2.6 3.2 2.3-.1.1-1.9 1.1-1.9 3.3 0 2.6 2.3 3.5 2.3 3.5-.1.2-.4.8-.4 1.6 0 1.3 1.1 2.3 2.4 2.3.7 0 1.3-.3 1.7-.7-.1 2.2-2 3.1-2.1 3.1-.5.3-1.2.5-1.9.5-1.4 0-2.5-.9-3.5-.9-1 0-2 .9-3.3.9-.7 0-1.4-.2-2-.5z" />
-              </svg>
+        </div>
+
+        <ul className="download-perks">
+          {PERKS.map(({ icon: Icon, text, ne, tone }) => (
+            <li key={text}>
+              <span className={`icon-tile icon-tone--${tone}`}><Icon aria-hidden /></span>
               <span>
-                <small>Download on the</small>
-                <strong>App Store</strong>
+                {text}
+                <small lang="ne">{ne}</small>
               </span>
-            </div>
-            <div className="store-badge" title="Coming soon">
-              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor" aria-hidden>
-                <path d="M3 20.5V3.5C3 2.91 3.34 2.39 3.84 2.08L13.69 12 3.84 21.92c-.5-.31-.84-.83-.84-1.42zM16.81 15.12 6.05 21.34l8.49-8.49 2.27 2.27zm3.35-2.89-2.04-1.14 2.61-2.61 1.36 1.36c.39.39.39 1.02 0 1.41l-1.93 1.98zM6.05 2.66l10.76 6.22-2.27 2.27L6.05 2.66z" />
-              </svg>
-              <span>
-                <small>Get it on</small>
-                <strong>Google Play</strong>
-              </span>
-            </div>
-          </div>
-          <p className="beta-note">
-            Questions before launch? Email{' '}
-            <a href="mailto:support@kinbech.com">support@kinbech.com</a>
-          </p>
-        </Reveal>
+            </li>
+          ))}
+        </ul>
+
+        <GooglePlayBadge />
+      </div>
+
+      <div className="download-qr" aria-hidden>
+        <div className="download-qr-code">
+          <img src={PLAY_QR_SRC} alt="" width="150" height="150" />
+          <img src="/app-icon.png" alt="" className="download-qr-logo" width="34" height="34" />
+        </div>
+        <strong>Scan to install</strong>
+        <span>Open your phone camera and point it here</span>
+      </div>
+
+      <div className="download-help">
+        <span>Need help installing?</span>
+        <a href={SUPPORT_PHONE_HREF}><CallRounded aria-hidden /> {SUPPORT_PHONE}</a>
+        <a href={`mailto:${SUPPORT_EMAIL}`}><EmailRounded aria-hidden /> {SUPPORT_EMAIL}</a>
+      </div>
+    </Reveal>
   );
 
   if (embedded) {
@@ -67,7 +103,7 @@ export default function Download({ embedded = false }) {
         <SectionHeader
           label="Get started"
           title="Download KinBech"
-          subtitle="Get the KinBech app on iPhone and Android — launching soon on the App Store and Google Play."
+          subtitle="The KinBech app for Android, on Google Play."
           align="center"
         />
         {box}
