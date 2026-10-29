@@ -137,7 +137,36 @@
         }
       ],
       "expo-status-bar",
-      "expo-font",
+      [
+        "expo-font",
+        {
+          "android": {
+            "fonts": [
+              {
+                "fontFamily": "Nunito",
+                "fontDefinitions": [
+                  { "path": "./assets/fonts/nunito_regular.ttf", "weight": 400 },
+                  { "path": "./assets/fonts/nunito_medium.ttf", "weight": 500 },
+                  { "path": "./assets/fonts/nunito_semibold.ttf", "weight": 600 },
+                  { "path": "./assets/fonts/nunito_bold.ttf", "weight": 700 },
+                  { "path": "./assets/fonts/nunito_extrabold.ttf", "weight": 800 },
+                  { "path": "./assets/fonts/nunito_black.ttf", "weight": 900 }
+                ]
+              }
+            ]
+          },
+          "ios": {
+            "fonts": [
+              "./assets/fonts/nunito_regular.ttf",
+              "./assets/fonts/nunito_medium.ttf",
+              "./assets/fonts/nunito_semibold.ttf",
+              "./assets/fonts/nunito_bold.ttf",
+              "./assets/fonts/nunito_extrabold.ttf",
+              "./assets/fonts/nunito_black.ttf"
+            ]
+          }
+        }
+      ],
       "expo-video",
       "expo-secure-store"
     ]

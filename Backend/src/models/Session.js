@@ -5,6 +5,8 @@ const sessionSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     kind: { type: String, enum: ['app', 'admin'], default: 'app' },
+    /** 'google' for admin panel sessions opened with Google; those skip the password and 2FA setup gates. */
+    signInMethod: { type: String, default: '' },
     deviceName: { type: String, default: '', trim: true, maxlength: 120 },
     platform: { type: String, default: '', trim: true, maxlength: 40 },
     appVersion: { type: String, default: '', trim: true, maxlength: 40 },

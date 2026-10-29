@@ -8,6 +8,8 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
   StatusPill,
   confirmAction,
   showAdminError,
@@ -15,14 +17,15 @@ import {
   useDebouncedValue,
   usePrompt,
 } from '../../components/admin/AdminKit';
+import { Float, Wiggle } from '../../components/Motion';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, timeAgo } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const SCOPES = [
-  { value: 'sellers', label: 'Sellers' },
-  { value: 'all', label: 'All users' },
+  { value: 'sellers', label: 'Sellers', icon: 'storefront' },
+  { value: 'all', label: 'All users', icon: 'people' },
 ];
 
 export default function AdminTestersScreen({ navigation }) {
@@ -126,31 +129,43 @@ export default function AdminTestersScreen({ navigation }) {
         {firstSeller ? <Text style={styles.groupTitle}>{scope === 'all' ? 'All users' : 'Sellers'} · tap to open</Text> : null}
         <AdminCard onPress={() => navigation.navigate('AdminUserDetail', { userId: item.id, name: item.name })}>
           <View style={styles.row}>
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarEmpty]}>
-                <Text style={styles.avatarLetter}>{String(item.name || '?').charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
+            <View>
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarEmpty]}>
+                  <Text style={styles.avatarLetter}>{String(item.name || '?').charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+              {item.tester ? (
+                <Wiggle angle={14} every={5000} style={styles.testerBadge}>
+                  <Icon name="flask" size={10} color={colors.white} />
+                </Wiggle>
+              ) : null}
+            </View>
             <View style={styles.flex1}>
               <View style={styles.nameRow}>
                 <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
                 {item.tester ? <StatusPill status="reviewed" label="Tester" /> : null}
                 {item.status !== 'active' ? <StatusPill status={item.status} /> : null}
               </View>
-              <Text style={styles.meta} numberOfLines={1}>
-                {[item.phone, item.shop?.name, `${item.activeListings}/${item.listings} live`].filter(Boolean).join(' · ')}
-              </Text>
-              <Text style={styles.small}>
-                {item.tester
-                  ? `Tester since ${formatDateTime(item.testerSince)}`
-                  : item.lastActiveAt
-                    ? `Active ${formatDateTime(item.lastActiveAt)}`
-                    : `Joined ${formatDateTime(item.createdAt)}`}
-              </Text>
+              <View style={styles.timeRow}>
+                <Icon name="time-outline" size={11} color={colors.textMuted} />
+                <Text style={styles.small}>
+                  {item.tester
+                    ? `Tester since ${formatDateTime(item.testerSince)}`
+                    : item.lastActiveAt
+                      ? `Active ${timeAgo(item.lastActiveAt)}`
+                      : `Joined ${timeAgo(item.createdAt)}`}
+                </Text>
+              </View>
             </View>
           </View>
+          <MetaRow>
+            {item.phone ? <MetaChip icon="call" label={item.phone} /> : null}
+            {item.shop?.name ? <MetaChip icon="storefront" tone="info" label={item.shop.name} /> : null}
+            <MetaChip icon="pricetags" tone={item.activeListings ? 'success' : undefined} label={`${item.activeListings || 0}/${item.listings || 0} live`} />
+          </MetaRow>
           <AdminActions
             actions={
               item.tester
@@ -177,12 +192,15 @@ export default function AdminTestersScreen({ navigation }) {
         header={
           <>
             <AdminHeader
+              icon="flask"
               title="Testers"
               subtitle={`${testerCount} tester${testerCount === 1 ? '' : 's'} · test posts stay hidden from the public`}
               onBack={() => navigation.goBack()}
             />
             <View style={styles.info}>
-              <Icon name="information-circle" size={16} color={colors.info} />
+              <Float distance={2}>
+                <Icon name="information-circle" size={16} color={colors.info} />
+              </Float>
               <Text style={styles.infoText}>
                 Testers only see each other. Exit tester brings old listings back and deletes test data. Delete removes the whole account.
               </Text>
@@ -199,17 +217,30 @@ export default function AdminTestersScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
-  info: { flexDirection: 'row', gap: 8, marginTop: 14, marginHorizontal: 16, padding: 12, borderRadius: 14, backgroundColor: colors.pastelBlue },
-  infoText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textSecondary },
-  groupTitle: { marginTop: 6, marginBottom: 8, marginHorizontal: 18, fontSize: 13, fontWeight: '800', color: colors.textTertiary },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 46, height: 46, borderRadius: 23, backgroundColor: colors.surfaceMuted },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen },
-  avatarLetter: { fontSize: 18, fontWeight: '800', color: colors.primary },
+  info: { flexDirection: 'row', gap: 8, marginTop: 14, marginHorizontal: 16, padding: 12, borderRadius: 18, backgroundColor: colors.pastelBlue, boxShadow: colors.clayTint },
+  infoText: { flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary },
+  groupTitle: { marginTop: 10, marginBottom: 10, marginHorizontal: 20, fontSize: 10.5, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase', color: colors.textMuted },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
+  avatarLetter: { fontSize: 16, fontWeight: '800', color: colors.primary },
+  testerBadge: {
+    position: 'absolute',
+    right: -3,
+    bottom: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.card,
+    backgroundColor: colors.info,
+  },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  name: { flexShrink: 1, fontSize: 15, fontWeight: '800', color: colors.text },
-  meta: { marginTop: 2, fontSize: 12.5, color: colors.textSecondary },
-  small: { marginTop: 2, fontSize: 11.5, color: colors.textMuted },
+  name: { flexShrink: 1, fontSize: 14, fontWeight: '800', color: colors.text },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  small: { fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
 });

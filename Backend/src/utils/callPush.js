@@ -57,6 +57,8 @@ async function deliverPush({ userId, title, body, data, incomingCall = false, da
           ...data,
           title: title || 'KinBech',
           body: body || '',
+          // The phone drops alerts meant for an account that is no longer signed in on it.
+          forUser: String(userId),
         }
   );
   const message = {

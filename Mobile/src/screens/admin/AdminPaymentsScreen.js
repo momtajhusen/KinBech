@@ -8,6 +8,9 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  CountUp,
+  MetaChip,
+  MetaRow,
   StatusPill,
   confirmAction,
   showAdminError,
@@ -15,11 +18,18 @@ import {
   useDebouncedValue,
   usePrompt,
 } from '../../components/admin/AdminKit';
+import { Pulse, Reanimated, enterCard } from '../../components/Motion';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime, formatNpr } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, formatNpr, timeAgo, waitingFor } from '../../utils/admin';
 
-const STATUSES = ['pending', 'approved', 'rejected', 'failed', 'cancelled'];
+const STATUSES = [
+  { value: 'pending', label: 'Pending', icon: 'time' },
+  { value: 'approved', label: 'Approved', icon: 'checkmark-circle' },
+  { value: 'rejected', label: 'Rejected', icon: 'close-circle' },
+  { value: 'failed', label: 'Failed', icon: 'alert-circle' },
+  { value: 'cancelled', label: 'Cancelled', icon: 'ban' },
+];
 
 export default function AdminPaymentsScreen({ navigation }) {
   const { colors } = useTheme();
@@ -81,30 +91,39 @@ export default function AdminPaymentsScreen({ navigation }) {
   const renderItem = ({ item }) => (
     <AdminCard>
       <View style={styles.row}>
-        <View style={styles.icon}>
-          <Icon name="wallet" size={18} color={colors.primary} />
-        </View>
+        <Pulse active={item.status === 'pending'} to={1.1} pause={2000} style={styles.icon}>
+          <Icon name="wallet" size={16} color={colors.primary} />
+        </Pulse>
         <View style={styles.flex1}>
           <Text style={styles.plan} numberOfLines={1}>{item.planName}</Text>
-          <Text style={styles.receipt}>{item.receiptNo} · {formatDateTime(item.createdAt)}</Text>
+          <View style={styles.timeRow}>
+            <Icon name="receipt-outline" size={11} color={colors.textMuted} />
+            <Text style={styles.receipt}>
+              {item.receiptNo} · {timeAgo(item.createdAt)}
+              {item.status === 'pending' ? ` · waiting ${waitingFor(item.createdAt)}` : ''}
+            </Text>
+          </View>
         </View>
-        <Text style={styles.price}>{formatNpr(item.price)}</Text>
+        <View style={styles.priceCol}>
+          <Text style={styles.price}>{formatNpr(item.price)}</Text>
+          <StatusPill status={item.status} />
+        </View>
       </View>
 
       <View style={styles.details}>
-        <Detail styles={styles} label="User" value={[item.user?.name, item.user?.phone].filter(Boolean).join(' · ') || 'Unknown'} />
-        <Detail styles={styles} label="Method" value={item.methodLabel || item.method} />
-        {item.reference ? <Detail styles={styles} label="Reference" value={item.reference} /> : null}
-        <Detail styles={styles} label="Duration" value={`${item.durationDays || 0} days`} />
-        {item.note ? <Detail styles={styles} label="Note" value={item.note} /> : null}
-        {item.rejectReason ? <Detail styles={styles} label="Reason" value={item.rejectReason} /> : null}
-        {item.reviewedBy ? <Detail styles={styles} label="Reviewed by" value={item.reviewedBy} /> : null}
+        <Detail styles={styles} colors={colors} icon="person" label="User" value={[item.user?.name, item.user?.phone].filter(Boolean).join(' · ') || 'Unknown'} />
+        <Detail styles={styles} colors={colors} icon="card" label="Method" value={item.methodLabel || item.method} />
+        {item.reference ? <Detail styles={styles} colors={colors} icon="pricetag" label="Reference" value={item.reference} /> : null}
+        <Detail styles={styles} colors={colors} icon="calendar" label="Duration" value={`${item.durationDays || 0} days`} />
+        {item.note ? <Detail styles={styles} colors={colors} icon="document-text" label="Note" value={item.note} /> : null}
+        {item.rejectReason ? <Detail styles={styles} colors={colors} icon="close-circle" label="Reason" value={item.rejectReason} /> : null}
+        {item.reviewedBy ? <Detail styles={styles} colors={colors} icon="shield-checkmark" label="Reviewed by" value={item.reviewedBy} /> : null}
       </View>
 
-      <View style={styles.footer}>
-        <StatusPill status={item.status} />
-        {item.gatewayMode === 'sandbox' ? <StatusPill status="none" label="Test payment" /> : null}
-      </View>
+      <MetaRow>
+        <MetaChip icon="calendar" label={formatDateTime(item.createdAt)} />
+        {item.gatewayMode === 'sandbox' ? <MetaChip icon="flask" tone="warning" label="Test payment" /> : null}
+      </MetaRow>
 
       {item.status === 'pending' ? (
         <AdminActions
@@ -127,21 +146,27 @@ export default function AdminPaymentsScreen({ navigation }) {
         emptyBody="Plan purchase requests from users show up here."
         header={
           <>
-            <AdminHeader title="Payments" subtitle="Plan purchases and receipts" onBack={() => navigation.goBack()}>
+            <AdminHeader icon="wallet" title="Payments" subtitle="Plan purchases and receipts" onBack={() => navigation.goBack()}>
               <View style={styles.revenueRow}>
-                <View style={styles.revenueBox}>
-                  <Text style={styles.revenueValue}>{formatNpr(revenue.amount30d)}</Text>
+                <Reanimated.View entering={enterCard(0, 60)} style={styles.revenueBox}>
+                  <View style={styles.revenueIcon}>
+                    <Icon name="trending-up" size={14} color={colors.primary} />
+                  </View>
+                  <CountUp value={revenue.amount30d || 0} format={formatNpr} style={styles.revenueValue} />
                   <Text style={styles.revenueLabel}>Last 30 days</Text>
-                </View>
-                <View style={styles.revenueBox}>
-                  <Text style={styles.revenueValue}>{formatNpr(revenue.amount)}</Text>
+                </Reanimated.View>
+                <Reanimated.View entering={enterCard(1, 60)} style={styles.revenueBox}>
+                  <View style={styles.revenueIcon}>
+                    <Icon name="cash" size={14} color={colors.primary} />
+                  </View>
+                  <CountUp value={revenue.amount || 0} format={formatNpr} style={styles.revenueValue} />
                   <Text style={styles.revenueLabel}>All time · {revenue.count || 0} paid</Text>
-                </View>
+                </Reanimated.View>
               </View>
             </AdminHeader>
             <AdminSearch value={query} onChangeText={setQuery} placeholder="Search name, phone or receipt" />
             <AdminChips
-              options={STATUSES.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1), count: counts[s] || 0 }))}
+              options={STATUSES.map((s) => ({ ...s, count: counts[s.value] || 0 }))}
               value={status}
               onChange={setStatus}
             />
@@ -153,30 +178,45 @@ export default function AdminPaymentsScreen({ navigation }) {
   );
 }
 
-function Detail({ styles, label, value }) {
+function Detail({ styles, colors, icon, label, value }) {
   return (
     <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
+      <View style={styles.detailHead}>
+        <Icon name={`${icon}-outline`} size={12} color={colors.textMuted} />
+        <Text style={styles.detailLabel}>{label}</Text>
+      </View>
       <Text style={styles.detailValue} selectable>{value}</Text>
     </View>
   );
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  icon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen },
-  plan: { fontSize: 15, fontWeight: '800', color: colors.text },
-  receipt: { marginTop: 1, fontSize: 11.5, color: colors.textMuted },
-  price: { fontSize: 16, fontWeight: '800', color: colors.primary },
-  details: { marginTop: 10, gap: 5, padding: 10, borderRadius: 12, backgroundColor: colors.surfaceMuted },
-  detailRow: { flexDirection: 'row', gap: 10 },
-  detailLabel: { width: 82, fontSize: 12, fontWeight: '600', color: colors.textMuted },
-  detailValue: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.textSecondary },
-  footer: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  revenueRow: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  revenueBox: { flex: 1, padding: 12, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.1)' },
-  revenueValue: { fontSize: 17, fontWeight: '800', color: colors.white },
-  revenueLabel: { marginTop: 2, fontSize: 11.5, fontWeight: '600', color: 'rgba(255,255,255,0.75)' },
+  icon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
+  plan: { fontSize: 14, fontWeight: '800', color: colors.text },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  receipt: { flexShrink: 1, fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  priceCol: { alignItems: 'flex-end', gap: 4 },
+  price: { fontSize: 15, fontWeight: '900', color: colors.primary },
+  details: { marginTop: 10, gap: 5, padding: 10, borderRadius: 14, backgroundColor: colors.backgroundSecondary, boxShadow: colors.clayPressed },
+  detailRow: { flexDirection: 'row', gap: 8 },
+  detailHead: { width: 96, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  detailLabel: { fontSize: 11.5, fontWeight: '700', color: colors.textMuted },
+  detailValue: { flex: 1, fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  revenueRow: { flexDirection: 'row', gap: 12, marginTop: 16, marginBottom: 6 },
+  revenueBox: { flex: 1, padding: 12, borderRadius: 20, backgroundColor: colors.card, boxShadow: colors.clay },
+  revenueIcon: {
+    width: 26,
+    height: 26,
+    marginBottom: 6,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.pastelGreen,
+    boxShadow: colors.clayTint,
+  },
+  revenueValue: { fontSize: 17, fontWeight: '900', color: colors.text },
+  revenueLabel: { marginTop: 2, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.textMuted },
 });

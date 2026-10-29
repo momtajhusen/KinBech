@@ -8,21 +8,24 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
   StatusPill,
   showAdminError,
   useAdminList,
   useDebouncedValue,
 } from '../../components/admin/AdminKit';
+import { SoftPop } from '../../components/Motion';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, timeAgo } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const FILTERS = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'approved', label: 'Approved' },
-  { value: 'rejected', label: 'Rejected' },
-  { value: '', label: 'All' },
+  { value: 'pending', label: 'Pending', icon: 'time' },
+  { value: 'approved', label: 'Approved', icon: 'checkmark-circle' },
+  { value: 'rejected', label: 'Rejected', icon: 'eye-off' },
+  { value: '', label: 'All', icon: 'apps' },
 ];
 
 export default function AdminReviewsScreen({ navigation }) {
@@ -71,30 +74,32 @@ export default function AdminReviewsScreen({ navigation }) {
             <Text style={styles.name} numberOfLines={1}>{item.reviewer?.name || 'Buyer'}</Text>
             <View style={styles.stars}>
               {[1, 2, 3, 4, 5].map((n) => (
-                <Icon key={n} name={n <= rating ? 'star' : 'star-outline'} size={14} color={colors.warning} />
+                <SoftPop key={n} index={n}>
+                  <Icon name={n <= rating ? 'star' : 'star-outline'} size={13} color={colors.warning} />
+                </SoftPop>
               ))}
-              <Text style={styles.time}>{formatDateTime(item.createdAt)}</Text>
+              <Text style={styles.ratingText}>{rating}.0</Text>
+              <Text style={styles.time}>· {timeAgo(item.createdAt)}</Text>
             </View>
           </View>
           <StatusPill status={item.status} />
         </View>
 
-        {item.review ? <Text style={styles.body}>{item.review}</Text> : <Text style={styles.noBody}>No written review</Text>}
-
-        {item.tags?.length ? (
-          <View style={styles.tags}>
-            {item.tags.map((tag) => (
-              <View key={tag} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
+        {item.review ? (
+          <View style={styles.bodyBox}>
+            <Icon name="chatbubble-outline" size={13} color={colors.textMuted} />
+            <Text style={styles.body}>{item.review}</Text>
           </View>
-        ) : null}
+        ) : (
+          <Text style={styles.noBody}>No written review</Text>
+        )}
 
-        <Text style={styles.target} numberOfLines={1}>
-          {item.shopId?.name ? `Shop: ${item.shopId.name}` : 'Individual seller'}
-          {item.listing?.title ? ` · ${item.listing.title}` : ''}
-        </Text>
+        <MetaRow>
+          {item.shopId?.name ? <MetaChip icon="storefront" tone="info" label={item.shopId.name} /> : <MetaChip icon="person" label="Individual seller" />}
+          {item.listing?.title ? <MetaChip icon="pricetag" label={item.listing.title} /> : null}
+          {(item.tags || []).map((tag) => <MetaChip key={tag} icon="checkmark" tone="success" label={tag} />)}
+          <MetaChip icon="calendar" label={formatDateTime(item.createdAt)} />
+        </MetaRow>
 
         <AdminActions
           actions={[
@@ -117,6 +122,7 @@ export default function AdminReviewsScreen({ navigation }) {
         header={
           <>
             <AdminHeader
+              icon="star"
               title="Reviews"
               subtitle={`${list.total || 0} review${list.total === 1 ? '' : 's'}`}
               onBack={() => navigation.goBack()}
@@ -131,18 +137,24 @@ export default function AdminReviewsScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surfaceMuted },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen },
-  name: { fontSize: 14.5, fontWeight: '800', color: colors.text },
+  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surfaceMuted },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
+  name: { fontSize: 14, fontWeight: '800', color: colors.text },
   stars: { flexDirection: 'row', alignItems: 'center', gap: 1, marginTop: 2 },
-  time: { marginLeft: 8, fontSize: 11, color: colors.textMuted },
-  body: { marginTop: 10, fontSize: 13.5, lineHeight: 19, color: colors.textSecondary },
-  noBody: { marginTop: 10, fontSize: 13, fontStyle: 'italic', color: colors.textMuted },
-  tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  tag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: colors.surfaceMuted },
-  tagText: { fontSize: 11.5, fontWeight: '700', color: colors.textTertiary },
-  target: { marginTop: 8, fontSize: 12, fontWeight: '600', color: colors.textTertiary },
+  ratingText: { marginLeft: 5, fontSize: 11, fontWeight: '900', color: colors.warning },
+  time: { marginLeft: 4, fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  bodyBox: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 9,
+    padding: 10,
+    borderRadius: 14,
+    backgroundColor: colors.backgroundSecondary,
+    boxShadow: colors.clayPressed,
+  },
+  body: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.textSecondary },
+  noBody: { marginTop: 8, fontSize: 12.5, fontStyle: 'italic', color: colors.textMuted },
 });

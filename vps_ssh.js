@@ -83,7 +83,7 @@ pm2 save
 
 # One line
 git pull origin main && npm install --omit=dev && pm2 restart kinbech-backend --update-env && pm2 save
-
+cd /home/ubuntu/Momtaj_Projects/kinbech_backen/Backend && git pull && pm2 restart kinbech-backend
 ====================================
 6) NODE / NPM
 ====================================

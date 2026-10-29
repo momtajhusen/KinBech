@@ -7,8 +7,25 @@ const DIGEST_CHANNEL_ID = 'kinbech-updates';
 const DIGEST_NOTIFICATION_ID = 'kinbech-digest';
 // res/raw/kinbech_notification.mp3 in modules/kinbech-call (same file as assets/sounds/new-message.mp3).
 const ALERT_SOUND = 'kinbech_notification';
+const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 const { getActiveChatId } = require('./sounds');
 const { resolveMediaUrl } = require('../utils/listing');
+
+// Same key AuthContext saves the signed-in user under.
+const USER_KEY = 'kinbech_user';
+
+/** Pushes carry `forUser`; one sent to an account that already left this phone is ignored. */
+export async function isForSignedInUser(data) {
+  const target = data?.forUser ? String(data.forUser) : '';
+  if (!target) return true;
+  try {
+    const stored = JSON.parse((await AsyncStorage.getItem(USER_KEY)) || 'null');
+    const current = String(stored?._id || stored?.id || '');
+    return !current || current === target;
+  } catch {
+    return true;
+  }
+}
 
 function pictureUrl(value) {
   const resolved = resolveMediaUrl(value || '');
@@ -85,6 +102,7 @@ const shownNoteIds = new Set();
 
 export async function displayAlert({ id, title, body, data, image }) {
   if (!title) return;
+  if (!(await isForSignedInUser(data))) return;
   if (id && id.startsWith('note-')) {
     if (shownNoteIds.has(id)) return;
     shownNoteIds.add(id);

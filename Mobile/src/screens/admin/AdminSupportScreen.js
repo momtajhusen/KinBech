@@ -8,15 +8,18 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
   StatusPill,
   showAdminError,
   useAdminList,
   useDebouncedValue,
   usePrompt,
 } from '../../components/admin/AdminKit';
+import { Pulse } from '../../components/Motion';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, timeAgo, waitingFor } from '../../utils/admin';
 
 export default function AdminSupportScreen({ navigation }) {
   const { colors } = useTheme();
@@ -81,27 +84,45 @@ export default function AdminSupportScreen({ navigation }) {
   const renderItem = ({ item }) => (
     <AdminCard>
       <View style={styles.row}>
-        <View style={styles.icon}>
-          <Icon name="chatbubble-ellipses" size={18} color={colors.info} />
-        </View>
+        <Pulse active={item.status === 'open'} to={1.1} pause={2200} style={styles.icon}>
+          <Icon name="chatbubble-ellipses" size={16} color={colors.info} />
+        </Pulse>
         <View style={styles.flex1}>
           <Text style={styles.subject} numberOfLines={2}>{item.subject || 'Support request'}</Text>
-          <Text style={styles.meta} numberOfLines={1}>
-            {[item.name, item.phone, formatDateTime(item.createdAt)].filter(Boolean).join(' · ')}
-          </Text>
+          <View style={styles.timeRow}>
+            <Icon name="time-outline" size={11} color={colors.textMuted} />
+            <Text style={styles.meta}>
+              {timeAgo(item.createdAt)}
+              {item.status === 'open' ? ` · waiting ${waitingFor(item.createdAt)}` : ''}
+            </Text>
+          </View>
         </View>
         <StatusPill status={item.status} />
       </View>
+
+      <MetaRow>
+        {item.name ? <MetaChip icon="person" label={item.name} /> : null}
+        {item.phone ? <MetaChip icon="call" tone="info" label={item.phone} /> : null}
+        <MetaChip icon="calendar" label={formatDateTime(item.createdAt)} />
+      </MetaRow>
 
       <Text style={styles.message} selectable>{item.message}</Text>
 
       {item.reply ? (
         <View style={styles.replyBox}>
-          <Text style={styles.replyLabel}>Your reply{item.repliedAt ? ` · ${formatDateTime(item.repliedAt)}` : ''}</Text>
+          <View style={styles.replyHead}>
+            <Icon name="return-down-forward" size={12} color={colors.success} />
+            <Text style={styles.replyLabel}>Your reply{item.repliedAt ? ` · ${timeAgo(item.repliedAt)}` : ''}</Text>
+          </View>
           <Text style={styles.replyText}>{item.reply}</Text>
         </View>
       ) : null}
-      {item.adminNote ? <Text style={styles.note}>Note: {item.adminNote}</Text> : null}
+      {item.adminNote ? (
+        <View style={styles.noteRow}>
+          <Icon name="create-outline" size={12} color={colors.textTertiary} />
+          <Text style={styles.note}>{item.adminNote}</Text>
+        </View>
+      ) : null}
 
       <AdminActions
         actions={[
@@ -131,13 +152,13 @@ export default function AdminSupportScreen({ navigation }) {
         emptyBody="Messages users send from Help & Support show up here."
         header={
           <>
-            <AdminHeader title="Support" subtitle="Help requests from users" onBack={() => navigation.goBack()} />
+            <AdminHeader icon="headset" title="Support" subtitle="Help requests from users" onBack={() => navigation.goBack()} />
             <AdminSearch value={query} onChangeText={setQuery} placeholder="Search name, phone or subject" />
             <AdminChips
               options={[
-                { value: 'open', label: 'Open', count: counts.open },
-                { value: 'resolved', label: 'Resolved', count: counts.resolved },
-                { value: '', label: 'All' },
+                { value: 'open', label: 'Open', icon: 'mail', count: counts.open },
+                { value: 'resolved', label: 'Resolved', icon: 'checkmark-circle', count: counts.resolved },
+                { value: '', label: 'All', icon: 'apps' },
               ]}
               value={status}
               onChange={setStatus}
@@ -151,15 +172,18 @@ export default function AdminSupportScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  icon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelBlue },
-  subject: { fontSize: 14.5, fontWeight: '800', color: colors.text },
-  meta: { marginTop: 1, fontSize: 11.5, color: colors.textMuted },
-  message: { marginTop: 10, fontSize: 13.5, lineHeight: 19, color: colors.textSecondary },
-  replyBox: { marginTop: 10, padding: 10, borderRadius: 12, backgroundColor: colors.pastelGreen },
-  replyLabel: { fontSize: 11.5, fontWeight: '700', color: colors.success },
-  replyText: { marginTop: 3, fontSize: 13, lineHeight: 18, color: colors.textSecondary },
-  note: { marginTop: 8, fontSize: 12.5, fontStyle: 'italic', color: colors.textTertiary },
+  icon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelBlue, boxShadow: colors.clayTint },
+  subject: { fontSize: 14, fontWeight: '800', color: colors.text },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  meta: { fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  message: { marginTop: 9, fontSize: 13, lineHeight: 18, color: colors.textSecondary },
+  replyBox: { marginTop: 10, padding: 10, borderRadius: 14, backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
+  replyHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  replyLabel: { fontSize: 11, fontWeight: '800', color: colors.success },
+  replyText: { marginTop: 3, fontSize: 12.5, lineHeight: 17, color: colors.textSecondary },
+  noteRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 8 },
+  note: { flex: 1, fontSize: 12, fontStyle: 'italic', color: colors.textTertiary },
 });

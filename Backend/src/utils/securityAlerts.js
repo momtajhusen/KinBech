@@ -4,6 +4,7 @@ const PlatformAlert = require('../models/PlatformAlert');
 const { getUploadsRoot } = require('../config/uploads');
 const { emitActivity } = require('./realtime');
 const { alertActivityEvent } = require('./activityEvents');
+const { notifyAdmins } = require('./adminNotify');
 
 const WINDOW_MS = 5 * 60 * 1000;
 const COOLDOWN_MS = 30 * 60 * 1000;
@@ -77,6 +78,7 @@ async function raiseAlert({ type, title, message, metricValue = 0, baselineValue
     });
     emitActivity(alertActivityEvent(alert));
     postWebhook(alert);
+    notifyAdmins({ scope: 'dashboard', title, body: message, icon: 'alert-circle-outline' });
     return alert;
   } catch (error) {
     console.warn('[alerts] could not save alert:', error.message);

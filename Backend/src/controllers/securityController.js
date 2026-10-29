@@ -109,16 +109,16 @@ function twoFactorChallenge(user) {
 }
 
 /** Issue the admin session after password (and 2FA when on) passed. */
-async function finishAdminLogin(req, res, user, { twoFactor = false } = {}) {
+async function finishAdminLogin(req, res, user, { twoFactor = false, google = false } = {}) {
   const ip = clientIp(req);
   const newIp = await isNewAdminIp(user._id, ip);
-  const { token, refreshToken } = await startSession(req, user, 'admin');
+  const { token, refreshToken } = await startSession(req, user, 'admin', google ? { signInMethod: 'google' } : {});
   req.user = user;
   recordAudit(req, {
     action: 'admin.login',
     targetType: 'admin',
     targetId: user._id,
-    summary: twoFactor ? 'Signed in with two-step verification' : 'Signed in',
+    summary: google ? 'Signed in with Google' : twoFactor ? 'Signed in with two-step verification' : 'Signed in',
   });
   if (newIp) {
     recordAudit(req, {
@@ -139,7 +139,7 @@ async function finishAdminLogin(req, res, user, { twoFactor = false } = {}) {
     token,
     ...(refreshToken ? { refreshToken } : {}),
     user: publicUser(user, { includePrivate: true }),
-    mustChangePassword: Boolean(user.mustChangePassword),
+    mustChangePassword: !google && Boolean(user.mustChangePassword),
   });
 }
 

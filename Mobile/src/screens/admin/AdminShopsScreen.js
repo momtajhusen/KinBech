@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Image, Text, View } from 'react-native';
+import { Image, Linking, Pressable, Text, View } from 'react-native';
 import Icon from '../../components/Icon';
 import {
   AdminActions,
@@ -8,6 +8,9 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
+  MiniStats,
   StatusPill,
   confirmAction,
   showAdminError,
@@ -16,15 +19,15 @@ import {
   usePrompt,
 } from '../../components/admin/AdminKit';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { timeAgo, waitingFor } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const FILTERS = [
-  { value: 'unverified', label: 'Not verified', params: { isVerified: 'false', status: 'active' } },
-  { value: 'verified', label: 'Verified', params: { isVerified: 'true' } },
-  { value: 'suspended', label: 'Suspended', params: { status: 'suspended' } },
-  { value: 'all', label: 'All', params: {} },
+  { value: 'unverified', label: 'Not verified', icon: 'time', params: { isVerified: 'false', status: 'active' } },
+  { value: 'verified', label: 'Verified', icon: 'shield-checkmark', params: { isVerified: 'true' } },
+  { value: 'suspended', label: 'Suspended', icon: 'close-circle', params: { status: 'suspended' } },
+  { value: 'all', label: 'All', icon: 'apps', params: {} },
 ];
 
 export default function AdminShopsScreen({ navigation, route }) {
@@ -100,6 +103,9 @@ export default function AdminShopsScreen({ navigation, route }) {
 
   const renderItem = ({ item }) => {
     const logo = resolveMediaUrl(item.logo);
+    const ownerId = item.owner?._id || item.owner?.id;
+    const docs = item.businessDocuments || [];
+    const awaiting = item.verificationStatus === 'pending';
     return (
       <AdminCard>
         <View style={styles.row}>
@@ -107,34 +113,63 @@ export default function AdminShopsScreen({ navigation, route }) {
             <Image source={{ uri: logo }} style={styles.logo} />
           ) : (
             <View style={[styles.logo, styles.logoEmpty]}>
-              <Icon name="storefront" size={22} color={colors.primary} />
+              <Icon name="storefront" size={20} color={colors.primary} />
             </View>
           )}
           <View style={styles.flex1}>
             <View style={styles.nameRow}>
               <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-              {item.isVerified ? <Icon name="checkmark-circle" size={16} color={colors.success} /> : null}
+              {item.isVerified ? <Icon name="checkmark-circle" size={14} color={colors.success} /> : null}
+              <StatusPill status={item.status} />
             </View>
+            <Pressable
+              disabled={!ownerId}
+              onPress={() => navigation.navigate('AdminUserDetail', { userId: String(ownerId), name: item.owner?.name })}
+            >
+              <Text style={styles.owner} numberOfLines={1}>
+                {item.owner?.name || 'Unknown owner'}{item.owner?.phone ? ` · ${item.owner.phone}` : ''}
+              </Text>
+            </Pressable>
             <Text style={styles.meta} numberOfLines={1}>
-              {[item.category, item.location].filter(Boolean).join(' · ') || 'No category'}
-            </Text>
-            <Text style={styles.owner} numberOfLines={1}>
-              Owner: {item.owner?.name || 'Unknown'}{item.owner?.phone ? ` · ${item.owner.phone}` : ''}
+              Opened {timeAgo(item.createdAt)}
+              {awaiting && item.verificationSubmittedAt ? ` · waiting ${waitingFor(item.verificationSubmittedAt)}` : ''}
             </Text>
           </View>
         </View>
 
-        <View style={styles.pills}>
-          <StatusPill status={item.status} />
-          <StatusPill
-            status={item.verificationStatus || 'none'}
-            label={item.isVerified ? 'Verified' : item.verificationStatus === 'pending' ? 'Verification requested' : item.verificationStatus === 'rejected' ? 'Verification rejected' : 'Not verified'}
+        <MetaRow>
+          <MetaChip
+            icon="shield-checkmark"
+            label={item.isVerified ? 'Verified' : awaiting ? 'Verification requested' : item.verificationStatus === 'rejected' ? 'Rejected' : 'Not verified'}
+            tone={item.isVerified ? 'success' : awaiting ? 'warning' : item.verificationStatus === 'rejected' ? 'error' : undefined}
           />
-          <Text style={styles.small}>{item.listingsCount || 0} live items</Text>
-          <Text style={[styles.small, styles.right]}>{formatDateTime(item.createdAt)}</Text>
-        </View>
+          <MetaChip icon="grid" label={item.category} />
+          <MetaChip icon="location" label={item.location || item.address} />
+          {item.phone ? <MetaChip icon="call" label={item.phone} /> : null}
+          {item.panMasked ? <MetaChip icon="document-text" label={`PAN ${item.panMasked}`} /> : null}
+          {item.vatMasked ? <MetaChip icon="document-text" label={`VAT ${item.vatMasked}`} /> : null}
+          {docs.map((doc, i) => (
+            <MetaChip
+              key={`${doc.url}-${i}`}
+              icon="open"
+              label={doc.label || `Document ${i + 1}`}
+              tone="info"
+              onPress={doc.viewUrl ? () => Linking.openURL(resolveMediaUrl(doc.viewUrl)) : undefined}
+            />
+          ))}
+        </MetaRow>
 
-        {item.verificationNotes ? <Text style={styles.notes}>Note: {item.verificationNotes}</Text> : null}
+        <MiniStats
+          items={[
+            { label: 'Live items', value: item.listingsCount || 0, tone: item.listingsCount ? 'success' : undefined },
+            { label: 'Rating', value: item.reviewCount ? `${Number(item.ratingAverage || 0).toFixed(1)}★` : '–' },
+            { label: 'Reviews', value: item.reviewCount || 0 },
+            { label: 'Followers', value: item.followersCount || 0 },
+            { label: 'Docs', value: docs.length, tone: awaiting && !docs.length ? 'error' : undefined },
+          ]}
+        />
+
+        {item.verificationNotes ? <Text style={styles.notes} numberOfLines={2}>Note: {item.verificationNotes}</Text> : null}
 
         <AdminActions
           actions={[
@@ -168,6 +203,7 @@ export default function AdminShopsScreen({ navigation, route }) {
         header={
           <>
             <AdminHeader
+              icon="storefront"
               title="Shops"
               subtitle={`${list.total || 0} shop${list.total === 1 ? '' : 's'}`}
               onBack={() => navigation.goBack()}
@@ -183,17 +219,14 @@ export default function AdminShopsScreen({ navigation, route }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logo: { width: 54, height: 54, borderRadius: 14, backgroundColor: colors.surfaceMuted },
-  logoEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  logo: { width: 46, height: 46, borderRadius: 15, backgroundColor: colors.surfaceMuted },
+  logoEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  name: { flexShrink: 1, fontSize: 15, fontWeight: '800', color: colors.text },
-  meta: { marginTop: 2, fontSize: 12.5, color: colors.textTertiary },
-  owner: { marginTop: 2, fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-  pills: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  small: { fontSize: 11.5, fontWeight: '600', color: colors.textMuted },
-  right: { marginLeft: 'auto' },
-  notes: { marginTop: 8, fontSize: 12.5, fontStyle: 'italic', color: colors.textTertiary },
+  name: { flexShrink: 1, fontSize: 14, fontWeight: '800', color: colors.text },
+  owner: { marginTop: 1, fontSize: 11.5, fontWeight: '800', color: colors.primary },
+  meta: { marginTop: 1, fontSize: 10.5, fontWeight: '600', color: colors.textMuted },
+  notes: { marginTop: 8, fontSize: 12, fontStyle: 'italic', color: colors.textTertiary },
 });

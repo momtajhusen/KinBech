@@ -29,15 +29,6 @@ function isAdminRole(role) {
   return ADMIN_ROLES.includes(role);
 }
 
-/** Google accounts that open the in-app admin panel instead of the marketplace (PLATFORM_ADMIN_EMAILS, comma separated). */
-function isPlatformAdminEmail(email) {
-  const wanted = String(email || '').trim().toLowerCase();
-  if (!wanted) return false;
-  return String(process.env.PLATFORM_ADMIN_EMAILS || 'kinbechapp@gmail.com')
-    .split(',')
-    .some((entry) => entry.trim().toLowerCase() === wanted);
-}
-
 function scopesForRole(role) {
   return ROLE_SCOPES[role] || [];
 }
@@ -51,7 +42,6 @@ module.exports = {
   ALL_SCOPES,
   ROLE_SCOPES,
   isAdminRole,
-  isPlatformAdminEmail,
   scopesForRole,
   hasScope,
 };

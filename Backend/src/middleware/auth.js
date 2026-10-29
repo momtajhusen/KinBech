@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { touchLastActive } = require('../utils/platformBI');
-const { isAdminRole, isPlatformAdminEmail, hasScope } = require('../utils/adminScopes');
+const { isAdminRole, hasScope } = require('../utils/adminScopes');
 const { findLiveSession, touchSession } = require('../utils/sessions');
 
 const SUSPENDED_MESSAGE =
@@ -108,7 +108,11 @@ async function requireAdmin(req, res, next) {
     }
     if (user.status === 'suspended') return suspendedResponse(res);
 
-    if (user.mustChangePassword && !PASSWORD_CHANGE_PATHS.has(req.path)) {
+    // Google guards these sign-ins; password-less Google admins predate per-session sign-in methods.
+    const viaGoogle =
+      session.session?.signInMethod === 'google' || Boolean(user.googleId && !user.password);
+
+    if (user.mustChangePassword && !viaGoogle && !PASSWORD_CHANGE_PATHS.has(req.path)) {
       return res.status(403).json({
         message: 'Please set a new password to continue.',
         code: 'PASSWORD_CHANGE_REQUIRED',
@@ -117,8 +121,7 @@ async function requireAdmin(req, res, next) {
     if (
       process.env.ADMIN_2FA_REQUIRED === 'true' &&
       !user.twoFactorEnabled &&
-      // Google-only platform admins have no password to set up 2FA with; Google guards their sign-in.
-      !(user.googleId && isPlatformAdminEmail(user.email)) &&
+      !viaGoogle &&
       !TWO_FACTOR_SETUP_PATHS.test(req.path)
     ) {
       return res.status(403).json({

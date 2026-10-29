@@ -42,7 +42,8 @@ const {
 const { getTesters, makeTester, deleteTester, restoreTester } = require('../controllers/adminTesterController');
 const { getUserDirectory } = require('../controllers/adminUserDirectoryController');
 const { getNavCounts } = require('../controllers/adminNavController');
-const { requireAuth, requireAdmin, requireScope } = require('../middleware/auth');
+const { reportPresence, getLiveUsers } = require('../controllers/presenceController');
+const { requireAuth, requireAdmin, requireScope, optionalAuth } = require('../middleware/auth');
 const {
   otpSendIpLimiter,
   otpSendPhoneLimiter,
@@ -73,6 +74,7 @@ router.post('/complete-signup', requireAuth, completeSignup);
 router.get('/me', requireAuth, me);
 router.post('/logout-all', requireAuth, logoutAllDevices);
 router.post('/logout', logoutCurrent);
+router.post('/presence', optionalAuth, reportPresence);
 router.get('/call-watch-token', requireAuth, callWatchToken);
 router.post('/integrity/nonce', requireAuth, twoFactorLimiter, integrityNonce);
 router.post('/integrity/verify', requireAuth, twoFactorLimiter, integrityVerify);
@@ -124,6 +126,7 @@ router.delete('/admin/:adminId', requireScope('admins'), deleteAdmin);
 router.get('/admin/dashboard-stats', requireScope('dashboard'), getDashboardStats);
 router.get('/admin/nav-counts', requireAdmin, getNavCounts);
 router.get('/admin/live-activity', requireScope('dashboard'), getLiveActivity);
+router.get('/admin/live-users', requireScope('dashboard'), getLiveUsers);
 router.patch('/admin/platform-alerts/:id', requireScope('dashboard'), updatePlatformAlert);
 router.get('/admin/users', requireScope('users'), getAllUsers);
 router.get('/admin/user-directory', requireScope('users'), getUserDirectory);

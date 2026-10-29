@@ -155,7 +155,7 @@ export function LoginPromptHost() {
   };
 
   const continueWithGoogle = async () => {
-    const result = await signIn();
+    const result = await signIn({ beforeChoice: () => setVisible(false) });
     if (result.status !== 'ok') return;
     const action = actionRef.current;
     actionRef.current = null;

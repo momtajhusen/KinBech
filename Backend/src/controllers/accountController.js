@@ -4,6 +4,7 @@ const SupportTicket = require('../models/SupportTicket');
 const { listingPayload } = require('../utils/listing');
 const { emitActivity } = require('../utils/realtime');
 const { ticketActivityEvent } = require('../utils/activityEvents');
+const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { GRACE_DAYS, scheduleDeletion, buildExport } = require('../utils/accountDeletion');
 const { getPlatformSettings } = require('../utils/platformSettings');
 
@@ -266,6 +267,14 @@ async function createSupportTicket(req, res, next) {
       message,
     });
     emitActivity(ticketActivityEvent(ticket));
+    notifyAdmins({
+      scope: 'users',
+      title: 'New support ticket',
+      body: clip(`${whoLabel(req.user)}: ${subject}`, 120),
+      icon: 'help-buoy-outline',
+      route: 'AdminSupport',
+      params: { ticketId: String(ticket._id) },
+    });
     res.status(201).json({
       message: 'Support request sent. We will get back to you soon.',
       ticket: {

@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Linking, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
-import { AdminHeader, StatusPill, confirmAction, showAdminError, toneColors, usePrompt } from '../../components/admin/AdminKit';
+import { Ping, PressableScale, Reanimated, SoftPop, Wiggle, enterCard, enterUp } from '../../components/Motion';
+import {
+  AdminHeader,
+  CountUp,
+  MetaChip,
+  StatusPill,
+  confirmAction,
+  showAdminError,
+  toneColors,
+  usePrompt,
+} from '../../components/admin/AdminKit';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime, formatNpr, titleCase } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, formatNpr, timeAgo, titleCase } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const SUSPEND_DAYS = [
@@ -74,13 +84,17 @@ export default function AdminUserDetailScreen({ navigation, route }) {
   if (!data) {
     return (
       <View style={styles.container}>
-        <AdminHeader title={initialName || 'User'} subtitle="User details" onBack={() => navigation.goBack()} />
+        <AdminHeader icon="person" title={initialName || 'User'} subtitle="User details" onBack={() => navigation.goBack()} />
         {error ? (
           <View style={styles.errorBox}>
+            <Wiggle angle={8} every={2600}>
+              <Icon name="cloud-offline" size={30} color={colors.error} />
+            </Wiggle>
             <Text style={styles.errorText}>{error}</Text>
-            <Pressable onPress={load} style={styles.retryBtn}>
+            <PressableScale onPress={load} contentStyle={styles.retryBtn}>
+              <Icon name="refresh" size={15} color={colors.white} />
               <Text style={styles.retryText}>Try again</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         ) : (
           <ActivityIndicator style={styles.loader} color={colors.primary} />
@@ -244,16 +258,16 @@ export default function AdminUserDetailScreen({ navigation, route }) {
       ].filter(Boolean);
 
   const statCards = [
-    { label: 'Active', value: stats.listings.active },
-    { label: 'Pending', value: stats.listings.pending },
-    { label: 'Sold', value: stats.listings.sold },
-    { label: 'Hidden', value: stats.listings.hidden },
-    { label: 'Reports', value: stats.reports.against, danger: stats.reports.pending > 0 },
-    { label: 'Filed', value: stats.reports.filed },
-    { label: 'Rating', value: stats.rating.avg ? `${stats.rating.avg}★` : '–' },
-    { label: 'Chats', value: stats.chats },
-    { label: 'Scam flags', value: stats.scamFlags30d, danger: stats.scamFlags30d > 0 },
-    { label: 'Deals', value: user.dealsCompleted },
+    { label: 'Active', icon: 'checkmark-circle', value: stats.listings.active },
+    { label: 'Pending', icon: 'time', value: stats.listings.pending },
+    { label: 'Sold', icon: 'bag-check', value: stats.listings.sold },
+    { label: 'Hidden', icon: 'eye-off', value: stats.listings.hidden },
+    { label: 'Reports', icon: 'flag', value: stats.reports.against, danger: stats.reports.pending > 0 },
+    { label: 'Filed', icon: 'document-text', value: stats.reports.filed },
+    { label: 'Rating', icon: 'star', value: stats.rating.avg ? `${stats.rating.avg}★` : '–' },
+    { label: 'Chats', icon: 'chatbubbles', value: stats.chats },
+    { label: 'Scam flags', icon: 'warning', value: stats.scamFlags30d, danger: stats.scamFlags30d > 0 },
+    { label: 'Deals', icon: 'cart', value: user.dealsCompleted },
   ];
 
   return (
@@ -262,88 +276,103 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} colors={[colors.primary]} />}
       >
-        <AdminHeader title={user.name || 'No name'} subtitle={titleCase(user.role === 'user' ? 'App user' : user.role)} onBack={() => navigation.goBack()}>
-          <View style={styles.profile}>
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarEmpty]}>
-                <Text style={styles.avatarLetter}>{String(user.name || '?').charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
+        <AdminHeader icon="person" title={user.name || 'No name'} subtitle={titleCase(user.role === 'user' ? 'App user' : user.role)} onBack={() => navigation.goBack()}>
+          <Reanimated.View entering={enterCard(0)} style={styles.profile}>
+            <SoftPop>
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarEmpty]}>
+                  <Text style={styles.avatarLetter}>{String(user.name || '?').charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+              {user.lastActiveAt && Date.now() - new Date(user.lastActiveAt).getTime() < 5 * 60 * 1000 ? (
+                <Ping size={10} style={styles.onlineDot} />
+              ) : null}
+            </SoftPop>
             <View style={styles.flex1}>
-              {user.phone ? <Text style={styles.profileLine} selectable>{user.phone}</Text> : null}
-              {user.email ? <Text style={styles.profileLine} selectable numberOfLines={1}>{user.email}</Text> : null}
-              <Text style={styles.profileMuted} numberOfLines={1}>
-                {[user.location, `Joined ${formatDateTime(user.joinedAt)}`].filter(Boolean).join(' · ')}
-              </Text>
-              {user.lastActiveAt ? <Text style={styles.profileMuted}>Last active {formatDateTime(user.lastActiveAt)}</Text> : null}
+              {user.phone ? <InfoLine styles={styles} colors={colors} icon="call" text={user.phone} strong /> : null}
+              {user.email ? <InfoLine styles={styles} colors={colors} icon="mail" text={user.email} strong /> : null}
+              {user.location ? <InfoLine styles={styles} colors={colors} icon="location" text={user.location} /> : null}
+              <InfoLine styles={styles} colors={colors} icon="calendar" text={`Joined ${formatDateTime(user.joinedAt)}`} />
+              {user.lastActiveAt ? <InfoLine styles={styles} colors={colors} icon="time" text={`Active ${timeAgo(user.lastActiveAt)}`} /> : null}
             </View>
             {user.phone ? (
-              <Pressable
+              <PressableScale
                 onPress={() => Linking.openURL(`tel:${String(user.phone).replace(/\s+/g, '')}`)}
-                style={styles.callBtn}
-                accessibilityLabel="Call user"
+                scaleTo={0.88}
+                contentStyle={styles.callBtn}
               >
-                <Icon name="call" size={18} color={colors.white} />
-              </Pressable>
+                <Icon name="call" size={17} color={colors.primary} />
+              </PressableScale>
             ) : null}
-          </View>
+          </Reanimated.View>
           <View style={styles.badges}>
             <StatusPill status={user.status} />
             {user.isTester ? <StatusPill status="reviewed" label="Tester" /> : null}
-            <StatusPill status="none" label={`Trust: ${titleCase(user.trustTier)}${user.trustScore != null ? ` ${user.trustScore}` : ''}`} />
-            {user.subscription ? <StatusPill status="active" label={`${user.subscription.name} · ${user.subscription.daysLeft}d left`} /> : null}
+            <MetaChip icon="shield-checkmark" tone="info" label={`Trust: ${titleCase(user.trustTier)}${user.trustScore != null ? ` ${user.trustScore}` : ''}`} />
+            {user.subscription ? <MetaChip icon="diamond" tone="success" label={`${user.subscription.name} · ${user.subscription.daysLeft}d left`} /> : null}
+            {user.featuredCredits ? <MetaChip icon="rocket" tone="warning" label={`${user.featuredCredits} credits`} /> : null}
           </View>
         </AdminHeader>
 
         {notice ? (
-          <Pressable onPress={() => setNotice('')} style={styles.notice}>
-            <Icon name="checkmark-circle" size={16} color={colors.success} />
+          <PressableScale onPress={() => setNotice('')} entering={enterUp(0, 0)} contentStyle={styles.notice}>
+            <SoftPop>
+              <Icon name="checkmark-circle" size={16} color={colors.success} />
+            </SoftPop>
             <Text style={styles.noticeText}>{notice}</Text>
-          </Pressable>
+            <Icon name="close" size={14} color={colors.textMuted} />
+          </PressableScale>
         ) : null}
 
         {restrictions.suspended || restrictions.chatRestricted || deletion?.scheduledFor || deleted ? (
-          <View style={styles.alertBox}>
-            {restrictions.suspended ? (
-              <Text style={styles.alertLine}>
-                Suspended {restrictions.suspendedUntil ? `until ${formatDateTime(restrictions.suspendedUntil)}` : 'permanently'}
-              </Text>
-            ) : null}
-            {restrictions.chatRestricted ? (
-              <Text style={styles.alertLine}>Chat restricted until {formatDateTime(restrictions.chatRestrictedUntil)}</Text>
-            ) : null}
-            {restrictions.restrictionReason ? <Text style={styles.alertReason}>Reason: {restrictions.restrictionReason}</Text> : null}
-            {deleted ? <Text style={styles.alertLine}>Account deleted {formatDateTime(deletion.deletedAt)}</Text> : null}
-            {!deleted && deletion?.scheduledFor ? (
-              <Text style={styles.alertLine}>User asked to delete; scheduled for {formatDateTime(deletion.scheduledFor)}</Text>
-            ) : null}
-          </View>
+          <Reanimated.View entering={enterUp(1, 0)} style={styles.alertBox}>
+            <Wiggle angle={10} every={4000} style={styles.alertIcon}>
+              <Icon name="warning" size={16} color={colors.error} />
+            </Wiggle>
+            <View style={styles.alertBody}>
+              {restrictions.suspended ? (
+                <Text style={styles.alertLine}>
+                  Suspended {restrictions.suspendedUntil ? `until ${formatDateTime(restrictions.suspendedUntil)}` : 'permanently'}
+                </Text>
+              ) : null}
+              {restrictions.chatRestricted ? (
+                <Text style={styles.alertLine}>Chat restricted until {formatDateTime(restrictions.chatRestrictedUntil)}</Text>
+              ) : null}
+              {restrictions.restrictionReason ? <Text style={styles.alertReason}>Reason: {restrictions.restrictionReason}</Text> : null}
+              {deleted ? <Text style={styles.alertLine}>Account deleted {formatDateTime(deletion.deletedAt)}</Text> : null}
+              {!deleted && deletion?.scheduledFor ? (
+                <Text style={styles.alertLine}>User asked to delete; scheduled for {formatDateTime(deletion.scheduledFor)}</Text>
+              ) : null}
+            </View>
+          </Reanimated.View>
         ) : null}
 
         {actions.length ? (
           <>
-            <Text style={styles.sectionTitle}>Actions</Text>
+            <SectionTitle styles={styles} colors={colors} icon="flash" title="Actions" />
             <View style={styles.actionGrid}>
-              {actions.map((action) => {
+              {actions.map((action, i) => {
                 const tone = toneColors(colors, action.tone);
                 return (
-                  <Pressable
+                  <PressableScale
                     key={action.key}
                     disabled={Boolean(busy)}
                     onPress={() => run(action.key, action.run)}
-                    style={({ pressed }) => [styles.actionTile, pressed && styles.pressed]}
+                    entering={enterCard(i, 35)}
+                    style={styles.actionSlot}
+                    contentStyle={styles.actionTile}
                   >
                     <View style={[styles.actionIcon, { backgroundColor: tone.bg }]}>
                       {busy === action.key ? (
                         <ActivityIndicator size="small" color={tone.fg} />
                       ) : (
-                        <Icon name={action.icon} size={18} color={tone.fg} />
+                        <Icon name={action.icon} size={16} color={tone.fg} />
                       )}
                     </View>
                     <Text style={styles.actionLabel} numberOfLines={2}>{action.label}</Text>
-                  </Pressable>
+                  </PressableScale>
                 );
               })}
             </View>
@@ -352,26 +381,31 @@ export default function AdminUserDetailScreen({ navigation, route }) {
           <Text style={styles.muted}>Staff accounts are managed from the website admin panel.</Text>
         ) : null}
 
-        <Text style={styles.sectionTitle}>Numbers</Text>
+        <SectionTitle styles={styles} colors={colors} icon="analytics" title="Numbers" />
         <View style={styles.statGrid}>
-          {statCards.map((s) => (
-            <View key={s.label} style={styles.stat}>
-              <Text style={[styles.statValue, s.danger && styles.danger]}>{s.value ?? 0}</Text>
-              <Text style={styles.statLabel}>{s.label}</Text>
-            </View>
+          {statCards.map((s, i) => (
+            <Reanimated.View key={s.label} entering={enterUp(i, 30)} style={styles.stat}>
+              <Icon name={`${s.icon}-outline`} size={13} color={s.danger ? colors.error : colors.textTertiary} />
+              {typeof s.value === 'number' ? (
+                <CountUp value={s.value} style={[styles.statValue, s.danger && styles.danger]} />
+              ) : (
+                <Text style={[styles.statValue, s.danger && styles.danger]}>{s.value ?? 0}</Text>
+              )}
+              <Text style={styles.statLabel} numberOfLines={1}>{s.label}</Text>
+            </Reanimated.View>
           ))}
         </View>
 
         {restrictions.strikes.length ? (
-          <Section title={`Strikes (${restrictions.strikes.length})`} styles={styles}>
+          <Section title={`Strikes (${restrictions.strikes.length})`} icon="warning" styles={styles} colors={colors}>
             {restrictions.strikes.map((s, i) => (
-              <Row key={i} styles={styles} title={s.reason} meta={[formatDateTime(s.at), s.by].filter(Boolean).join(' · ')} />
+              <Row key={i} styles={styles} colors={colors} icon="warning" tone="error" title={s.reason} meta={[formatDateTime(s.at), s.by].filter(Boolean).join(' · ')} />
             ))}
           </Section>
         ) : null}
 
         {data.listings.length ? (
-          <Section title={`Listings (${stats.listings.total})`} styles={styles}>
+          <Section title={`Listings (${stats.listings.total})`} icon="pricetags" styles={styles} colors={colors}>
             {data.listings.map((l) => {
               const photo = resolveMediaUrl(l.photo);
               return (
@@ -379,7 +413,13 @@ export default function AdminUserDetailScreen({ navigation, route }) {
                   {photo ? <Image source={{ uri: photo }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbEmpty]} />}
                   <View style={styles.flex1}>
                     <Text style={styles.rowTitle} numberOfLines={1}>{l.title}</Text>
-                    <Text style={styles.rowMeta}>{formatNpr(l.price)} · {l.views} views · {formatDateTime(l.createdAt)}</Text>
+                    <View style={styles.inlineMeta}>
+                      <Text style={styles.price}>{formatNpr(l.price)}</Text>
+                      <Icon name="eye-outline" size={11} color={colors.textMuted} />
+                      <Text style={styles.rowMetaInline}>{l.views || 0}</Text>
+                      <Icon name="time-outline" size={11} color={colors.textMuted} />
+                      <Text style={styles.rowMetaInline}>{timeAgo(l.createdAt)}</Text>
+                    </View>
                   </View>
                   <StatusPill status={l.status} />
                 </View>
@@ -389,12 +429,15 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         ) : null}
 
         {data.shops.length ? (
-          <Section title="Shops" styles={styles}>
+          <Section title="Shops" icon="storefront" styles={styles} colors={colors}>
             {data.shops.map((s) => (
               <Row
                 key={s.id}
                 styles={styles}
-                title={`${s.name}${s.isVerified ? ' ✓' : ''}`}
+                colors={colors}
+                icon={s.isVerified ? 'shield-checkmark' : 'storefront'}
+                tone={s.isVerified ? 'success' : 'info'}
+                title={s.name}
                 meta={`Opened ${formatDateTime(s.createdAt)}`}
                 right={<StatusPill status={s.status} />}
               />
@@ -403,11 +446,14 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         ) : null}
 
         {data.reports.length ? (
-          <Section title="Reports against this user" styles={styles}>
+          <Section title="Reports against this user" icon="flag" styles={styles} colors={colors}>
             {data.reports.map((r) => (
               <Row
                 key={r.id}
                 styles={styles}
+                colors={colors}
+                icon="flag"
+                tone="error"
                 title={titleCase(r.reason)}
                 body={r.details}
                 meta={`By ${r.reporter} · ${formatDateTime(r.createdAt)}`}
@@ -418,11 +464,14 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         ) : null}
 
         {data.tickets?.length ? (
-          <Section title="Support tickets" styles={styles}>
+          <Section title="Support tickets" icon="headset" styles={styles} colors={colors}>
             {data.tickets.map((t) => (
               <Row
                 key={t.id}
                 styles={styles}
+                colors={colors}
+                icon="chatbubble-ellipses"
+                tone="info"
                 title={t.subject}
                 body={t.message}
                 meta={formatDateTime(t.createdAt)}
@@ -433,11 +482,14 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         ) : null}
 
         {data.payments?.rows?.length ? (
-          <Section title={`Plan payments · ${formatNpr(data.payments.paid)} paid`} styles={styles}>
+          <Section title={`Plan payments · ${formatNpr(data.payments.paid)} paid`} icon="wallet" styles={styles} colors={colors}>
             {data.payments.rows.map((p) => (
               <Row
                 key={p.id}
                 styles={styles}
+                colors={colors}
+                icon="receipt"
+                tone="success"
                 title={`${p.planName} · ${formatNpr(p.price)}`}
                 meta={`${p.methodLabel || p.method} · ${formatDateTime(p.createdAt)}`}
                 right={<StatusPill status={p.status} />}
@@ -447,9 +499,17 @@ export default function AdminUserDetailScreen({ navigation, route }) {
         ) : null}
 
         {data.audit?.length ? (
-          <Section title="Admin history" styles={styles}>
+          <Section title="Admin history" icon="time" styles={styles} colors={colors}>
             {data.audit.slice(0, 10).map((a) => (
-              <Row key={a.id} styles={styles} title={a.summary || a.action} meta={[a.actorName, formatDateTime(a.createdAt)].filter(Boolean).join(' · ')} />
+              <Row
+                key={a.id}
+                styles={styles}
+                colors={colors}
+                icon="shield-checkmark"
+                tone="muted"
+                title={a.summary || a.action}
+                meta={[a.actorName, formatDateTime(a.createdAt)].filter(Boolean).join(' · ')}
+              />
             ))}
           </Section>
         ) : null}
@@ -459,18 +519,44 @@ export default function AdminUserDetailScreen({ navigation, route }) {
   );
 }
 
-function Section({ title, styles, children }) {
+function SectionTitle({ styles, colors, icon, title }) {
+  return (
+    <View style={styles.sectionRow}>
+      <View style={styles.sectionIcon}>
+        <Icon name={icon} size={13} color={colors.primary} />
+      </View>
+      <Text style={styles.sectionTitle} numberOfLines={1}>{title}</Text>
+    </View>
+  );
+}
+
+function Section({ title, icon, styles, colors, children }) {
   return (
     <>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.panel}>{children}</View>
+      <SectionTitle styles={styles} colors={colors} icon={icon} title={title} />
+      <Reanimated.View entering={enterUp(0, 0)} style={styles.panel}>{children}</Reanimated.View>
     </>
   );
 }
 
-function Row({ styles, title, body, meta, right }) {
+function InfoLine({ styles, colors, icon, text, strong }) {
+  return (
+    <View style={styles.infoLine}>
+      <Icon name={`${icon}-outline`} size={12} color={strong ? colors.textTertiary : colors.textMuted} />
+      <Text style={strong ? styles.profileLine : styles.profileMuted} selectable={strong} numberOfLines={1}>{text}</Text>
+    </View>
+  );
+}
+
+function Row({ styles, colors, icon, tone, title, body, meta, right }) {
+  const toned = toneColors(colors, tone || 'muted');
   return (
     <View style={styles.row}>
+      {icon ? (
+        <View style={[styles.rowIcon, { backgroundColor: toned.bg }]}>
+          <Icon name={icon} size={13} color={toned.fg} />
+        </View>
+      ) : null}
       <View style={styles.flex1}>
         <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
         {body ? <Text style={styles.rowBody} numberOfLines={3}>{body}</Text> : null}
@@ -482,25 +568,36 @@ function Row({ styles, title, body, meta, right }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
-  pressed: { opacity: 0.75 },
   loader: { marginTop: 60 },
   muted: { marginTop: 16, marginHorizontal: 18, fontSize: 13, color: colors.textMuted },
   danger: { color: colors.error },
   errorBox: { alignItems: 'center', gap: 12, padding: 32 },
   errorText: { fontSize: 14, color: colors.error, textAlign: 'center' },
-  retryBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.primary },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    experimental_backgroundImage: colors.greenGradient,
+    boxShadow: colors.clayGreenShadow,
+  },
   retryText: { color: colors.white, fontWeight: '800' },
 
-  profile: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
-  avatar: { width: 58, height: 58, borderRadius: 29 },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' },
-  avatarLetter: { fontSize: 22, fontWeight: '800', color: colors.white },
-  profileLine: { fontSize: 13.5, fontWeight: '700', color: colors.white },
-  profileMuted: { marginTop: 1, fontSize: 12, color: 'rgba(255,255,255,0.72)' },
-  callBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.18)' },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 12 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, padding: 12, borderRadius: 22, backgroundColor: colors.card, boxShadow: colors.clay },
+  avatar: { width: 52, height: 52, borderRadius: 26 },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, experimental_backgroundImage: colors.greenGradient, boxShadow: colors.clayGreenShadow },
+  avatarLetter: { fontSize: 20, fontWeight: '800', color: colors.white },
+  onlineDot: { position: 'absolute', right: 1, bottom: 1 },
+  infoLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
+  profileLine: { flexShrink: 1, fontSize: 13, fontWeight: '800', color: colors.text },
+  profileMuted: { flexShrink: 1, fontSize: 11.5, fontWeight: '600', color: colors.textMuted },
+  callBtn: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card, boxShadow: colors.claySoft },
+  badges: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginTop: 12 },
 
   notice: {
     flexDirection: 'row',
@@ -509,66 +606,71 @@ const createStyles = (colors) => ({
     marginTop: 14,
     marginHorizontal: 16,
     padding: 12,
-    borderRadius: 14,
+    borderRadius: 18,
     backgroundColor: colors.pastelGreen,
+    boxShadow: colors.clayTint,
   },
-  noticeText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  alertBox: { marginTop: 14, marginHorizontal: 16, padding: 12, borderRadius: 14, backgroundColor: colors.pastelRed, gap: 3 },
-  alertLine: { fontSize: 13, fontWeight: '800', color: colors.error },
-  alertReason: { fontSize: 12.5, color: colors.textSecondary },
+  noticeText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: colors.textSecondary },
+  alertBox: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+    marginHorizontal: 16,
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: colors.pastelRed,
+    boxShadow: colors.clayTint,
+  },
+  alertIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
+  alertBody: { flex: 1, gap: 3 },
+  alertLine: { fontSize: 12.5, fontWeight: '800', color: colors.error },
+  alertReason: { fontSize: 12, color: colors.textSecondary },
 
-  sectionTitle: { marginTop: 20, marginBottom: 10, marginHorizontal: 18, fontSize: 15.5, fontWeight: '800', color: colors.text },
-  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
-  actionTile: {
-    width: '30%',
-    flexGrow: 1,
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 22, marginBottom: 10, marginHorizontal: 18 },
+  sectionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 6,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    justifyContent: 'center',
+    backgroundColor: colors.pastelGreen,
+    boxShadow: colors.clayTint,
   },
-  actionIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  actionLabel: { fontSize: 12, fontWeight: '700', color: colors.text, textAlign: 'center' },
+  sectionTitle: { flex: 1, fontSize: 15, fontWeight: '900', color: colors.text },
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
+  actionSlot: { width: '30%', flexGrow: 1 },
+  actionTile: {
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 11,
+    paddingHorizontal: 6,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    boxShadow: colors.claySoft,
+  },
+  actionIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', boxShadow: colors.clayTint },
+  actionLabel: { fontSize: 11.5, fontWeight: '800', color: colors.text, textAlign: 'center' },
 
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginHorizontal: 16,
     paddingVertical: 6,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
-  stat: { width: '20%', alignItems: 'center', paddingVertical: 8 },
-  statValue: { fontSize: 16, fontWeight: '800', color: colors.text },
-  statLabel: { marginTop: 2, fontSize: 10.5, fontWeight: '600', color: colors.textMuted },
+  stat: { width: '20%', alignItems: 'center', paddingVertical: 7 },
+  statValue: { marginTop: 2, fontSize: 15, fontWeight: '900', color: colors.text },
+  statLabel: { marginTop: 1, fontSize: 9, fontWeight: '800', letterSpacing: 0.3, textTransform: 'uppercase', color: colors.textMuted },
 
   panel: {
     marginHorizontal: 16,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  rowTitle: { fontSize: 13.5, fontWeight: '700', color: colors.text },
-  rowBody: { marginTop: 2, fontSize: 12.5, lineHeight: 17, color: colors.textTertiary },
-  rowMeta: { marginTop: 2, fontSize: 11.5, color: colors.textMuted },
-  listingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
@@ -577,6 +679,22 @@ const createStyles = (colors) => ({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  thumb: { width: 44, height: 44, borderRadius: 10 },
+  rowIcon: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', boxShadow: colors.clayTint },
+  rowTitle: { fontSize: 13, fontWeight: '800', color: colors.text },
+  rowBody: { marginTop: 2, fontSize: 12, lineHeight: 16, color: colors.textTertiary },
+  rowMeta: { marginTop: 2, fontSize: 10.5, fontWeight: '600', color: colors.textMuted },
+  inlineMeta: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  price: { marginRight: 6, fontSize: 12, fontWeight: '900', color: colors.primary },
+  rowMetaInline: { marginRight: 6, fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  listingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  thumb: { width: 40, height: 40, borderRadius: 11 },
   thumbEmpty: { backgroundColor: colors.surfaceMuted },
 });

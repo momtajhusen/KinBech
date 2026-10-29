@@ -13,13 +13,76 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '../Icon';
-import { useTheme, useThemedStyles } from '../../theme';
+import { Float, PressableScale, Reanimated, Shimmer, SoftPop, Wiggle, enterCard, enterUp } from '../Motion';
 import { titleCase } from '../../utils/admin';
+import { clayGreen, clayPressed, useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from './adminTheme';
+import { Easing, useAnimatedStyle, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
 
-export const ADMIN_GRADIENT = ['#0B1220', '#0F3D2E', '#047857'];
+export { clayGreen, clayPressed, useAdminStyles, useAdminTheme } from './adminTheme';
+
+const STATUS_ICON = {
+  pending: 'hourglass',
+  open: 'time',
+  initiated: 'time',
+  reviewed: 'eye',
+  inactive: 'pause-circle',
+  active: 'checkmark-circle',
+  approved: 'checkmark-circle',
+  resolved: 'checkmark-done',
+  verified: 'shield-checkmark',
+  unverified: 'help-circle',
+  sold: 'bag-check',
+  dismissed: 'close-circle',
+  cancelled: 'close-circle',
+  closed: 'checkmark-done',
+  none: 'ellipse',
+  rejected: 'close-circle',
+  removed: 'trash',
+  hidden: 'eye-off',
+  suspended: 'ban',
+  failed: 'alert-circle',
+};
+
+/** Number that counts up from its previous value. */
+export function CountUp({ value, format = (n) => String(n), duration = 700, style }) {
+  const target = Number(value) || 0;
+  const [shown, setShown] = useState(0);
+  const fromRef = useRef(0);
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === target) return undefined;
+    const start = Date.now();
+    let frame;
+    const step = () => {
+      const t = Math.min(1, (Date.now() - start) / duration);
+      const eased = 1 - (1 - t) ** 3;
+      const next = Math.round(from + (target - from) * eased);
+      fromRef.current = next;
+      setShown(next);
+      if (t < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [target, duration]);
+  return <Text style={style} numberOfLines={1}>{format(shown)}</Text>;
+}
+
+/** Bar that grows from its start edge (bottom for `y`, left for `x`) on mount; change `key` to replay. */
+export function GrowBar({ style, axis = 'y', delay = 0 }) {
+  const scale = useSharedValue(0);
+  useEffect(() => {
+    scale.value = 0;
+    scale.value = withDelay(delay, withTiming(1, { duration: 650, easing: Easing.out(Easing.cubic) }));
+  }, [delay, scale]);
+  const animated = useAnimatedStyle(() =>
+    axis === 'y'
+      ? { transform: [{ scaleY: scale.value }], transformOrigin: 'bottom' }
+      : { transform: [{ scaleX: scale.value }], transformOrigin: 'left' }
+  );
+  return <Reanimated.View style={[style, animated]} />;
+}
 
 const STATUS_TONE = {
   pending: 'warning',
@@ -55,28 +118,29 @@ export function toneColors(colors, tone) {
   }
 }
 
-export function AdminHeader({ title, subtitle, onBack, right, children }) {
+/** Page header from the web admin: green clay hub icon, title and hint, with an optional back button. */
+export function AdminHeader({ title, subtitle, icon = 'shield-checkmark', onBack, right, children }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-      <LinearGradient colors={ADMIN_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fill} />
-      <View style={styles.headerGlow} pointerEvents="none" />
+    <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
       <View style={styles.headerRow}>
         {onBack ? (
-          <Pressable onPress={onBack} hitSlop={10} style={styles.headerBtn} accessibilityLabel="Go back">
-            <Icon name="chevron-back" size={22} color={colors.white} />
-          </Pressable>
+          <PressableScale onPress={onBack} hitSlop={10} scaleTo={0.88} contentStyle={styles.iconBtn}>
+            <Icon name="chevron-back" size={22} color={colors.text} />
+          </PressableScale>
         ) : null}
-        <View style={styles.flex1}>
-          <View style={styles.badge}>
-            <Icon name="shield-checkmark" size={12} color="#A7F3D0" />
-            <Text style={styles.badgeText}>KINBECH ADMIN</Text>
-          </View>
+        <SoftPop>
+          <Wiggle angle={8} every={6000} delay={900} style={styles.hubIcon}>
+            <Icon name={icon} size={22} color={colors.white} />
+          </Wiggle>
+        </SoftPop>
+        <Reanimated.View entering={enterUp(0, 0)} style={styles.flex1}>
+          <Text style={styles.eyebrow}>KINBECH ADMIN</Text>
           <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
           {subtitle ? <Text style={styles.headerSub} numberOfLines={2}>{subtitle}</Text> : null}
-        </View>
+        </Reanimated.View>
         {right}
       </View>
       {children}
@@ -90,30 +154,86 @@ export function StatusPill({ status, label }) {
   const tone = toneColors(colors, STATUS_TONE[status] || 'muted');
   return (
     <View style={[styles.pill, { backgroundColor: tone.bg }]}>
+      <Icon name={STATUS_ICON[status] || 'ellipse'} size={10} color={tone.fg} />
       <Text style={[styles.pillText, { color: tone.fg }]}>{label || titleCase(status)}</Text>
     </View>
   );
 }
 
+/** Tiny icon + text badge for card details; `tone` tints it, default is muted. */
+export function MetaChip({ icon, label, tone, onPress }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  if (label == null || label === '') return null;
+  const toned = tone ? toneColors(colors, tone) : null;
+  const body = (
+    <>
+      {icon ? <Icon name={icon} size={11} color={toned ? toned.fg : colors.textTertiary} /> : null}
+      <Text style={[styles.metaChipText, toned && { color: toned.fg }]} numberOfLines={1}>{label}</Text>
+    </>
+  );
+  const style = [styles.metaChip, toned && { backgroundColor: toned.bg }];
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} hitSlop={6} style={({ pressed }) => [style, pressed && styles.btnPressed]}>
+        {body}
+      </Pressable>
+    );
+  }
+  return <View style={style}>{body}</View>;
+}
+
+export function MetaRow({ children, style }) {
+  const styles = useThemedStyles(createStyles);
+  return <View style={[styles.metaRow, style]}>{children}</View>;
+}
+
+/** Pressed strip of small numbers; each item `{ label, value, tone }`. */
+export function MiniStats({ items, style }) {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View style={[styles.miniStats, style]}>
+      {items.filter(Boolean).map((item, index) => (
+        <View key={item.label} style={[styles.miniStat, index > 0 && styles.miniStatDivider]}>
+          <Text
+            style={[styles.miniStatValue, item.tone && { color: toneColors(colors, item.tone).fg }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {item.value ?? 0}
+          </Text>
+          <Text style={styles.miniStatLabel} numberOfLines={1}>{item.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+/** Filter chips; options `{ value, label, icon?, count? }`. */
 export function AdminChips({ options, value, onChange }) {
+  const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-      {options.map((opt) => {
+      {options.map((opt, index) => {
         const active = opt.value === value;
         return (
-          <Pressable
-            key={opt.value}
+          <PressableScale
+            key={String(opt.value)}
+            entering={enterUp(index, 30)}
+            scaleTo={0.92}
             onPress={() => onChange(opt.value)}
-            style={[styles.chip, active && styles.chipActive]}
+            contentStyle={[styles.chip, active && styles.chipActive]}
           >
+            {opt.icon ? <Icon name={active ? opt.icon : `${opt.icon}-outline`} size={14} color={active ? colors.white : colors.textTertiary} /> : null}
             <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
             {opt.count != null ? (
               <View style={[styles.chipCount, active && styles.chipCountActive]}>
                 <Text style={[styles.chipCountText, active && styles.chipTextActive]}>{opt.count}</Text>
               </View>
             ) : null}
-          </Pressable>
+          </PressableScale>
         );
       })}
     </ScrollView>
@@ -148,12 +268,34 @@ export function AdminCard({ children, style, onPress }) {
   const styles = useThemedStyles(createStyles);
   if (onPress) {
     return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.cardPressed, style]}>
+      <PressableScale onPress={onPress} scaleTo={0.975} contentStyle={[styles.card, style]}>
         {children}
-      </Pressable>
+      </PressableScale>
     );
   }
   return <View style={[styles.card, style]}>{children}</View>;
+}
+
+/** Card-shaped placeholder with a light sweep while a list loads. */
+function SkeletonCard({ index }) {
+  const { isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  return (
+    <Reanimated.View entering={enterUp(index, 70)} style={styles.card}>
+      <View style={styles.skeletonRow}>
+        <View style={[styles.skeletonBlock, styles.skeletonThumb]} />
+        <View style={styles.flex1}>
+          <View style={[styles.skeletonBlock, styles.skeletonLine, { width: '70%' }]} />
+          <View style={[styles.skeletonBlock, styles.skeletonLine, { width: '40%' }]} />
+          <View style={[styles.skeletonBlock, styles.skeletonLine, { width: '55%' }]} />
+        </View>
+      </View>
+      <View style={[styles.skeletonBlock, styles.skeletonBar]} />
+      <View style={styles.skeletonClip} pointerEvents="none">
+        <Shimmer duration={1300} pause={250} color={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.75)'} />
+      </View>
+    </Reanimated.View>
+  );
 }
 
 /** Row of small action buttons; each `{ label, icon, tone, onPress }`. */
@@ -169,9 +311,10 @@ export function AdminActions({ actions }) {
         const tone = toneColors(colors, action.tone || 'success');
         const solid = action.solid;
         return (
-          <Pressable
+          <PressableScale
             key={action.label}
             disabled={Boolean(busy)}
+            scaleTo={0.9}
             onPress={async () => {
               setBusy(action.label);
               try {
@@ -180,19 +323,23 @@ export function AdminActions({ actions }) {
                 setBusy('');
               }
             }}
-            style={({ pressed }) => [
+            contentStyle={[
               styles.actionBtn,
-              { backgroundColor: solid ? tone.fg : tone.bg },
-              pressed && styles.cardPressed,
+              solid
+                ? action.tone && action.tone !== 'success'
+                  ? { backgroundColor: tone.fg, boxShadow: colors.clayTint }
+                  : styles.solidGreen
+                : { backgroundColor: tone.bg },
+              busy && busy !== action.label && styles.disabled,
             ]}
           >
             {busy === action.label ? (
               <ActivityIndicator size="small" color={solid ? colors.white : tone.fg} />
             ) : action.icon ? (
-              <Icon name={action.icon} size={15} color={solid ? colors.white : tone.fg} />
+              <Icon name={action.icon} size={14} color={solid ? colors.white : tone.fg} />
             ) : null}
             <Text style={[styles.actionText, { color: solid ? colors.white : tone.fg }]}>{action.label}</Text>
-          </Pressable>
+          </PressableScale>
         );
       })}
     </View>
@@ -203,13 +350,13 @@ export function AdminEmpty({ icon = 'checkmark-done', title, body }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   return (
-    <View style={styles.empty}>
-      <View style={styles.emptyIcon}>
+    <Reanimated.View entering={enterUp(0)} style={styles.empty}>
+      <Float distance={5} duration={1500} style={styles.emptyIcon}>
         <Icon name={icon} size={30} color={colors.primary} />
-      </View>
+      </Float>
       <Text style={styles.emptyTitle}>{title}</Text>
       {body ? <Text style={styles.emptyBody}>{body}</Text> : null}
-    </View>
+    </Reanimated.View>
   );
 }
 
@@ -304,11 +451,20 @@ export function AdminList({ list, renderItem, header, emptyTitle, emptyBody, emp
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
+  const animatedItem = useCallback(
+    (info) => (
+      // Only the first screenful animates in; later pages appear as they scroll in.
+      <Reanimated.View entering={info.index < 12 ? enterCard(info.index, 50) : undefined}>
+        {renderItem(info)}
+      </Reanimated.View>
+    ),
+    [renderItem]
+  );
   return (
     <FlatList
       data={list.status === 'ready' ? list.items : []}
       keyExtractor={(item) => String(item.id)}
-      renderItem={renderItem}
+      renderItem={animatedItem}
       ListHeaderComponent={header}
       contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
       onEndReached={list.loadMore}
@@ -324,14 +480,20 @@ export function AdminList({ list, renderItem, header, emptyTitle, emptyBody, emp
       }
       ListEmptyComponent={
         list.status === 'loading' ? (
-          <ActivityIndicator style={styles.loader} color={colors.primary} />
-        ) : list.status === 'error' ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{list.error}</Text>
-            <Pressable onPress={() => list.reload()} style={styles.retryBtn}>
-              <Text style={styles.retryText}>Try again</Text>
-            </Pressable>
+          <View>
+            {[0, 1, 2].map((i) => <SkeletonCard key={i} index={i} />)}
           </View>
+        ) : list.status === 'error' ? (
+          <Reanimated.View entering={enterUp(0)} style={styles.errorBox}>
+            <Wiggle angle={10} every={2500} style={styles.errorIcon}>
+              <Icon name="cloud-offline" size={26} color={colors.error} />
+            </Wiggle>
+            <Text style={styles.errorText}>{list.error}</Text>
+            <PressableScale onPress={() => list.reload()} contentStyle={[styles.retryBtn, styles.solidGreen]}>
+              <Icon name="refresh" size={15} color={colors.white} />
+              <Text style={styles.retryText}>Try again</Text>
+            </PressableScale>
+          </Reanimated.View>
         ) : (
           <AdminEmpty icon={emptyIcon} title={emptyTitle} body={emptyBody} />
         )
@@ -354,9 +516,12 @@ export function showAdminError(message) {
   Alert.alert('Could not update', message || 'Please try again.');
 }
 
+const splitReasons = (text) => String(text || '').split(/\.\s*/).map((part) => part.trim()).filter(Boolean);
+
 /**
  * Text prompt sheet for reasons and replies; `ask()` resolves the text or null when cancelled.
  * With `choices: [{ value, label }]` it resolves `{ text, choice }` instead.
+ * `presets: string[]` adds tap-to-add reason chips; tapping again removes it from the text.
  */
 export function usePrompt() {
   const [config, setConfig] = useState(null);
@@ -383,6 +548,13 @@ export function usePrompt() {
       config={config}
       onChange={(value) => setConfig((prev) => ({ ...prev, value }))}
       onChoice={(choice) => setConfig((prev) => ({ ...prev, choice }))}
+      onPreset={(preset) =>
+        setConfig((prev) => {
+          const parts = splitReasons(prev.value);
+          const next = parts.includes(preset) ? parts.filter((part) => part !== preset) : [...parts, preset];
+          return { ...prev, value: next.join('. ') };
+        })
+      }
       onCancel={() => close(null)}
       onSubmit={submit}
     />
@@ -390,7 +562,7 @@ export function usePrompt() {
   return [element, ask];
 }
 
-function PromptSheet({ config, onChange, onChoice, onCancel, onSubmit }) {
+function PromptSheet({ config, onChange, onChoice, onPreset, onCancel, onSubmit }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -420,6 +592,23 @@ function PromptSheet({ config, onChange, onChoice, onCancel, onSubmit }) {
               })}
             </View>
           ) : null}
+          {config?.presets?.length ? (
+            <View style={styles.sheetPresets}>
+              {config.presets.map((preset) => {
+                const active = splitReasons(config.value).includes(preset);
+                return (
+                  <Pressable
+                    key={preset}
+                    onPress={() => onPreset(preset)}
+                    style={[styles.presetChip, active && styles.chipActive]}
+                  >
+                    {active ? <Icon name="checkmark" size={13} color={colors.white} /> : null}
+                    <Text style={[styles.presetText, active && styles.chipTextActive]}>{preset}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
           <TextInput
             value={config?.value || ''}
             onChangeText={onChange}
@@ -428,7 +617,7 @@ function PromptSheet({ config, onChange, onChoice, onCancel, onSubmit }) {
             style={[styles.sheetInput, numeric && styles.sheetInputNumeric]}
             multiline={!numeric}
             keyboardType={numeric ? 'number-pad' : 'default'}
-            autoFocus={!config?.choices}
+            autoFocus={!config?.choices && !config?.presets?.length}
             maxLength={config?.maxLength || 500}
           />
           <View style={styles.sheetActions}>
@@ -438,7 +627,7 @@ function PromptSheet({ config, onChange, onChoice, onCancel, onSubmit }) {
             <Pressable
               onPress={onSubmit}
               disabled={!canSubmit}
-              style={[styles.sheetBtn, { backgroundColor: config?.destructive ? colors.error : colors.primary }, !canSubmit && styles.disabled]}
+              style={[styles.sheetBtn, config?.destructive ? styles.sheetBtnDanger : styles.solidGreen, !canSubmit && styles.disabled]}
             >
               <Text style={styles.sheetBtnText}>{config?.confirmText || 'Save'}</Text>
             </Pressable>
@@ -451,67 +640,79 @@ function PromptSheet({ config, onChange, onChoice, onCancel, onSubmit }) {
 
 const createStyles = (colors) => ({
   flex1: { flex: 1 },
-  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  header: {
-    paddingHorizontal: 18,
-    paddingBottom: 18,
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26,
-    overflow: 'hidden',
-  },
-  headerGlow: {
-    position: 'absolute',
-    right: -60,
-    top: -40,
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(52, 211, 153, 0.16)',
-  },
+  header: { paddingHorizontal: 16, paddingBottom: 6 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: colors.card,
+    boxShadow: colors.claySoft,
   },
-  badge: {
+  hubIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...clayGreen(colors),
+  },
+  eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, color: colors.primary },
+  headerTitle: { fontSize: 20, fontWeight: '900', letterSpacing: -0.2, color: colors.text },
+  headerSub: { marginTop: 1, fontSize: 12.5, fontWeight: '600', color: colors.textMuted },
+
+  pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 9,
+    paddingVertical: 3.5,
     borderRadius: 999,
-    backgroundColor: 'rgba(167, 243, 208, 0.14)',
-    marginBottom: 6,
+    alignSelf: 'flex-start',
+    boxShadow: colors.clayBadge,
   },
-  badgeText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 1, color: '#A7F3D0' },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: colors.white },
-  headerSub: { marginTop: 2, fontSize: 13, color: 'rgba(255,255,255,0.72)' },
+  pillText: { fontSize: 10.5, fontWeight: '800' },
 
-  pill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, alignSelf: 'flex-start' },
-  pillText: { fontSize: 11, fontWeight: '800' },
+  skeletonClip: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 20, overflow: 'hidden' },
+  skeletonRow: { flexDirection: 'row', gap: 11 },
+  skeletonBlock: { borderRadius: 8, ...clayPressed(colors) },
+  skeletonThumb: { width: 56, height: 56, borderRadius: 15 },
+  skeletonLine: { height: 11, marginBottom: 8 },
+  skeletonBar: { height: 30, marginTop: 10, borderRadius: 12 },
+  errorIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.pastelRed,
+    boxShadow: colors.clayTint,
+  },
 
-  chips: { gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
+  chips: { gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
+    paddingHorizontal: 13,
     paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 14,
+    backgroundColor: colors.card,
+    boxShadow: colors.claySoft,
   },
-  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  chipActive: clayGreen(colors),
+  chipText: { fontSize: 13, fontWeight: '800', color: colors.textSecondary },
   chipTextActive: { color: colors.white },
-  chipCount: { minWidth: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: colors.surfaceMuted, alignItems: 'center' },
-  chipCountActive: { backgroundColor: 'rgba(255,255,255,0.22)' },
+  chipCount: {
+    minWidth: 20,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    alignItems: 'center',
+    ...clayPressed(colors),
+  },
+  chipCountActive: { backgroundColor: 'rgba(255,255,255,0.22)', boxShadow: [] },
   chipCountText: { fontSize: 11, fontWeight: '800', color: colors.textTertiary },
 
   search: {
@@ -519,89 +720,125 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     gap: 8,
     marginHorizontal: 16,
-    marginTop: 14,
+    marginTop: 12,
     paddingHorizontal: 14,
     height: 44,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 15,
+    ...clayPressed(colors),
   },
-  searchInput: { flex: 1, fontSize: 14, color: colors.text, paddingVertical: 0 },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.text, paddingVertical: 0 },
 
   card: {
     marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginBottom: 14,
+    padding: 13,
+    borderRadius: 20,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
-  cardPressed: { opacity: 0.82 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
+  metaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 999,
+    ...clayPressed(colors),
+  },
+  metaChipText: { flexShrink: 1, fontSize: 10.5, fontWeight: '800', color: colors.textTertiary },
 
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  miniStats: {
+    flexDirection: 'row',
+    marginTop: 10,
+    paddingVertical: 7,
+    borderRadius: 14,
+    ...clayPressed(colors),
+  },
+  miniStat: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
+  miniStatDivider: { borderLeftWidth: 1, borderLeftColor: colors.border },
+  miniStatValue: { fontSize: 13.5, fontWeight: '900', color: colors.text },
+  miniStatLabel: { marginTop: 1, fontSize: 9, fontWeight: '800', letterSpacing: 0.4, textTransform: 'uppercase', color: colors.textMuted },
+
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 11 },
   actionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 13,
+    boxShadow: colors.clayTint,
   },
-  actionText: { fontSize: 12.5, fontWeight: '800' },
+  solidGreen: clayGreen(colors),
+  btnPressed: { boxShadow: colors.clayPressed, transform: [{ translateY: 1 }] },
+  actionText: { fontSize: 12, fontWeight: '800' },
 
   empty: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
   emptyIcon: {
-    width: 64,
-    height: 64,
+    width: 68,
+    height: 68,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.pastelGreen,
-    marginBottom: 14,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
+    marginBottom: 18,
   },
   emptyTitle: { fontSize: 16, fontWeight: '800', color: colors.text, textAlign: 'center' },
-  emptyBody: { marginTop: 4, fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
+  emptyBody: { marginTop: 4, fontSize: 13, fontWeight: '600', color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
 
   listContent: { flexGrow: 1 },
-  loader: { marginTop: 48 },
   footerLoader: { marginVertical: 18 },
-  errorBox: { alignItems: 'center', padding: 32, gap: 12 },
-  errorText: { fontSize: 14, color: colors.error, textAlign: 'center' },
-  retryBtn: { paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, backgroundColor: colors.primary },
+  errorBox: { alignItems: 'center', padding: 32, gap: 14 },
+  errorText: { fontSize: 14, fontWeight: '700', color: colors.error, textAlign: 'center' },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 16 },
   retryText: { color: colors.white, fontWeight: '800' },
 
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },
-  sheetBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheetBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.backdrop },
   sheet: {
-    padding: 20,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    backgroundColor: colors.surface,
+    padding: 22,
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
-  sheetHandle: { alignSelf: 'center', width: 42, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 14 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: colors.text },
-  sheetMessage: { marginTop: 4, fontSize: 13, color: colors.textMuted, lineHeight: 19 },
+  sheetHandle: { alignSelf: 'center', width: 44, height: 6, borderRadius: 3, marginBottom: 16, ...clayPressed(colors) },
+  sheetTitle: { fontSize: 19, fontWeight: '900', color: colors.text },
+  sheetMessage: { marginTop: 4, fontSize: 13, fontWeight: '600', color: colors.textMuted, lineHeight: 19 },
   sheetInput: {
-    marginTop: 14,
+    marginTop: 16,
     minHeight: 96,
     maxHeight: 180,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.inputBackground,
+    padding: 14,
+    borderRadius: 16,
+    ...clayPressed(colors),
     color: colors.text,
     fontSize: 14,
+    fontWeight: '600',
     textAlignVertical: 'top',
   },
-  sheetInputNumeric: { minHeight: 0, fontSize: 18, fontWeight: '700', textAlignVertical: 'center' },
-  sheetChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
-  sheetActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  sheetBtn: { flex: 1, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  sheetBtnGhost: { backgroundColor: colors.surfaceMuted },
+  sheetInputNumeric: { minHeight: 0, fontSize: 18, fontWeight: '800', textAlignVertical: 'center' },
+  sheetChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
+  sheetPresets: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginTop: 16 },
+  presetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: colors.card,
+    boxShadow: colors.claySoft,
+  },
+  presetText: { fontSize: 12.5, fontWeight: '700', color: colors.textSecondary },
+  sheetActions: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  sheetBtn: { flex: 1, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  sheetBtnGhost: { backgroundColor: colors.card, boxShadow: colors.claySoft },
+  sheetBtnDanger: { backgroundColor: colors.error, boxShadow: colors.clayTint },
   sheetBtnGhostText: { fontSize: 15, fontWeight: '800', color: colors.textSecondary },
   sheetBtnText: { fontSize: 15, fontWeight: '800', color: colors.white },
-  disabled: { opacity: 0.5 },
+  disabled: { opacity: 0.55 },
 });

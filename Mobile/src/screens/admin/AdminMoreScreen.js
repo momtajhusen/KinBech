@@ -1,17 +1,19 @@
 import { useCallback, useState } from 'react';
-import { Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Image, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
 import LogoutConfirmModal from '../../components/LogoutConfirmModal';
+import { Float, PressableScale, Pulse, Reanimated, SoftPop, enterCard, enterUp } from '../../components/Motion';
 import { AdminHeader, toneColors } from '../../components/admin/AdminKit';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
 import { ROLE_LABELS } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const LINKS = [
+  { route: 'AdminLive', label: 'Live now', body: 'Who is in the app right now and which screen', icon: 'pulse', tone: 'success' },
   { route: 'AdminScam', label: 'Scam monitor', body: 'Flagged chat messages: warn, restrict or strike', icon: 'warning', tone: 'error', countKey: 'scam-monitor' },
   { route: 'AdminTesters', label: 'Testers', body: 'Make tester, exit tester or delete test accounts', icon: 'flask', tone: 'info' },
   { route: 'AdminShops', label: 'Shops', body: 'Verify shops, suspend or reactivate', icon: 'storefront', tone: 'info', countKey: 'shop-verification' },
@@ -40,23 +42,29 @@ export default function AdminMoreScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}>
-        <AdminHeader title="More" subtitle="Everything else on the platform">
-          <View style={styles.profile}>
-            {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.avatar} />
-            ) : (
-              <View style={[styles.avatar, styles.avatarEmpty]}>
-                <Text style={styles.avatarLetter}>{String(user?.name || 'A').charAt(0).toUpperCase()}</Text>
-              </View>
-            )}
+        <AdminHeader icon="apps" title="More" subtitle="Everything else on the platform">
+          <Reanimated.View entering={enterCard(0)} style={styles.profile}>
+            <SoftPop>
+              {avatar ? (
+                <Image source={{ uri: avatar }} style={styles.avatar} />
+              ) : (
+                <View style={[styles.avatar, styles.avatarEmpty]}>
+                  <Text style={styles.avatarLetter}>{String(user?.name || 'A').charAt(0).toUpperCase()}</Text>
+                </View>
+              )}
+            </SoftPop>
             <View style={styles.flex1}>
               <Text style={styles.profileName} numberOfLines={1}>{user?.name || 'KinBech Admin'}</Text>
-              <Text style={styles.profileEmail} numberOfLines={1}>{user?.email || ''}</Text>
+              <View style={styles.emailRow}>
+                <Icon name="mail-outline" size={11} color={colors.textMuted} />
+                <Text style={styles.profileEmail} numberOfLines={1}>{user?.email || ''}</Text>
+              </View>
             </View>
             <View style={styles.roleBadge}>
+              <Icon name="shield-checkmark" size={11} color={colors.primary} />
               <Text style={styles.roleText}>{ROLE_LABELS[user?.role] || 'Admin'}</Text>
             </View>
-          </View>
+          </Reanimated.View>
         </AdminHeader>
 
         <View style={styles.panel}>
@@ -64,43 +72,44 @@ export default function AdminMoreScreen({ navigation }) {
             const tone = toneColors(colors, link.tone);
             const n = link.countKey ? counts[link.countKey] || 0 : 0;
             return (
-              <Pressable
+              <PressableScale
                 key={link.route}
                 onPress={() => navigation.navigate(link.route)}
-                style={({ pressed }) => [styles.row, i < LINKS.length - 1 && styles.divider, pressed && styles.pressed]}
+                scaleTo={0.97}
+                entering={enterUp(i + 1, 45)}
+                contentStyle={[styles.row, i < LINKS.length - 1 && styles.divider]}
               >
                 <View style={[styles.rowIcon, { backgroundColor: tone.bg }]}>
-                  <Icon name={link.icon} size={19} color={tone.fg} />
+                  <Icon name={link.icon} size={17} color={tone.fg} />
                 </View>
                 <View style={styles.flex1}>
                   <Text style={styles.rowLabel}>{link.label}</Text>
-                  <Text style={styles.rowBody}>{link.body}</Text>
+                  <Text style={styles.rowBody} numberOfLines={1}>{link.body}</Text>
                 </View>
                 {n > 0 ? (
-                  <View style={[styles.count, { backgroundColor: tone.fg }]}>
-                    <Text style={styles.countText}>{n}</Text>
-                  </View>
+                  <Pulse style={[styles.count, { backgroundColor: tone.fg }]}>
+                    <Text style={styles.countText}>{n > 99 ? '99+' : n}</Text>
+                  </Pulse>
                 ) : null}
-                <Icon name="chevron-forward" size={18} color={colors.textMuted} />
-              </Pressable>
+                <Icon name="chevron-forward" size={16} color={colors.textMuted} />
+              </PressableScale>
             );
           })}
         </View>
 
         <View style={styles.info}>
-          <Icon name="information-circle" size={16} color={colors.textTertiary} />
+          <Float distance={2}>
+            <Icon name="information-circle" size={15} color={colors.textTertiary} />
+          </Float>
           <Text style={styles.infoText}>
             Every action here is saved in the admin audit log. Admin settings, staff and the full error log stay on the website admin panel.
           </Text>
         </View>
 
-        <Pressable
-          onPress={() => setConfirmLogout(true)}
-          style={({ pressed }) => [styles.logout, pressed && styles.pressed]}
-        >
-          <Icon name="log-out" size={19} color={colors.error} />
+        <PressableScale onPress={() => setConfirmLogout(true)} entering={enterUp(LINKS.length + 1, 45)} contentStyle={styles.logout}>
+          <Icon name="log-out" size={18} color={colors.error} />
           <Text style={styles.logoutText}>Log out</Text>
-        </Pressable>
+        </PressableScale>
       </ScrollView>
 
       <LogoutConfirmModal
@@ -118,45 +127,53 @@ export default function AdminMoreScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
-  pressed: { opacity: 0.75 },
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginTop: 16,
+    gap: 11,
+    marginTop: 14,
     padding: 12,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
-  avatar: { width: 46, height: 46, borderRadius: 23 },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.2)' },
-  avatarLetter: { fontSize: 18, fontWeight: '800', color: colors.white },
-  profileName: { fontSize: 15.5, fontWeight: '800', color: colors.white },
-  profileEmail: { marginTop: 1, fontSize: 12.5, color: 'rgba(255,255,255,0.75)' },
-  roleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: '#A7F3D0' },
-  roleText: { fontSize: 11, fontWeight: '800', color: '#064E3B' },
+  avatar: { width: 42, height: 42, borderRadius: 21 },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, experimental_backgroundImage: colors.greenGradient, boxShadow: colors.clayGreenShadow },
+  avatarLetter: { fontSize: 17, fontWeight: '800', color: colors.white },
+  profileName: { fontSize: 14.5, fontWeight: '900', color: colors.text },
+  emailRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 1 },
+  profileEmail: { flexShrink: 1, fontSize: 11.5, fontWeight: '600', color: colors.textMuted },
+  roleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: colors.pastelGreen,
+    boxShadow: colors.clayBadge,
+  },
+  roleText: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
 
   panel: {
     marginTop: 18,
     marginHorizontal: 16,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingHorizontal: 13, paddingVertical: 11 },
   divider: { borderBottomWidth: 1, borderBottomColor: colors.border },
-  rowIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  rowLabel: { fontSize: 15, fontWeight: '800', color: colors.text },
-  rowBody: { marginTop: 1, fontSize: 12.5, color: colors.textTertiary },
-  count: { minWidth: 26, height: 22, paddingHorizontal: 7, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
-  countText: { fontSize: 12, fontWeight: '800', color: colors.white },
+  rowIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', boxShadow: colors.clayTint },
+  rowLabel: { fontSize: 14, fontWeight: '900', color: colors.text },
+  rowBody: { marginTop: 1, fontSize: 11.5, color: colors.textTertiary },
+  count: { minWidth: 24, height: 20, paddingHorizontal: 6, borderRadius: 10, alignItems: 'center', justifyContent: 'center', boxShadow: colors.clayBadge },
+  countText: { fontSize: 11, fontWeight: '800', color: colors.white },
 
-  info: { flexDirection: 'row', gap: 8, marginTop: 16, marginHorizontal: 20 },
-  infoText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.textTertiary },
+  info: { flexDirection: 'row', gap: 8, marginTop: 14, marginHorizontal: 20 },
+  infoText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: colors.textTertiary },
 
   logout: {
     flexDirection: 'row',
@@ -165,9 +182,10 @@ const createStyles = (colors) => ({
     gap: 8,
     marginTop: 20,
     marginHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 16,
+    paddingVertical: 13,
+    borderRadius: 18,
     backgroundColor: colors.pastelRed,
+    boxShadow: colors.clayTint,
   },
-  logoutText: { fontSize: 15, fontWeight: '800', color: colors.error },
+  logoutText: { fontSize: 14, fontWeight: '800', color: colors.error },
 });

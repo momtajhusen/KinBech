@@ -395,6 +395,9 @@ const Settings = () => {
                     className="form-input"
                     required
                   />
+                  <p className="form-hint">
+                    If this is a Google (Gmail) address, they can also open the admin panel in the KinBech app with Google sign-in.
+                  </p>
                 </div>
                 <div className="form-group">
                   <label>Role</label>

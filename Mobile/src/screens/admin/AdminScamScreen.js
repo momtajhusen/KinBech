@@ -8,21 +8,24 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
   StatusPill,
   showAdminError,
   useAdminList,
   useDebouncedValue,
   usePrompt,
 } from '../../components/admin/AdminKit';
+import { Pulse } from '../../components/Motion';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime, formatNpr, titleCase } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { formatDateTime, formatNpr, timeAgo, titleCase } from '../../utils/admin';
 
 const FILTERS = [
-  { value: 'open', label: 'Open' },
-  { value: 'actioned', label: 'Actioned' },
-  { value: 'dismissed', label: 'False alarm' },
-  { value: 'all', label: 'All' },
+  { value: 'open', label: 'Open', icon: 'warning' },
+  { value: 'actioned', label: 'Actioned', icon: 'checkmark-circle' },
+  { value: 'dismissed', label: 'False alarm', icon: 'close-circle' },
+  { value: 'all', label: 'All', icon: 'apps' },
 ];
 
 const ACTION_COPY = {
@@ -97,9 +100,9 @@ export default function AdminScamScreen({ navigation }) {
     return (
       <AdminCard>
         <View style={styles.head}>
-          <View style={styles.icon}>
+          <Pulse active={!reviewed} to={1.12} style={styles.icon}>
             <Icon name="warning" size={16} color={colors.error} />
-          </View>
+          </Pulse>
           <View style={styles.flex1}>
             <Text
               style={styles.sender}
@@ -108,34 +111,38 @@ export default function AdminScamScreen({ navigation }) {
             >
               {sender.name || 'Unknown'} <Text style={styles.arrow}>→ {item.recipient?.name || 'someone'}</Text>
             </Text>
-            <Text style={styles.time}>{formatDateTime(item.createdAt)}</Text>
+            <View style={styles.timeRow}>
+              <Icon name="time-outline" size={11} color={colors.textMuted} />
+              <Text style={styles.time}>{timeAgo(item.createdAt)}</Text>
+            </View>
           </View>
           <StatusPill status={reviewed === 'actioned' ? 'resolved' : reviewed === 'dismissed' ? 'dismissed' : 'pending'} label={reviewed ? titleCase(reviewed) : 'Open'} />
         </View>
 
         <View style={styles.bubble}>
+          <Icon name="chatbubble-ellipses-outline" size={13} color={colors.textMuted} />
           <Text style={styles.message} selectable>{item.text || '(no text)'}</Text>
         </View>
 
         {item.matches?.length ? (
-          <View style={styles.matches}>
+          <MetaRow>
             {item.matches.slice(0, 5).map((m) => (
-              <View key={m.category} style={styles.match}>
-                <Text style={styles.matchText}>
-                  {titleCase(m.category)}{m.phrases?.length ? `: ${m.phrases.slice(0, 3).join(', ')}` : ''}
-                </Text>
-              </View>
+              <MetaChip
+                key={m.category}
+                icon="alert-circle"
+                tone="error"
+                label={`${titleCase(m.category)}${m.phrases?.length ? `: ${m.phrases.slice(0, 3).join(', ')}` : ''}`}
+              />
             ))}
-          </View>
+          </MetaRow>
         ) : null}
 
-        <Text style={styles.meta} numberOfLines={1}>
-          {[
-            item.listing ? `${item.listing.title} · ${formatNpr(item.listing.price)}` : '',
-            sender.strikes ? `${sender.strikes} strike${sender.strikes === 1 ? '' : 's'}` : '',
-            sender.chatRestricted ? 'Chat restricted' : '',
-          ].filter(Boolean).join(' · ')}
-        </Text>
+        <MetaRow>
+          {item.listing ? <MetaChip icon="pricetag" label={`${item.listing.title} · ${formatNpr(item.listing.price)}`} /> : null}
+          {sender.strikes ? <MetaChip icon="warning" tone="warning" label={`${sender.strikes} strike${sender.strikes === 1 ? '' : 's'}`} /> : null}
+          {sender.chatRestricted ? <MetaChip icon="lock-closed" tone="error" label="Chat restricted" /> : null}
+          <MetaChip icon="calendar" label={formatDateTime(item.createdAt)} />
+        </MetaRow>
         {item.review?.note ? <Text style={styles.note}>Note: {item.review.note}{item.review.by ? ` (${item.review.by})` : ''}</Text> : null}
 
         <AdminActions
@@ -165,6 +172,7 @@ export default function AdminScamScreen({ navigation }) {
         header={
           <>
             <AdminHeader
+              icon="warning"
               title="Scam monitor"
               subtitle={`${summary.open ?? 0} open · ${summary.last24h ?? 0} in last 24h · last 30 days`}
               onBack={() => navigation.goBack()}
@@ -180,18 +188,24 @@ export default function AdminScamScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  icon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelRed },
-  sender: { fontSize: 14.5, fontWeight: '800', color: colors.text },
+  icon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelRed, boxShadow: colors.clayTint },
+  sender: { fontSize: 14, fontWeight: '800', color: colors.text },
   arrow: { fontWeight: '600', color: colors.textTertiary },
-  time: { marginTop: 1, fontSize: 11.5, color: colors.textMuted },
-  bubble: { marginTop: 10, padding: 12, borderRadius: 14, borderTopLeftRadius: 4, backgroundColor: colors.surfaceMuted },
-  message: { fontSize: 14, lineHeight: 20, color: colors.text },
-  matches: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
-  match: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: colors.pastelRed },
-  matchText: { fontSize: 11.5, fontWeight: '700', color: colors.error },
-  meta: { marginTop: 8, fontSize: 12, color: colors.textTertiary },
-  note: { marginTop: 4, fontSize: 12, fontStyle: 'italic', color: colors.textTertiary },
+  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 1 },
+  time: { fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  bubble: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 9,
+    padding: 10,
+    borderRadius: 16,
+    borderTopLeftRadius: 6,
+    backgroundColor: colors.backgroundSecondary,
+    boxShadow: colors.clayPressed,
+  },
+  message: { flex: 1, fontSize: 13, lineHeight: 18, color: colors.text },
+  note: { marginTop: 6, fontSize: 12, fontStyle: 'italic', color: colors.textTertiary },
 });

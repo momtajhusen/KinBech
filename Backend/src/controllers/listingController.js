@@ -29,6 +29,7 @@ const { getPlatformSettings } = require('../utils/platformSettings');
 const { resolveProductCategory } = require('../utils/productCategory');
 const { emitActivity } = require('../utils/realtime');
 const { listingActivityEvent } = require('../utils/activityEvents');
+const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { isAdminRole } = require('../utils/adminScopes');
 const { onListingMarkedSold } = require('../utils/deals');
 const { confirmAvailable } = require('../utils/listingTrust');
@@ -57,6 +58,18 @@ const PHOTO_ISSUE_LABELS = {
   drugs: 'drugs',
   other: 'content that breaks KinBech rules',
 };
+
+function notifyListingHeld(listing, seller) {
+  const reason = clip(String(listing.moderationReason || '').replace(HELD_NOTE, ''), 80);
+  notifyAdmins({
+    scope: 'listings',
+    title: 'Listing needs review',
+    body: `"${clip(listing.title, 50)}" by ${whoLabel(seller)}${reason ? ` — ${reason}` : ''}`,
+    icon: 'hourglass-outline',
+    route: 'AdminListings',
+    params: { listingId: String(listing._id) },
+  });
+}
 
 function sentence(text) {
   const value = String(text || '').trim();
@@ -1154,6 +1167,7 @@ async function createListing(req, res, next) {
 
     const listing = await Listing.create(listingData);
     emitActivity(listingActivityEvent(listing));
+    if (listing.status === 'pending') notifyListingHeld(listing, req.user);
 
     await listing.populate('seller', 'name phone avatarUrl soldCount boughtCount location bio preferences');
     if (listing.shopId) {
@@ -1379,6 +1393,7 @@ async function updateListing(req, res, next) {
     }
 
     await listing.save();
+    if (listing.status === 'pending' && previousStatus !== 'pending') notifyListingHeld(listing, req.user);
     if (!wasSold && listing.status === 'sold') {
       onListingMarkedSold(listing);
       await User.findByIdAndUpdate(listing.seller, { $inc: { soldCount: 1 } });

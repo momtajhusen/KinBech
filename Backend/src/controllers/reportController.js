@@ -9,6 +9,7 @@ const listingQueryCache = require('../utils/listingQueryCache');
 const { statusChange } = require('../utils/listing');
 const { emitActivity } = require('../utils/realtime');
 const { reportActivityEvent } = require('../utils/activityEvents');
+const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { setBlock } = require('../utils/blocks');
 const { isAdminRole } = require('../utils/adminScopes');
 
@@ -67,6 +68,14 @@ async function createReport(req, res, next) {
       details: details || '',
     });
     emitActivity(reportActivityEvent(report));
+    notifyAdmins({
+      scope: 'reports',
+      title: 'New report',
+      body: clip(`${whoLabel(req.user)} reported ${whoLabel(reportedUser)} for ${String(reason).replace(/[-_]/g, ' ')}${details ? `: ${details}` : ''}`, 140),
+      icon: 'flag-outline',
+      route: 'AdminReports',
+      params: { reportId: String(report._id) },
+    });
     if (reason === 'not-available') evaluateListingNow(listingId);
 
     if (blockUser && !isAdminRole(reportedUser.role)) {
@@ -194,16 +203,44 @@ async function getAllReports(req, res, next) {
       Report.countDocuments(filter),
       Report.find(filter)
         .populate('reporter', 'name phone avatarUrl')
-        .populate('reportedUser', 'name phone avatarUrl')
-        .populate('reportedListing', 'title photos status')
+        .populate('reportedUser', 'name phone avatarUrl status strikes')
+        .populate('reportedListing', 'title photos status price')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
     ]);
 
+    const idOf = (ref) => (ref?._id ? ref._id : null);
+    const userIds = [...new Set(reports.map((r) => idOf(r.reportedUser)).filter(Boolean).map(String))];
+    const listingIds = [...new Set(reports.map((r) => idOf(r.reportedListing)).filter(Boolean).map(String))];
+    const [userTotals, listingTotals] = await Promise.all([
+      userIds.length
+        ? Report.aggregate([
+          { $match: { reportedUser: { $in: userIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
+          { $group: { _id: '$reportedUser', count: { $sum: 1 } } },
+        ])
+        : [],
+      listingIds.length
+        ? Report.aggregate([
+          { $match: { reportedListing: { $in: listingIds.map((id) => new mongoose.Types.ObjectId(id)) } } },
+          { $group: { _id: '$reportedListing', count: { $sum: 1 } } },
+        ])
+        : [],
+    ]);
+    const userCount = Object.fromEntries(userTotals.map((row) => [String(row._id), row.count]));
+    const listingCount = Object.fromEntries(listingTotals.map((row) => [String(row._id), row.count]));
+
     res.json({
-      reports,
+      reports: reports.map((report) => {
+        const user = report.reportedUser;
+        return {
+          ...report,
+          reportedUser: user?._id ? { ...user, strikes: (user.strikes || []).length } : user,
+          reportsAgainstUser: user?._id ? userCount[String(user._id)] || 0 : 0,
+          reportsAgainstListing: report.reportedListing?._id ? listingCount[String(report.reportedListing._id)] || 0 : 0,
+        };
+      }),
       total,
       page,
       limit,

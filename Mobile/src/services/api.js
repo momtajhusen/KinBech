@@ -730,10 +730,13 @@ export const api = {
   getShopReviews: (shopId) => request(`/shops/${shopId}/reviews`),
   getAllShops: (params = {}) => request(`/shops${toQuery(params)}`),
   getCategories: (type) => request(`/categories${toQuery(type ? { type } : {})}`),
+  reportPresence: (payload) =>
+    request('/auth/presence', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 6000 }),
 
   // Platform admin (in-app admin panel)
   adminDashboard: () => request('/auth/admin/dashboard-stats', { timeoutMs: 15000 }),
   adminNavCounts: () => request('/auth/admin/nav-counts'),
+  adminLiveUsers: () => request('/auth/admin/live-users', { timeoutMs: 10000 }),
   adminReports: (params = {}) => request(`/reports/admin/all${toQuery(params)}`),
   adminUpdateReport: (reportId, payload) =>
     request(`/reports/admin/${reportId}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),

@@ -1,6 +1,5 @@
 import { useCallback, useState } from 'react';
 import { Image, Linking, Text, View } from 'react-native';
-import Icon from '../../components/Icon';
 import {
   AdminActions,
   AdminCard,
@@ -8,6 +7,9 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
+  MiniStats,
   StatusPill,
   confirmAction,
   showAdminError,
@@ -15,30 +17,41 @@ import {
   useDebouncedValue,
 } from '../../components/admin/AdminKit';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime, titleCase } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles } from '../../components/admin/adminTheme';
+import { formatDateTime, timeAgo, titleCase } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const STATUS_FILTERS = [
-  { value: '', label: 'Any status' },
-  { value: 'active', label: 'Active' },
-  { value: 'suspended', label: 'Suspended' },
-  { value: 'strikes', label: 'Has strikes' },
-  { value: 'chat_locked', label: 'Chat locked' },
+  { value: '', label: 'Any status', icon: 'apps' },
+  { value: 'active', label: 'Active', icon: 'checkmark-circle' },
+  { value: 'suspended', label: 'Suspended', icon: 'close-circle' },
+  { value: 'strikes', label: 'Has strikes', icon: 'warning' },
+  { value: 'chat_locked', label: 'Chat locked', icon: 'lock-closed' },
+];
+
+const SORTS = [
+  { value: 'newest', label: 'Newest', icon: 'sparkles' },
+  { value: 'recently_active', label: 'Recently active', icon: 'time' },
+  { value: 'active_listings', label: 'Most ads', icon: 'pricetags' },
+  { value: 'most_sold', label: 'Top sellers', icon: 'trophy' },
+  { value: 'most_bought', label: 'Top buyers', icon: 'cart' },
+  { value: 'top_rated', label: 'Top rated', icon: 'star' },
+  { value: 'trust', label: 'Trust score', icon: 'shield-checkmark' },
+  { value: 'oldest', label: 'Oldest', icon: 'calendar' },
 ];
 
 const TYPE_LABELS = { buyer: 'Buyer', individual: 'Seller', shop: 'Shop', both: 'Seller + Shop' };
 
 export default function AdminUsersScreen({ navigation }) {
-  const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
+  const [sort, setSort] = useState('newest');
   const [query, setQuery] = useState('');
   const q = useDebouncedValue(query.trim(), 350);
 
   const load = useCallback(async (page) => {
-    const { data, error } = await api.adminUsers({ type, status, q, page, limit: 20 });
+    const { data, error } = await api.adminUsers({ type, status, sort, q, page, limit: 20 });
     if (error) return { error };
     return {
       items: (data?.users || []).map((u) => ({ ...u, id: String(u.id || u._id) })),
@@ -46,16 +59,16 @@ export default function AdminUsersScreen({ navigation }) {
       totalPages: data?.totalPages,
       extra: data?.counts || null,
     };
-  }, [type, status, q]);
+  }, [type, status, sort, q]);
 
-  const list = useAdminList(load, `${type}|${status}|${q}`);
+  const list = useAdminList(load, `${type}|${status}|${sort}|${q}`);
   const counts = list.extra || {};
 
   const typeOptions = [
-    { value: '', label: 'All', count: counts.all },
-    { value: 'buyer', label: 'Buyers', count: counts.buyer },
-    { value: 'individual', label: 'Sellers', count: counts.individual },
-    { value: 'shop', label: 'Shops', count: counts.shop },
+    { value: '', label: 'All', icon: 'people', count: counts.all },
+    { value: 'buyer', label: 'Buyers', icon: 'cart', count: counts.buyer },
+    { value: 'individual', label: 'Sellers', icon: 'person', count: counts.individual },
+    { value: 'shop', label: 'Shops', icon: 'storefront', count: counts.shop },
   ];
 
   const changeStatus = async (user, action) => {
@@ -83,16 +96,20 @@ export default function AdminUsersScreen({ navigation }) {
     const avatar = resolveMediaUrl(item.avatarUrl);
     const listings = item.listings || {};
     const suspended = item.status === 'suspended';
+    const online = item.lastActiveAt && Date.now() - new Date(item.lastActiveAt).getTime() < 10 * 60 * 1000;
     return (
       <AdminCard onPress={() => navigation.navigate('AdminUserDetail', { userId: item.id, name: item.name })}>
         <View style={styles.row}>
-          {avatar ? (
-            <Image source={{ uri: avatar }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarEmpty]}>
-              <Text style={styles.avatarLetter}>{String(item.name || '?').charAt(0).toUpperCase()}</Text>
-            </View>
-          )}
+          <View>
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarEmpty]}>
+                <Text style={styles.avatarLetter}>{String(item.name || '?').charAt(0).toUpperCase()}</Text>
+              </View>
+            )}
+            {online ? <View style={styles.onlineDot} /> : null}
+          </View>
           <View style={styles.flex1}>
             <View style={styles.nameRow}>
               <Text style={styles.name} numberOfLines={1}>{item.name || 'No name'}</Text>
@@ -102,32 +119,42 @@ export default function AdminUsersScreen({ navigation }) {
               {[item.phone, item.email].filter(Boolean).join(' · ') || 'No contact'}
             </Text>
             <Text style={styles.meta} numberOfLines={1}>
-              {[TYPE_LABELS[item.type] || titleCase(item.type), item.location, item.joinDate ? `Joined ${formatDateTime(item.joinDate)}` : '']
-                .filter(Boolean)
-                .join(' · ')}
+              {online ? 'Online now' : item.lastActiveAt ? `Seen ${timeAgo(item.lastActiveAt)}` : 'Never active'}
+              {item.joinDate ? ` · joined ${timeAgo(item.joinDate)}` : ''}
             </Text>
           </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <Stat styles={styles} label="Active" value={listings.active} />
-          <Stat styles={styles} label="Pending" value={listings.pending} />
-          <Stat styles={styles} label="Sold" value={listings.sold} />
-          <Stat
-            styles={styles}
-            label="Rating"
-            value={item.reviewCount ? `${Number(item.ratingAverage || 0).toFixed(1)}★` : '–'}
-          />
-          <Stat styles={styles} label="Strikes" value={item.strikes || 0} danger={item.strikes > 0} />
-        </View>
+        <MetaRow>
+          <MetaChip icon={item.type === 'buyer' ? 'bag-handle' : item.type === 'individual' ? 'person' : 'storefront'} label={TYPE_LABELS[item.type] || titleCase(item.type)} tone="info" />
+          {item.isTester ? <MetaChip icon="flask" label="Tester" tone="warning" /> : null}
+          {item.plan ? <MetaChip icon="diamond" label={item.plan.name} tone="success" /> : null}
+          {item.trustTier ? <MetaChip icon="shield-checkmark" label={`${titleCase(item.trustTier)}${item.trustScore != null ? ` · ${item.trustScore}` : ''}`} /> : null}
+          {!item.profileComplete ? <MetaChip icon="person-circle" label="Profile incomplete" tone="warning" /> : null}
+          {item.chatRestricted ? <MetaChip icon="chatbubble" label="Chat locked" tone="error" /> : null}
+          {item.deletionScheduledFor ? <MetaChip icon="trash" label={`Deleting ${formatDateTime(item.deletionScheduledFor)}`} tone="error" /> : null}
+          {item.suspendedUntil && suspended ? <MetaChip icon="time" label={`Until ${formatDateTime(item.suspendedUntil)}`} tone="error" /> : null}
+          <MetaChip icon="location" label={item.location} />
+          {item.shop?.name ? (
+            <MetaChip
+              icon="storefront"
+              label={`${item.shop.name}${item.shop.isVerified ? ' ✓' : ''}${item.shop.followersCount ? ` · ${item.shop.followersCount} followers` : ''}`}
+              tone={item.shop.isVerified ? 'success' : undefined}
+            />
+          ) : null}
+          {listings.lastPostedAt ? <MetaChip icon="add-circle" label={`Posted ${timeAgo(listings.lastPostedAt)}`} /> : null}
+        </MetaRow>
 
-        {item.shop?.name ? (
-          <View style={styles.shopRow}>
-            <Icon name="storefront" size={14} color={colors.primary} />
-            <Text style={styles.shopName} numberOfLines={1}>{item.shop.name}</Text>
-            {item.shop.isVerified ? <Icon name="checkmark-circle" size={14} color={colors.success} /> : null}
-          </View>
-        ) : null}
+        <MiniStats
+          items={[
+            { label: 'Active', value: listings.active, tone: listings.active ? 'success' : undefined },
+            { label: 'Pending', value: listings.pending, tone: listings.pending ? 'warning' : undefined },
+            { label: 'Sold', value: item.soldCount ?? listings.sold },
+            { label: 'Bought', value: item.boughtCount },
+            { label: 'Rating', value: item.reviewCount ? `${Number(item.ratingAverage || 0).toFixed(1)}★` : '–' },
+            { label: 'Strikes', value: item.strikes || 0, tone: item.strikes > 0 ? 'error' : undefined },
+          ]}
+        />
 
         <AdminActions
           actions={[
@@ -162,10 +189,11 @@ export default function AdminUsersScreen({ navigation }) {
         emptyBody="Try another filter or search by name, phone or email."
         header={
           <>
-            <AdminHeader title="Users" subtitle={`${list.total || 0} user${list.total === 1 ? '' : 's'}`} />
+            <AdminHeader icon="people" title="Users" subtitle={`${list.total || 0} user${list.total === 1 ? '' : 's'}`} />
             <AdminSearch value={query} onChangeText={setQuery} placeholder="Search name, phone or email" />
             <AdminChips options={typeOptions} value={type} onChange={setType} />
             <AdminChips options={STATUS_FILTERS} value={status} onChange={setStatus} />
+            <AdminChips options={SORTS} value={sort} onChange={setSort} />
           </>
         }
       />
@@ -173,37 +201,26 @@ export default function AdminUsersScreen({ navigation }) {
   );
 }
 
-function Stat({ styles, label, value, danger }) {
-  return (
-    <View style={styles.stat}>
-      <Text style={[styles.statValue, danger && styles.statDanger]}>{value ?? 0}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
-
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: colors.surfaceMuted },
-  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen },
-  avatarLetter: { fontSize: 19, fontWeight: '800', color: colors.primary },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.text },
-  contact: { marginTop: 2, fontSize: 12.5, fontWeight: '600', color: colors.textSecondary },
-  meta: { marginTop: 2, fontSize: 11.5, color: colors.textMuted },
-  statsRow: {
-    flexDirection: 'row',
-    marginTop: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceMuted,
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceMuted },
+  avatarEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelGreen, boxShadow: colors.clayTint },
+  avatarLetter: { fontSize: 17, fontWeight: '800', color: colors.primary },
+  onlineDot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: colors.card,
+    backgroundColor: colors.success,
   },
-  stat: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 14, fontWeight: '800', color: colors.text },
-  statDanger: { color: colors.error },
-  statLabel: { marginTop: 1, fontSize: 10.5, fontWeight: '600', color: colors.textMuted },
-  shopRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  shopName: { flexShrink: 1, fontSize: 13, fontWeight: '700', color: colors.textSecondary },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  name: { flex: 1, fontSize: 14, fontWeight: '800', color: colors.text },
+  contact: { marginTop: 1, fontSize: 11.5, fontWeight: '700', color: colors.textSecondary },
+  meta: { marginTop: 1, fontSize: 10.5, fontWeight: '600', color: colors.textMuted },
 });

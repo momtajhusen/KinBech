@@ -22,6 +22,7 @@ const { scheduleDeal, noteChatMessage, recordDealOutcome } = require('../utils/d
 const { detectScamRisk } = require('../utils/chatIntent');
 const { sameAudienceUser } = require('../utils/audience');
 const { isAdminRole } = require('../utils/adminScopes');
+const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { SUPPORT_NAME, SUPPORT_AVATAR } = require('../utils/support');
 const { blockOf, blockStatus, messageBlockError, callBlockError } = require('../utils/blocks');
 
@@ -533,6 +534,15 @@ async function sendMessage(req, res, next) {
     });
     if (scamRisk) {
       Chat.updateOne({ _id: chat._id }, { $inc: { safetyFlags: 1 }, $set: { lastSafetyFlagAt: new Date() } }).catch(() => {});
+      notifyAdmins({
+        scope: 'moderation',
+        title: 'Possible scam in chat',
+        body: `${whoLabel(req.user)}: "${clip(text, 80)}"`,
+        icon: 'warning-outline',
+        route: 'AdminScam',
+        params: { messageId: String(message._id) },
+        key: `scam:${chat._id}`,
+      });
     }
 
     chat.lastMessage = text;

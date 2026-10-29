@@ -40,6 +40,7 @@ import {
   consumePendingChatAlert,
   displayAlert,
   ensureAlertChannel,
+  isForSignedInUser,
   subscribeAlertPress,
   subscribeNativeChatAlert,
   subscribeQueuedAlertOpen,
@@ -86,6 +87,7 @@ import ShopProfileScreen from '../screens/ShopProfileScreen';
 import ShopDashboardScreen from '../screens/ShopDashboardScreen';
 import SplashScreen from '../screens/SplashScreen';
 import SignedInModal from '../components/SignedInModal';
+import AccountChoiceModal from '../components/AccountChoiceModal';
 import TermsScreen from '../screens/TermsScreen';
 import LegalHubScreen from '../screens/LegalHubScreen';
 import LegalDocumentScreen from '../components/LegalDocumentScreen';
@@ -112,6 +114,8 @@ import AdminSupportScreen from '../screens/admin/AdminSupportScreen';
 import AdminUserDetailScreen from '../screens/admin/AdminUserDetailScreen';
 import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
 import AdminScamScreen from '../screens/admin/AdminScamScreen';
+import AdminLiveScreen from '../screens/admin/AdminLiveScreen';
+import { setPresenceEnabled, trackScreen } from '../services/presence';
 import { ADMIN_ROUTES, isAdminUser } from '../utils/admin';
 
 const Stack = createNativeStackNavigator();
@@ -228,6 +232,8 @@ const DIRECT_ALERT_ROUTES = new Set([
   'Notifications',
 ]);
 
+const ADMIN_TAB_ROUTES = new Set(['AdminDashboard', 'AdminReports', 'AdminListings', 'AdminUsers', 'AdminMore']);
+
 function PushAlertBridge() {
   const navigation = useNavigation();
   const { ready, isLoggedIn } = useAuth();
@@ -237,8 +243,28 @@ function PushAlertBridge() {
   useEffect(() => {
     if (!ready || !isLoggedIn) return undefined;
 
-    const openAlert = (data) => {
-      if (!data) return;
+    const openAlert = async (data) => {
+      if (!data || !(await isForSignedInUser(data))) return;
+      if (ADMIN_TAB_ROUTES.has(data.route)) {
+        navigation.navigate('AdminTabs', { screen: data.route });
+        return;
+      }
+      if (data.route === 'AdminUserDetail' && data.userId) {
+        navigation.navigate('AdminUserDetail', { userId: String(data.userId) });
+        return;
+      }
+      if (data.route === 'AdminShops') {
+        navigation.navigate('AdminShops', { initial: data.initial || undefined });
+        return;
+      }
+      if (ADMIN_ROUTES.has(data.route)) {
+        navigation.navigate(data.route);
+        return;
+      }
+      if (data.type === 'admin') {
+        navigation.navigate('AdminTabs', { screen: 'AdminDashboard' });
+        return;
+      }
       if (data.chatId) {
         navigation.navigate('Chat', {
           chatId: String(data.chatId),
@@ -517,6 +543,10 @@ export default function AppNavigator() {
     syncAdminRoot(user, isLoggedIn);
   }, [user, isLoggedIn]);
 
+  useEffect(() => {
+    setPresenceEnabled(!adminMode);
+  }, [adminMode]);
+
   const navigationTheme = useMemo(() => {
     const base = isDark ? DarkTheme : DefaultTheme;
     return {
@@ -539,15 +569,21 @@ export default function AppNavigator() {
     <NavigationContainer
       ref={navigationRef}
       theme={navigationTheme}
-      onReady={flushPendingCallNavigation}
-      onStateChange={() => syncAdminRoot(authRef.current.user, authRef.current.isLoggedIn)}
+      onReady={() => {
+        flushPendingCallNavigation();
+        trackScreen(navigationRef.getCurrentRoute());
+      }}
+      onStateChange={() => {
+        syncAdminRoot(authRef.current.user, authRef.current.isLoggedIn);
+        trackScreen(navigationRef.getCurrentRoute());
+      }}
     >
       <AndroidBackHandler />
+      <DeviceTokenBridge />
+      <PushAlertBridge />
       {adminMode ? null : (
         <>
           <IncomingCallBridge />
-          <DeviceTokenBridge />
-          <PushAlertBridge />
           <MessageSoundBridge />
           <CallSetupModal />
         </>
@@ -579,6 +615,7 @@ export default function AppNavigator() {
         <Stack.Screen name="AdminUserDetail" component={AdminUserDetailScreen} />
         <Stack.Screen name="AdminTesters" component={AdminTestersScreen} />
         <Stack.Screen name="AdminScam" component={AdminScamScreen} />
+        <Stack.Screen name="AdminLive" component={AdminLiveScreen} />
 
         <Stack.Screen name="AllCategories" component={AllCategoriesScreen} />
         <Stack.Screen name="SearchResults" component={SearchResultsScreen} />
@@ -627,6 +664,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
       </Stack.Navigator>
       <SignedInModal />
+      <AccountChoiceModal />
     </NavigationContainer>
   );
 }

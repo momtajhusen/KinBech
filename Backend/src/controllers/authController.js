@@ -22,8 +22,9 @@ const AuditLog = require('../models/AuditLog');
 const { haversineDistanceKm } = require('../utils/listing');
 const { evaluatePublicText, publicProhibitedBody } = require('../utils/listingModeration');
 const { emitActivity } = require('../utils/realtime');
+const { notifyAdmins } = require('../utils/adminNotify');
 const { recordAudit } = require('../utils/audit');
-const { ADMIN_ROLES, isAdminRole, isPlatformAdminEmail, scopesForRole } = require('../utils/adminScopes');
+const { ADMIN_ROLES, scopesForRole } = require('../utils/adminScopes');
 const { SUSPENDED_MESSAGE } = require('../middleware/auth');
 const { cancelDeletion } = require('../utils/accountDeletion');
 const { sendOtpSms, smsConfigured } = require('../utils/sms');
@@ -240,6 +241,14 @@ async function verifyOtp(req, res, next) {
       isNewUser = true;
       await ensureReferralCode(user);
       emitActivity(userActivityEvent(user));
+      notifyAdmins({
+        scope: 'users',
+        title: 'New user joined',
+        body: `${phone} signed up with phone number`,
+        icon: 'person-add-outline',
+        route: 'AdminUserDetail',
+        params: { userId: String(user._id) },
+      });
     }
 
     if (!user) {
@@ -284,40 +293,37 @@ async function verifyOtp(req, res, next) {
   }
 }
 
-/** The platform Google account opens the in-app admin panel with an audited admin session. */
-async function platformAdminGoogleLogin(req, res, profile) {
-  let user =
-    (await User.findOne({ googleId: profile.sub })) ||
-    (await User.findOne({ email: new RegExp(`^${escapeRegex(profile.email)}$`, 'i') }));
+/** Staff account a super admin added under Admin Roles for this email. */
+function findAdminByEmail(email) {
+  return User.findOne({ email: new RegExp(`^${escapeRegex(email)}$`, 'i'), role: { $in: ADMIN_ROLES } });
+}
 
-  if (user?.googleId && user.googleId !== profile.sub) {
+/** Marketplace account for this Google login: linked by Google id, else an unlinked one with the same email. */
+async function findGoogleAppUser(profile) {
+  return (
+    (await User.findOne({ googleId: profile.sub, role: 'user' })) ||
+    (await User.findOne({
+      email: new RegExp(`^${escapeRegex(profile.email)}$`, 'i'),
+      role: 'user',
+      googleId: { $in: [null, ''] },
+    }))
+  );
+}
+
+/** A Google email listed under Admin Roles opens the in-app admin panel with an audited admin session. */
+async function adminGoogleLogin(req, res, profile, admin) {
+  if (admin.googleId && admin.googleId !== profile.sub) {
     return res.status(401).json({ message: 'Google sign-in could not be verified. Please try again.' });
   }
-
-  if (!user) {
-    user = await User.create({
-      googleId: profile.sub,
-      email: profile.email.toLowerCase(),
-      name: profile.name || 'KinBech Admin',
-      avatarUrl: profile.picture,
-      role: 'admin',
-      profileComplete: true,
-    });
-  } else {
-    if (!user.googleId) user.googleId = profile.sub;
-    if (!isAdminRole(user.role)) user.role = 'admin';
-    if (!user.name && profile.name) user.name = profile.name;
-    if (!user.avatarUrl && profile.picture) user.avatarUrl = profile.picture;
-    user.profileComplete = true;
-  }
-
-  if (user.status === 'suspended') {
+  if (admin.status === 'suspended') {
     return res.status(403).json({ message: SUSPENDED_MESSAGE, code: 'ACCOUNT_SUSPENDED' });
   }
 
-  user.lastActiveAt = new Date();
-  await user.save();
-  return finishAdminLogin(req, res, user);
+  if (!admin.name && profile.name) admin.name = profile.name;
+  if (!admin.avatarUrl && profile.picture) admin.avatarUrl = profile.picture;
+  admin.lastActiveAt = new Date();
+  await admin.save();
+  return finishAdminLogin(req, res, admin, { google: true });
 }
 
 async function googleLogin(req, res, next) {
@@ -340,14 +346,29 @@ async function googleLogin(req, res, next) {
       return res.status(401).json({ message: 'Please use a Google account with a verified email.' });
     }
 
-    if (isPlatformAdminEmail(profile.email)) {
-      return platformAdminGoogleLogin(req, res, profile);
+    const admin = await findAdminByEmail(profile.email);
+    if (admin) {
+      const wanted = String(req.body.account || '');
+      const appUser = wanted === 'admin' ? null : await findGoogleAppUser(profile);
+      if (!appUser) return adminGoogleLogin(req, res, profile, admin);
+      if (wanted !== 'user') {
+        // Same Google email has an admin seat and a marketplace account: the app asks which to open.
+        return res.json({
+          chooseAccount: true,
+          accounts: [
+            { type: 'admin', name: admin.name || profile.name || '', role: admin.role },
+            { type: 'user', name: appUser.name || profile.name || '', avatarUrl: appUser.avatarUrl || '' },
+          ],
+        });
+      }
     }
 
-    let user = await User.findOne({ googleId: profile.sub });
+    let user = await User.findOne({ googleId: profile.sub, role: 'user' });
     let isNewUser = false;
 
     if (!user) {
+      // Older Google admin rows held this Google id; admins now match by email, so free it for the app account.
+      await User.updateOne({ googleId: profile.sub, role: { $ne: 'user' } }, { $unset: { googleId: 1 } });
       // Link an existing app account with the same email; staff accounts are never linked.
       user = await User.findOne({
         email: new RegExp(`^${escapeRegex(profile.email)}$`, 'i'),
@@ -371,6 +392,14 @@ async function googleLogin(req, res, next) {
       });
       isNewUser = true;
       emitActivity(userActivityEvent(user));
+      notifyAdmins({
+        scope: 'users',
+        title: 'New user joined',
+        body: `${profile.name || profile.email} signed up with Google`,
+        icon: 'person-add-outline',
+        route: 'AdminUserDetail',
+        params: { userId: String(user._id) },
+      });
     }
 
     if (user.role !== 'user') {
@@ -879,9 +908,10 @@ async function createAdmin(req, res, next) {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
-    const existingAdmin = await User.findOne({ email: new RegExp(`^${escapeRegex(email)}$`, 'i') });
+    // A marketplace account with this email is fine: Google sign-in in the app asks which one to open.
+    const existingAdmin = await findAdminByEmail(email);
     if (existingAdmin) {
-      return res.status(409).json({ message: 'User with this email already exists' });
+      return res.status(409).json({ message: 'This email is already an admin' });
     }
 
     const typedPassword = req.body.password ? String(req.body.password) : '';
@@ -1099,6 +1129,30 @@ async function getDashboardStats(req, res, next) {
     // Get weekly listing data
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const dayStart = new Date(now);
+    dayStart.setUTCHours(0, 0, 0, 0);
+
+    const [statusRows, suspendedUsers, testers, newUsersWeek, activeUsersWeek, totalShops, verifiedShops, messagesToday] =
+      await Promise.all([
+        Listing.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
+        User.countDocuments({ role: 'user', status: 'suspended' }),
+        User.countDocuments({ role: 'user', isTester: true }),
+        User.countDocuments({ role: 'user', createdAt: { $gte: weekAgo } }),
+        User.countDocuments({ role: 'user', lastActiveAt: { $gte: weekAgo } }),
+        Shop.countDocuments({}),
+        Shop.countDocuments({ isVerified: true }),
+        Message.countDocuments({ createdAt: { $gte: dayStart } }),
+      ]);
+    const listingsByStatus = Object.fromEntries(statusRows.map((row) => [row._id || 'unknown', row.count]));
+    const breakdown = {
+      listings: {
+        ...listingsByStatus,
+        total: statusRows.reduce((sum, row) => sum + row.count, 0),
+      },
+      users: { suspended: suspendedUsers, testers, newThisWeek: newUsersWeek, activeThisWeek: activeUsersWeek },
+      shops: { total: totalShops, verified: verifiedShops },
+      messagesToday,
+    };
 
     const weeklyListings = await Listing.aggregate([
       {
@@ -1215,6 +1269,7 @@ async function getDashboardStats(req, res, next) {
         transactionsChangePct: live.transactionsChangePct,
       },
       live,
+      breakdown,
       topCategories: live.topCategories,
       anomalies,
       weeklyData,

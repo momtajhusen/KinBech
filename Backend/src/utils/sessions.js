@@ -78,12 +78,13 @@ function installIdOf(req) {
 }
 
 /** New device row + token bound to it (plus a refresh token for clients that support it). */
-async function startSession(req, user, kind = 'app') {
+async function startSession(req, user, kind = 'app', { signInMethod = '' } = {}) {
   const ip = clientIp(req);
   const secret = wantsRefresh(req) ? newRefreshSecret() : null;
   const session = await Session.create({
     user: user._id,
     kind,
+    signInMethod,
     ...describeDevice(req),
     ip,
     lastIp: ip,
@@ -167,7 +168,7 @@ async function rotateRefresh(req, rawToken) {
 /** Session row for a token's `sid`, or null when missing/revoked/not this user's. */
 async function findLiveSession(sid, userId) {
   if (!sid || !mongoose.isValidObjectId(sid)) return null;
-  const session = await Session.findById(sid).select('user revokedAt lastSeenAt lastIp installId +refreshHash').lean();
+  const session = await Session.findById(sid).select('user signInMethod revokedAt lastSeenAt lastIp installId +refreshHash').lean();
   if (!session || session.revokedAt || String(session.user) !== String(userId)) return null;
   return session;
 }

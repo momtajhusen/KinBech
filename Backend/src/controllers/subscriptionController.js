@@ -10,6 +10,7 @@ const { MAX_DAILY_LISTINGS } = require('../utils/platformSettings');
 const { sendUserPush } = require('../utils/callPush');
 const { recordAudit } = require('../utils/audit');
 const { isAdminRole } = require('../utils/adminScopes');
+const { notifyAdmins, whoLabel } = require('../utils/adminNotify');
 const { getEsewaSettings, canUseEsewa } = require('../utils/esewa');
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -330,6 +331,14 @@ async function createRequest(req, res, next) {
       method,
       reference,
       note,
+    });
+    notifyAdmins({
+      scope: 'settings',
+      title: 'Payment to verify',
+      body: `${whoLabel(req.user)} paid NPR ${Number(plan.price || 0).toLocaleString('en-IN')} for ${plan.name} via ${method} (ref ${reference})`,
+      icon: 'card-outline',
+      route: 'AdminPayments',
+      params: { requestId: String(row._id) },
     });
     res.status(201).json({ request: presentRequest(row.toObject()) });
   } catch (error) {

@@ -21,8 +21,20 @@ const { recordAudit } = require('../utils/audit');
 const { emitActivity } = require('../utils/realtime');
 const { shopActivityEvent } = require('../utils/activityEvents');
 const { isAdminRole } = require('../utils/adminScopes');
+const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { categoriesForShop } = require('../utils/shopProductCategories');
 const { toPublic } = require('./categoryController');
+
+function notifyShopVerification(shop, owner) {
+  notifyAdmins({
+    scope: 'shops',
+    title: 'Shop verification request',
+    body: `${clip(shop.name, 50)} by ${whoLabel(owner)} sent PAN/VAT documents to check`,
+    icon: 'storefront-outline',
+    route: 'AdminShops',
+    params: { initial: 'pending', shopId: String(shop._id) },
+  });
+}
 
 function shopContentBag(shopLike) {
   return {
@@ -164,6 +176,7 @@ async function createShop(req, res, next) {
     markVerificationPending(shop);
     await shop.save();
     emitActivity(shopActivityEvent(shop));
+    if (shop.verificationStatus === 'pending') notifyShopVerification(shop, req.user);
 
     res.status(201).json({ 
       message: 'Shop created successfully',
@@ -257,6 +270,7 @@ async function updateShop(req, res, next) {
     if (String(shop.owner) !== String(req.user._id)) {
       return res.status(403).json({ message: 'You can only edit your own shop' });
     }
+    const wasAwaitingVerification = shop.verificationStatus === 'pending';
 
     const allowedUpdates = ['name', 'description', 'phone', 'address', 'location', 'openingHours', 'logo'];
     allowedUpdates.forEach(field => {
@@ -312,6 +326,7 @@ async function updateShop(req, res, next) {
     }
 
     await shop.save();
+    if (!wasAwaitingVerification && shop.verificationStatus === 'pending') notifyShopVerification(shop, req.user);
 
     res.json({ 
       message: 'Shop updated successfully',

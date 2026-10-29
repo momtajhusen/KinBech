@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { Image, Text, View } from 'react-native';
 import Icon from '../../components/Icon';
+import { PressableScale, Wiggle } from '../../components/Motion';
 import {
   AdminActions,
   AdminCard,
@@ -8,6 +9,8 @@ import {
   AdminHeader,
   AdminList,
   AdminSearch,
+  MetaChip,
+  MetaRow,
   StatusPill,
   showAdminError,
   useAdminList,
@@ -15,16 +18,16 @@ import {
   usePrompt,
 } from '../../components/admin/AdminKit';
 import { api } from '../../services/api';
-import { useTheme, useThemedStyles } from '../../theme';
-import { formatDateTime, titleCase } from '../../utils/admin';
+import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
+import { LISTING_REJECT_REASONS, formatDateTime, formatNpr, timeAgo, titleCase, waitingFor } from '../../utils/admin';
 import { resolveMediaUrl } from '../../utils/listing';
 
 const FILTERS = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'resolved', label: 'Resolved' },
-  { value: 'dismissed', label: 'Dismissed' },
-  { value: '', label: 'All' },
+  { value: 'pending', label: 'Pending', icon: 'time' },
+  { value: 'reviewed', label: 'Reviewed', icon: 'eye' },
+  { value: 'resolved', label: 'Resolved', icon: 'checkmark-circle' },
+  { value: 'dismissed', label: 'Dismissed', icon: 'close-circle' },
+  { value: '', label: 'All', icon: 'apps' },
 ];
 
 export default function AdminReportsScreen({ navigation }) {
@@ -71,8 +74,9 @@ export default function AdminReportsScreen({ navigation }) {
     const listing = report.reportedListing;
     const reason = await ask({
       title: 'Remove reported listing',
-      message: `"${listing.title}" is hidden from buyers. The seller sees this reason.`,
-      placeholder: 'e.g. Fake listing reported by buyers',
+      message: `"${listing.title}" is hidden from buyers. Tap reasons or type your own; the seller sees this.`,
+      presets: LISTING_REJECT_REASONS,
+      placeholder: 'Or type a reason, or add detail',
       initial: titleCase(report.reason),
       required: true,
       destructive: true,
@@ -108,40 +112,64 @@ export default function AdminReportsScreen({ navigation }) {
   const renderItem = ({ item }) => {
     const listing = item.reportedListing;
     const photo = resolveMediaUrl(listing?.photos?.[0]);
+    const against = item.reportedUser;
+    const open = item.status === 'pending' || item.status === 'reviewed';
     return (
       <AdminCard>
         <View style={styles.topRow}>
-          <View style={styles.reasonIcon}>
-            <Icon name="flag" size={16} color={colors.error} />
-          </View>
+          <Wiggle angle={open ? 10 : 0} every={4500} style={styles.reasonIcon}>
+            <Icon name="flag" size={14} color={colors.error} />
+          </Wiggle>
           <View style={styles.flex1}>
-            <Text style={styles.reason}>{titleCase(item.reason)}</Text>
-            <Text style={styles.time}>{formatDateTime(item.createdAt)}</Text>
+            <Text style={styles.reason} numberOfLines={1}>{titleCase(item.reason)}</Text>
+            <Text style={styles.time}>
+              {timeAgo(item.createdAt)}
+              {open ? ` · open ${waitingFor(item.createdAt)}` : ''}
+            </Text>
           </View>
           <StatusPill status={item.status} />
         </View>
 
-        {item.details ? <Text style={styles.details}>{item.details}</Text> : null}
+        {item.details ? <Text style={styles.details} numberOfLines={4}>{item.details}</Text> : null}
 
         <View style={styles.people}>
-          <Text style={styles.meta} onPress={() => openUser(item.reporter)}>
-            <Text style={styles.metaLabel}>By </Text>{item.reporter?.name || 'Unknown'}
-          </Text>
-          <Icon name="arrow-forward" size={13} color={colors.textMuted} />
-          <Text style={[styles.meta, styles.link]} onPress={() => openUser(item.reportedUser)}>
-            <Text style={styles.metaLabel}>Against </Text>{item.reportedUser?.name || 'Unknown'}
-          </Text>
+          <PressableScale onPress={() => openUser(item.reporter)} style={styles.flex1} contentStyle={styles.person}>
+            <View style={styles.personHead}>
+              <Icon name="person-outline" size={10} color={colors.textMuted} />
+              <Text style={styles.personLabel}>REPORTER</Text>
+            </View>
+            <Text style={styles.personName} numberOfLines={1}>{item.reporter?.name || 'Unknown'}</Text>
+          </PressableScale>
+          <Icon name="arrow-forward" size={14} color={colors.textMuted} />
+          <PressableScale onPress={() => openUser(against)} style={styles.flex1} contentStyle={styles.person}>
+            <View style={styles.personHead}>
+              <Icon name="alert-circle-outline" size={10} color={colors.error} />
+              <Text style={styles.personLabel}>AGAINST</Text>
+            </View>
+            <Text style={[styles.personName, styles.link]} numberOfLines={1}>{against?.name || 'Unknown'}</Text>
+          </PressableScale>
         </View>
+
+        <MetaRow>
+          {item.reportsAgainstUser > 1 ? <MetaChip icon="flag" label={`${item.reportsAgainstUser} reports on user`} tone="error" /> : null}
+          {against?.strikes ? <MetaChip icon="alert-circle" label={`${against.strikes} strike${against.strikes === 1 ? '' : 's'}`} tone="warning" /> : null}
+          {against?.status === 'suspended' ? <MetaChip icon="ban" label="Suspended" tone="error" /> : null}
+          {listing && item.reportsAgainstListing > 1 ? <MetaChip icon="pricetags" label={`${item.reportsAgainstListing} reports on ad`} tone="error" /> : null}
+          <MetaChip icon="calendar" label={formatDateTime(item.createdAt)} />
+        </MetaRow>
 
         {listing ? (
           <View style={styles.listing}>
             {photo ? <Image source={{ uri: photo }} style={styles.thumb} /> : <View style={[styles.thumb, styles.thumbEmpty]} />}
-            <Text style={styles.listingTitle} numberOfLines={2}>{listing.title}</Text>
+            <View style={styles.flex1}>
+              <Text style={styles.listingTitle} numberOfLines={1}>{listing.title}</Text>
+              {listing.price != null ? <Text style={styles.listingPrice}>{formatNpr(listing.price)}</Text> : null}
+            </View>
             {listing.status ? <StatusPill status={listing.status} /> : null}
           </View>
         ) : null}
 
-        {item.notes ? <Text style={styles.notes}>Note: {item.notes}</Text> : null}
+        {item.notes ? <Text style={styles.notes} numberOfLines={2}>Note: {item.notes}</Text> : null}
 
         <AdminActions
           actions={[
@@ -166,7 +194,7 @@ export default function AdminReportsScreen({ navigation }) {
         emptyBody="User reports about listings and people show up in this list."
         header={
           <>
-            <AdminHeader title="Reports" subtitle={`${list.total || 0} ${status || 'total'} report${list.total === 1 ? '' : 's'}`} />
+            <AdminHeader icon="flag" title="Reports" subtitle={`${list.total || 0} ${status || 'total'} report${list.total === 1 ? '' : 's'}`} />
             <AdminSearch value={query} onChangeText={setQuery} placeholder="Search reason, user or listing" />
             <AdminChips options={FILTERS} value={status} onChange={setStatus} />
           </>
@@ -178,20 +206,23 @@ export default function AdminReportsScreen({ navigation }) {
 }
 
 const createStyles = (colors) => ({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background, experimental_backgroundImage: colors.canvas },
   flex1: { flex: 1 },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  reasonIcon: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelRed },
-  reason: { fontSize: 15, fontWeight: '800', color: colors.text },
-  time: { marginTop: 1, fontSize: 11.5, color: colors.textMuted },
-  details: { marginTop: 10, fontSize: 13.5, lineHeight: 19, color: colors.textSecondary },
-  people: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-  meta: { fontSize: 13, fontWeight: '700', color: colors.text },
-  metaLabel: { fontWeight: '600', color: colors.textMuted },
+  reasonIcon: { width: 32, height: 32, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.pastelRed, boxShadow: colors.clayTint },
+  reason: { fontSize: 14, fontWeight: '800', color: colors.text },
+  time: { marginTop: 1, fontSize: 10.5, fontWeight: '700', color: colors.textMuted },
+  details: { marginTop: 8, fontSize: 12.5, lineHeight: 17, color: colors.textSecondary },
+  people: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 9 },
+  personHead: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  person: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: colors.backgroundSecondary, boxShadow: colors.clayPressed },
+  personLabel: { fontSize: 8.5, fontWeight: '900', letterSpacing: 0.8, color: colors.textMuted },
+  personName: { marginTop: 1, fontSize: 12.5, fontWeight: '800', color: colors.text },
   link: { color: colors.primary },
-  listing: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10, padding: 8, borderRadius: 12, backgroundColor: colors.surfaceMuted },
-  thumb: { width: 44, height: 44, borderRadius: 10 },
+  listing: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 9, padding: 8, borderRadius: 14, backgroundColor: colors.backgroundSecondary, boxShadow: colors.clayPressed },
+  thumb: { width: 38, height: 38, borderRadius: 10 },
   thumbEmpty: { backgroundColor: colors.border },
-  listingTitle: { flex: 1, fontSize: 13, fontWeight: '700', color: colors.textSecondary },
-  notes: { marginTop: 8, fontSize: 12.5, fontStyle: 'italic', color: colors.textTertiary },
+  listingTitle: { fontSize: 12.5, fontWeight: '800', color: colors.textSecondary },
+  listingPrice: { marginTop: 1, fontSize: 11.5, fontWeight: '900', color: colors.primary },
+  notes: { marginTop: 8, fontSize: 12, fontStyle: 'italic', color: colors.textTertiary },
 });
