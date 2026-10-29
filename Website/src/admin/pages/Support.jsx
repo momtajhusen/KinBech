@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Clock, LifeBuoy, Phone, RotateCcw, Search, Send, Trash2, X } from 'lucide-react';
 import api from '../services/api';
 import { confirmAction, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 
@@ -112,41 +113,28 @@ function TicketCard({ ticket, open, onToggle, onSaved }) {
 }
 
 function TicketsTab({ initialQuery }) {
-  const [tickets, setTickets] = useState([]);
   const [counts, setCounts] = useState({ open: 0, resolved: 0 });
   const [status, setStatus] = useState('open');
   const [searchTerm, setSearchTerm] = useState(initialQuery);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
   const debounced = useDebounce(searchTerm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/auth/admin/support-tickets', {
         params: { status: status === 'all' ? undefined : status, q: debounced || undefined, page, limit: LIMIT },
       });
-      setTickets(response.data.tickets || []);
       setCounts(response.data.counts || { open: 0, resolved: 0 });
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return { items: response.data.tickets || [], total: response.data.total || 0, totalPages: response.data.totalPages || 1 };
     } catch (error) {
       console.error('Failed to load tickets:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [status, debounced, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [status, debounced]);
+
+  const {
+    items: tickets, setItems: setTickets, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const onSaved = (ticket) => {
     setTickets((prev) => prev.map((row) => (row.id === ticket.id ? ticket : row)));
@@ -197,7 +185,7 @@ function TicketsTab({ initialQuery }) {
               />
             ))}
           </div>
-          <Pagination page={page} totalPages={totalPages} total={total} limit={LIMIT} onPageChange={setPage} />
+          <InfiniteLoader shown={tickets.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="tickets" />
         </>
       )}
     </>
@@ -205,39 +193,26 @@ function TicketsTab({ initialQuery }) {
 }
 
 function DeletionsTab() {
-  const [rows, setRows] = useState([]);
   const [counts, setCounts] = useState({ pending: 0, deleted: 0 });
   const [graceDays, setGraceDays] = useState(30);
   const [scope, setScope] = useState('pending');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/auth/admin/deletions', { params: { scope, page, limit: LIMIT } });
-      setRows(response.data.requests || []);
       setCounts(response.data.counts || { pending: 0, deleted: 0 });
       setGraceDays(response.data.graceDays || 30);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return { items: response.data.requests || [], total: response.data.total || 0, totalPages: response.data.totalPages || 1 };
     } catch (error) {
       console.error('Failed to load deletion requests:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [scope, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [scope]);
+
+  const {
+    items: rows, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const cancel = async (row) => {
     const name = row.name || row.phone;
@@ -330,7 +305,7 @@ function DeletionsTab() {
               </tbody>
             </table>
           </div>
-          <Pagination page={page} totalPages={totalPages} total={total} limit={LIMIT} onPageChange={setPage} />
+          <InfiniteLoader shown={rows.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="accounts" />
         </>
       )}
     </>

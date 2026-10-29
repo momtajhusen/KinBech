@@ -1700,3 +1700,14 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+.page-loading {
+  min-height: 70vh;
+  display: grid;
+  place-items: center;
+}
+
+.page-loading .explore-spinner {
+  width: 28px;
+  height: 28px;
+}

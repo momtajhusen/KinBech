@@ -320,18 +320,19 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       ? { issue: ai.imageFlag.issue, reason: ai.imageFlag.reason }
       : null;
 
-  const manualReviewAlert = (reason, onDone) => ({
-    type: 'warning',
-    title: 'Sent for manual review',
-    message: `${String(reason || '').replace(/\s*Held for manual review\.?\s*$/i, '').trim()}\n\nYour product will go live after our team checks it.`.trim(),
-    primaryButton: {
-      text: 'OK',
-      onPress: () => {
-        setAlertConfig(null);
-        onDone();
-      },
-    },
-  });
+  const manualReviewAlert = (reason, onDone) => {
+    const done = () => {
+      setAlertConfig(null);
+      onDone();
+    };
+    return {
+      type: 'warning',
+      title: 'Sent for manual review',
+      message: `${String(reason || '').replace(/\s*Held for manual review\.?\s*$/i, '').trim()}\n\nYour product will go live after our team checks it.`.trim(),
+      primaryButton: { text: 'OK' },
+      onClose: done,
+    };
+  };
 
   const requireCover = () => {
     if (mainPhoto) return true;
@@ -554,24 +555,36 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     noteUserListedCategory(category);
     refreshUserCategoryRank({ force: true }).catch(() => {});
     reloadQuota();
-    const openSuccess = () =>
-      navigation.navigate(ROUTES.LISTING_SUCCESS, {
-        listing: {
-          id: data.listing.id,
-          title: data.listing.title,
-          price: String(data.listing.price),
-          location: data.listing.location || userShop?.location || '',
-          imageUrl: data.listing.photos?.[0] || mainPhoto,
-          condition: data.listing.condition,
-          category: data.listing.category,
-          status: data.listing.status,
-        },
+    const inReview = data.moderation?.status === 'pending' || data.listing?.status === 'pending';
+    const openMyListings = () =>
+      navigation.reset({
+        index: 1,
+        routes: [
+          { name: ROUTES.MAIN_TABS, params: { screen: ROUTES.HOME } },
+          { name: ROUTES.MY_LISTINGS, params: { initialTab: inReview ? 'pending' : 'active' } },
+        ],
       });
     if (data.moderation?.status === 'pending') {
-      setAlertConfig(manualReviewAlert(data.moderation.reason, openSuccess));
+      setAlertConfig(manualReviewAlert(data.moderation.reason, openMyListings));
       return;
     }
-    openSuccess();
+    setAlertConfig(postedAlert(inReview, openMyListings));
+  };
+
+  const postedAlert = (inReview, onDone) => {
+    const done = () => {
+      setAlertConfig(null);
+      onDone();
+    };
+    return {
+      type: 'success',
+      title: inReview ? 'Sent for review' : 'Product is live!',
+      message: inReview
+        ? 'It goes live after a quick check. You can see it in My Listings.'
+        : 'Buyers nearby can see it now. You can manage it in My Listings.',
+      primaryButton: { text: 'OK' },
+      onClose: done,
+    };
   };
 
   const handleDelete = () => {

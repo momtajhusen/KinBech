@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -17,7 +17,8 @@ import {
 import api from '../services/api';
 import Modal from '../components/Modal';
 import { errorMessage, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -216,37 +217,31 @@ function FlagCard({ flag, onAction, onReview, busy }) {
 
 export default function ScamMonitor() {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('open');
   const [days, setDays] = useState(30);
   const [searchTerm, setSearchTerm] = useState('');
   const [sender, setSender] = useState(null);
-  const [page, setPage] = useState(1);
   const [modal, setModal] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const debounced = useDebounce(searchTerm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/moderation/scam', {
         params: { status, days, q: debounced || undefined, sender: sender?.id, page, limit: LIMIT },
       });
-      setData(response.data);
+      const { flags: pageFlags, total: totalCount, totalPages, ...rest } = response.data;
+      setData(rest);
+      return { items: pageFlags || [], total: totalCount || 0, totalPages: totalPages || 1 };
     } catch (error) {
       toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load flagged chats' });
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [status, days, debounced, sender, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [status, days, debounced, sender]);
+
+  const {
+    items: flags, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const review = async (flag, next) => {
     setBusyId(flag.id);
@@ -322,14 +317,14 @@ export default function ScamMonitor() {
         <div className="scam-list">
           {loading && !data ? (
             <div className="loading">Loading flagged chats...</div>
-          ) : !data?.flags?.length ? (
+          ) : !flags.length ? (
             <div className="table-container"><div className="empty-state">{status === 'open' ? 'No open scam flags. All clear.' : 'Nothing here'}</div></div>
           ) : (
             <>
-              {data.flags.map((flag) => (
+              {flags.map((flag) => (
                 <FlagCard key={flag.id} flag={flag} busy={busyId === flag.id} onReview={review} onAction={(f, action) => setModal({ flag: f, action })} />
               ))}
-              <Pagination page={page} totalPages={data.totalPages || 1} total={data.total || 0} limit={LIMIT} onPageChange={setPage} />
+              <InfiniteLoader shown={flags.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="flags" />
             </>
           )}
         </div>

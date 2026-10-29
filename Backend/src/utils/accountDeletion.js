@@ -8,6 +8,9 @@ const Notification = require('../models/Notification');
 const Session = require('../models/Session');
 const Review = require('../models/Review');
 const SupportTicket = require('../models/SupportTicket');
+const UserInterest = require('../models/UserInterest');
+const SellerScore = require('../models/SellerScore');
+const LivePresence = require('../models/LivePresence');
 const listingQueryCache = require('./listingQueryCache');
 const { revokeAllSessions, presentSession } = require('./sessions');
 const { openField } = require('./fieldCrypto');
@@ -90,6 +93,9 @@ async function purgeUser(userId) {
   await Notification.deleteMany({ user: userId });
   await Session.deleteMany({ user: userId });
   await SupportTicket.deleteMany({ user: userId });
+  await UserInterest.deleteMany({ user: userId });
+  await SellerScore.deleteMany({ user: userId });
+  await LivePresence.deleteMany({ user: userId });
   await Message.updateMany({ sender: userId, kind: 'text' }, { $set: { text: 'Message removed' } });
   await Message.updateMany(
     { sender: userId, kind: 'voice' },

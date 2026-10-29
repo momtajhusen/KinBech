@@ -91,6 +91,20 @@ async function currentRefreshToken() {
   return refreshToken;
 }
 
+/** Tokens of the active session, so it can be parked while another account is open. */
+export async function getSessionTokens() {
+  if (refreshInFlight) await refreshInFlight.catch(() => {});
+  return { token: authToken, refreshToken: await currentRefreshToken() };
+}
+
+/** Make another account's tokens the active session. */
+export async function adoptSession(token, nextRefreshToken) {
+  authToken = token || null;
+  refreshToken = nextRefreshToken || null;
+  refreshLoaded = true;
+  await writeRefreshToken(refreshToken).catch(() => {});
+}
+
 const expiryCache = { token: null, exp: 0 };
 
 function tokenExpiryMs(token) {
@@ -281,7 +295,7 @@ async function requestWithTimeout(url, options, timeoutMs) {
   }
 }
 
-async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
+async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs, keepRefreshToken }) {
   const url = safeUrl(baseUrl, path);
   const isFormData =
     typeof FormData !== 'undefined' && options?.body && options.body instanceof FormData;
@@ -345,7 +359,7 @@ async function tryUrlOnce({ baseUrl, path, options, extraHeaders, timeoutMs }) {
   }
 
   // Login, /auth/me upgrade and /auth/refresh hand out a rotating refresh token.
-  if (data?.refreshToken) rememberRefreshToken(data.refreshToken);
+  if (data?.refreshToken && !keepRefreshToken) rememberRefreshToken(data.refreshToken);
 
   return {
     ok: true,
@@ -373,7 +387,7 @@ function buildCandidates() {
 }
 
 async function request(path, options = {}) {
-  const { headers: extraHeaders, timeoutMs: overrideTimeout, skipAuthRefresh, ...rest } = options;
+  const { headers: extraHeaders, timeoutMs: overrideTimeout, skipAuthRefresh, keepRefreshToken, ...rest } = options;
   const initialTimeoutMs = overrideTimeout || 8000;
   if (!skipAuthRefresh) await ensureFreshToken();
 
@@ -405,6 +419,7 @@ async function request(path, options = {}) {
             options: rest,
             extraHeaders,
             timeoutMs,
+            keepRefreshToken,
           });
 
           if (result.ok) {
@@ -496,6 +511,28 @@ export const api = {
   completeSignup: (payload) =>
     request('/auth/complete-signup', { method: 'POST', body: JSON.stringify(payload) }),
   me: () => request('/auth/me'),
+  getLinkedAccount: () => request('/auth/linked-account'),
+  // The *As calls work on a parked account's session and leave the active session's tokens alone.
+  meAs: (token) =>
+    request('/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+      skipAuthRefresh: true,
+      keepRefreshToken: true,
+    }),
+  refreshAs: (refreshToken) =>
+    request('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+      skipAuthRefresh: true,
+      keepRefreshToken: true,
+    }),
+  googleLoginAs: (payload) =>
+    request('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 15000,
+      keepRefreshToken: true,
+    }),
   logoutAllDevices: () => request('/auth/logout-all', { method: 'POST' }),
   // The caller clears the session right after this, so the header is fixed now rather than read later.
   logout: (deviceToken = '', token = authToken) =>

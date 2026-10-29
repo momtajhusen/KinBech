@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { Ban, CalendarDays, ChevronDown, Filter, Image as ImageIcon, Search, Store, Tag, Trash2, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
@@ -14,8 +15,6 @@ import { LISTING_REJECT_REASONS, heldReason } from '../utils/moderationReasons';
 
 const Listings = () => {
   const { colors } = useTheme();
-  const [listings, setListings] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [params] = useSearchParams();
   const queryQ = params.get('q') || '';
   const [searchTerm, setSearchTerm] = useState(queryQ);
@@ -25,10 +24,6 @@ const Listings = () => {
   const [view, setView] = useViewMode('listings', 'card');
   const debouncedSearch = useDebounce(searchTerm);
   
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
   const getStatusBadge = (status) => {
@@ -48,61 +43,47 @@ const Listings = () => {
     }
   };
 
-  const fetchListings = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await api.get('/listings/admin/all', {
-        params: {
-          status: filter,
-          q: debouncedSearch,
-          page,
-          limit
-        }
-      });
-      
-      const { listings: data, total: totalCount, totalPages: pages } = response.data;
-      
-      const listingsData = data.map(listing => ({
-        id: listing.id || listing._id,
-        title: listing.title,
-        postDate: listing.createdAt,
-        seller: { 
-          name: listing.seller?.name || 'Unknown', 
-          type: listing.sellerType 
-        },
-        shop: listing.shopId ? { name: listing.shopId.name || listing.shopId } : null,
-        category: listing.category,
-        price: listing.price,
-        photos: Array.isArray(listing.photos) ? listing.photos : [],
-        location: listing.location || '',
-        status: listing.status,
-        reportsCount: listing.reportsCount || 0,
-        moderationReason: listing.moderationReason || '',
-        matchedKeywords: listing.matchedKeywords || [],
-      }));
-      
-      setListings(listingsData);
-      setTotal(totalCount || 0);
-      setTotalPages(pages || 1);
-    } catch (error) {
-      console.error('Failed to fetch listings:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, debouncedSearch, page, limit]);
+  const fetchPage = useCallback(async (page) => {
+    const response = await api.get('/listings/admin/all', {
+      params: {
+        status: filter,
+        q: debouncedSearch,
+        page,
+        limit
+      }
+    });
+    
+    const { listings: data, total: totalCount, totalPages: pages } = response.data;
+    
+    const listingsData = data.map(listing => ({
+      id: listing.id || listing._id,
+      title: listing.title,
+      postDate: listing.createdAt,
+      seller: { 
+        name: listing.seller?.name || 'Unknown', 
+        type: listing.sellerType 
+      },
+      shop: listing.shopId ? { name: listing.shopId.name || listing.shopId } : null,
+      category: listing.category,
+      price: listing.price,
+      photos: Array.isArray(listing.photos) ? listing.photos : [],
+      location: listing.location || '',
+      status: listing.status,
+      reportsCount: listing.reportsCount || 0,
+      moderationReason: listing.moderationReason || '',
+      matchedKeywords: listing.matchedKeywords || [],
+    }));
+    
+    return { items: listingsData, total: totalCount || 0, totalPages: pages || 1 };
+  }, [filter, debouncedSearch, limit]);
+
+  const {
+    items: listings, total, loading, loadingMore, hasMore, loadMore, reload: fetchListings,
+  } = useInfiniteList(fetchPage);
 
   useEffect(() => {
     setSearchTerm(queryQ);
   }, [queryQ]);
-
-  useEffect(() => {
-    fetchListings();
-  }, [fetchListings]);
-
-  // Reset to page 1 when filter or search changes
-  useEffect(() => {
-    setPage(1);
-  }, [filter, debouncedSearch]);
 
   const filterOptions = [
     { value: 'all', label: 'All Listings' },
@@ -313,12 +294,13 @@ const Listings = () => {
             </div>
           )}
 
-          <Pagination 
-            page={page} 
-            totalPages={totalPages} 
-            total={total} 
-            limit={limit} 
-            onPageChange={setPage} 
+          <InfiniteLoader
+            shown={listings.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="listings"
           />
         </>
       )}

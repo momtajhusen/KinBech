@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { ChevronDown, Filter, MapPin, Package, Search, Star, User, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import { mediaUrl } from '../../config';
@@ -12,8 +13,6 @@ import { confirmAction, errorMessage, toast } from '../components/Feedback';
 
 const Shops = () => {
   const { colors } = useTheme();
-  const [shops, setShops] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [params] = useSearchParams();
   const queryQ = params.get('q') || '';
   const [searchTerm, setSearchTerm] = useState(queryQ);
@@ -41,14 +40,9 @@ const Shops = () => {
   const [view, setView] = useViewMode('shops', 'card');
   const debouncedSearch = useDebounce(searchTerm);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchShops = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const params = {
         q: debouncedSearch,
@@ -86,28 +80,20 @@ const Shops = () => {
         status: shop.isVerified ? 'verified' : (shop.status === 'suspended' ? 'rejected' : 'pending'),
       }));
       
-      setShops(shopsData);
-      setTotal(totalCount || 0);
-      setTotalPages(pages || 1);
+      return { items: shopsData, total: totalCount || 0, totalPages: pages || 1 };
     } catch (error) {
       console.error('Failed to fetch shops:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [filter, debouncedSearch, page, limit]);
+  }, [filter, debouncedSearch, limit]);
+
+  const {
+    items: shops, total, loading, loadingMore, hasMore, loadMore, reload: fetchShops,
+  } = useInfiniteList(fetchPage);
 
   useEffect(() => {
     setSearchTerm(queryQ);
   }, [queryQ]);
-
-  useEffect(() => {
-    fetchShops();
-  }, [fetchShops]);
-
-  // Reset to page 1 when filter or search changes
-  useEffect(() => {
-    setPage(1);
-  }, [filter, debouncedSearch]);
 
   const filterOptions = [
     { value: 'all', label: 'All Shops' },
@@ -363,12 +349,13 @@ const Shops = () => {
             </div>
           )}
           
-          <Pagination 
-            page={page} 
-            totalPages={totalPages} 
-            total={total} 
-            limit={limit} 
-            onPageChange={setPage} 
+          <InfiniteLoader
+            shown={shops.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="shops"
           />
         </>
       )}

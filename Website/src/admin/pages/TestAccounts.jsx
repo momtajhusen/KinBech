@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FlaskConical, Search, Store, Trash2, Undo2, X } from 'lucide-react';
 import api from '../services/api';
 import { errorMessage, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
 import PromptModal from '../components/PromptModal';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -135,40 +136,27 @@ function ConfirmDialog({ kind, user, onClose, onDone }) {
 
 export default function TestAccounts() {
   const [testers, setTesters] = useState([]);
-  const [sellers, setSellers] = useState([]);
   const [scope, setScope] = useState('sellers');
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(null);
   const debounced = useDebounce(searchTerm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/auth/admin/testers', {
         params: { scope, q: debounced || undefined, page, limit: LIMIT },
       });
       setTesters(response.data.testers || []);
-      setSellers(response.data.sellers || []);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return { items: response.data.sellers || [], total: response.data.total || 0, totalPages: response.data.totalPages || 1 };
     } catch (error) {
       toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load accounts' });
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [scope, debounced, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [scope, debounced]);
+
+  const {
+    items: sellers, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const onDone = (message) => {
     setConfirm(null);
@@ -299,7 +287,7 @@ export default function TestAccounts() {
                 </tbody>
               </table>
             </div>
-            <Pagination page={page} totalPages={totalPages} total={total} limit={LIMIT} onPageChange={setPage} />
+            <InfiniteLoader shown={sellers.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label={scope === 'sellers' ? 'sellers' : 'users'} />
           </>
         )}
       </section>

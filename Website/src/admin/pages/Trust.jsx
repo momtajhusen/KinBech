@@ -3,10 +3,11 @@ import { Award, ChevronDown, EyeOff, Filter, Gauge, Package, RefreshCw, Search, 
 import api from '../services/api';
 import Modal from '../components/Modal';
 import { confirmAction, errorMessage, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
 import PromptModal from '../components/PromptModal';
 import RecordModal from '../components/RecordModal';
 import useDebounce from '../utils/useDebounce';
+import useInfiniteList from '../utils/useInfiniteList';
 
 const TABS = [
   { key: 'sellers', label: 'Sellers' },
@@ -180,39 +181,31 @@ function StatCard({ icon: Icon, title, value, hint, color }) {
 }
 
 function SellersTab() {
-  const [rows, setRows] = useState([]);
   const [tiers, setTiers] = useState({});
-  const [loading, setLoading] = useState(true);
   const [tier, setTier] = useState('all');
   const [type, setType] = useState('all');
   const [sort, setSort] = useState('high');
   const [q, setQ] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState(false);
   const search = useDebounce(q);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const { data } = await api.get('/moderation/trust/sellers', {
         params: { tier, type, sort: sort === 'low' ? 'low' : undefined, q: search || undefined, page, limit: 25 },
       });
-      setRows(data.sellers || []);
       setTiers(data.tiers || {});
-      setTotal(data.total || 0);
-      setTotalPages(data.totalPages || 1);
+      return { items: data.sellers || [], total: data.total || 0, totalPages: data.totalPages || 1 };
     } catch (error) {
       toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load sellers' });
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [tier, type, sort, search, page]);
+  }, [tier, type, sort, search]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { setPage(1); }, [tier, type, sort, search]);
+  const {
+    items: rows, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const recomputeAll = async () => {
     const ok = await confirmAction({
@@ -343,7 +336,7 @@ function SellersTab() {
               </tbody>
             </table>
           </div>
-          <Pagination page={page} totalPages={totalPages} total={total} limit={25} onPageChange={setPage} />
+          <InfiniteLoader shown={rows.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="sellers" />
         </>
       )}
 

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ChevronDown, Clock, Filter, Flag, Search, Star, Store, User, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import RecordModal from '../components/RecordModal';
@@ -10,22 +11,15 @@ import { confirmAction } from '../components/Feedback';
 
 const Reviews = () => {
   const { colors } = useTheme();
-  const [reviews, setReviews] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('pending');
   const [view, setView] = useViewMode('reviews', 'list');
   const debouncedSearch = useDebounce(searchTerm);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchReviews = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/reviews/admin/all', {
         params: {
@@ -52,24 +46,16 @@ const Reviews = () => {
         status: review.status === 'pending' ? 'flagged' : (review.status === 'approved' ? 'published' : 'rejected'),
       }));
       
-      setReviews(reviewsData);
-      setTotal(totalCount || 0);
-      setTotalPages(pages || 1);
+      return { items: reviewsData, total: totalCount || 0, totalPages: pages || 1 };
     } catch (error) {
       console.error('Failed to fetch reviews:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [filter, debouncedSearch, page, limit]);
+  }, [filter, debouncedSearch, limit]);
 
-  useEffect(() => {
-    fetchReviews();
-  }, [fetchReviews]);
-
-  // Reset to page 1 when filter or search changes
-  useEffect(() => {
-    setPage(1);
-  }, [filter, debouncedSearch]);
+  const {
+    items: reviews, total, loading, loadingMore, hasMore, loadMore, reload: fetchReviews,
+  } = useInfiniteList(fetchPage);
 
   const filterOptions = [
     { value: 'pending', label: 'Flagged' },
@@ -268,12 +254,13 @@ const Reviews = () => {
             </div>
           )}
 
-          <Pagination 
-            page={page} 
-            totalPages={totalPages} 
-            total={total} 
-            limit={limit} 
-            onPageChange={setPage} 
+          <InfiniteLoader
+            shown={reviews.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="reviews"
           />
         </>
       )}

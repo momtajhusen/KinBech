@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const TOKEN_KEY = 'kinbech_token';
 const REFRESH_KEY = 'kinbech_refresh_token';
+const PARKED_PREFIX = 'kinbech_parked_';
+const PARKED_TYPES = ['admin', 'user'];
 
 // Builds made before expo-secure-store was added lack the native module; fall back until rebuilt.
 let SecureStore = null;
@@ -92,4 +94,28 @@ export function readRefreshToken() {
 export async function writeRefreshToken(token) {
   if (!token) return clearKey(REFRESH_KEY);
   return writeKey(REFRESH_KEY, token);
+}
+
+/** Session of the other account on the same Google email ('admin' or 'user') while it is not open. */
+export async function readParkedSession(type) {
+  const raw = await readKey(PARKED_PREFIX + type).catch(() => null);
+  if (!raw) return null;
+  try {
+    const session = JSON.parse(raw);
+    return session?.token ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeParkedSession(type, session) {
+  if (!session?.token) return clearKey(PARKED_PREFIX + type);
+  return writeKey(
+    PARKED_PREFIX + type,
+    JSON.stringify({ token: session.token, refreshToken: session.refreshToken || '' })
+  );
+}
+
+export async function clearParkedSessions() {
+  await Promise.all(PARKED_TYPES.map((type) => clearKey(PARKED_PREFIX + type).catch(() => {})));
 }

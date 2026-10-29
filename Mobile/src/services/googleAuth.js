@@ -70,6 +70,20 @@ export async function signInWithGoogle() {
   }
 }
 
+/** Fresh token for the Google account picked last time, without UI; the chooser opens only if none is remembered. */
+export async function signInWithGoogleQuietly() {
+  const google = ensureConfigured();
+  try {
+    const response = await google.GoogleSignin.signInSilently();
+    if (google.isSuccessResponse(response) && response.data?.idToken) {
+      return { idToken: response.data.idToken, user: response.data.user };
+    }
+  } catch (_error) {
+    // remembered account was removed or revoked
+  }
+  return signInWithGoogle();
+}
+
 export async function signOutGoogle() {
   let google;
   try {

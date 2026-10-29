@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Filter, Search, X } from 'lucide-react';
 import api from '../services/api';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { ROLE_LABELS } from '../utils/access';
 
@@ -33,9 +34,7 @@ const GROUP_LABELS = {
 const isWarning = (action) => /failed|delete|suspend|reset|disable|new_ip/.test(action);
 
 export default function Activity() {
-  const [logs, setLogs] = useState([]);
   const [groups, setGroups] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [group, setGroup] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -43,13 +42,9 @@ export default function Activity() {
   const debouncedSearch = useDebounce(searchTerm);
   const [selected, setSelected] = useState(null);
   const panelRef = useRef(null);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 30;
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/auth/admin/audit', {
         params: {
@@ -61,24 +56,21 @@ export default function Activity() {
           limit,
         },
       });
-      setLogs(response.data.logs || []);
       setGroups(response.data.actionGroups || []);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return {
+        items: response.data.logs || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (err) {
       console.error('Failed to load activity', err);
-    } finally {
-      setLoading(false);
+      throw err;
     }
-  }, [group, debouncedSearch, from, to, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [group, debouncedSearch, from, to]);
+
+  const {
+    items: logs, total, loading, loadingMore, hasMore, loadMore,
+  } = useInfiniteList(fetchPage);
 
   // On narrower screens the panel sits below the table, so bring it into view.
   useEffect(() => {
@@ -173,7 +165,14 @@ export default function Activity() {
               </tbody>
             </table>
             {logs.length === 0 ? <div className="empty-state">No activity found</div> : null}
-            <Pagination page={page} totalPages={totalPages} total={total} limit={limit} onPageChange={setPage} />
+            <InfiniteLoader
+              shown={logs.length}
+              total={total}
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={loadMore}
+              label="entries"
+            />
           </div>
 
           <aside className="error-detail-panel" ref={panelRef}>

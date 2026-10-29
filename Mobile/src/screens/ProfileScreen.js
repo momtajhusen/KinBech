@@ -16,6 +16,7 @@ import { openCallSetup, readCallReadiness } from '../services/callReadiness';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAccountStatus } from '../hooks/useAccountStatus';
+import { useAccountSwitch } from '../hooks/useAccountSwitch';
 import AccountStatusCard from '../components/AccountStatusCard';
 import TesterModeButton from '../components/TesterModeButton';
 
@@ -224,6 +225,7 @@ function MemberProfile({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user, logout, refreshUser } = useAuth();
+  const { linked, switching, error: switchError, switchNow } = useAccountSwitch();
   const refreshUserRef = useRef(refreshUser);
   refreshUserRef.current = refreshUser;
   const [listings, setListings] = useState([]);
@@ -750,6 +752,36 @@ function MemberProfile({ navigation }) {
               </View>
             </View>
           ))}
+
+          {linked ? (
+            <View>
+              <View style={styles.card}>
+                <Pressable
+                  style={({ pressed }) => [styles.menuRow, pressed && styles.menuRowPressed]}
+                  onPress={switchNow}
+                  disabled={switching}
+                >
+                  <View style={[styles.menuIcon, { backgroundColor: `${colors.primary}1A` }]}>
+                    <Icon name="swap-horizontal" size={15} color={colors.primary} />
+                  </View>
+                  <View style={styles.menuCopy}>
+                    <Text style={styles.menuLabel}>Switch to admin panel</Text>
+                    <Text style={styles.menuHint} numberOfLines={1}>
+                      Same Google account · no need to log out
+                    </Text>
+                  </View>
+                  <View style={styles.menuChevron}>
+                    {switching ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Icon name="chevron-forward" size={13} color={colors.textTertiary} />
+                    )}
+                  </View>
+                </Pressable>
+              </View>
+              {switchError ? <Text style={styles.switchError}>{switchError}</Text> : null}
+            </View>
+          ) : null}
 
           <Pressable
             style={({ pressed }) => [styles.logoutBtn, pressed && styles.pressed]}
@@ -1314,6 +1346,13 @@ const createStyles = (colors) => ({
     fontSize: 10.5,
     fontWeight: '800',
     color: colors.onPrimary,
+  },
+  switchError: {
+    marginTop: 6,
+    marginHorizontal: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.danger,
   },
   logoutBtn: {
     flexDirection: 'row',

@@ -51,7 +51,7 @@ export default function Download({ embedded = false }) {
     <Reveal as="div" className="download-card" variant="scale" delay={100}>
       <div className="download-card-main">
         <div className="download-app">
-          <img src="/app-icon.png" alt="" width="76" height="76" className="download-app-icon" />
+          <img src="/app-icon.png?v=2" alt="" width="76" height="76" className="download-app-icon" />
           <div className="download-app-text">
             <strong>KinBech</strong>
             <span>Buy &amp; sell near you</span>
@@ -79,7 +79,7 @@ export default function Download({ embedded = false }) {
       <div className="download-qr" aria-hidden>
         <div className="download-qr-code">
           <img src={PLAY_QR_SRC} alt="" width="150" height="150" />
-          <img src="/app-icon.png" alt="" className="download-qr-logo" width="34" height="34" />
+          <img src="/app-icon.png?v=2" alt="" className="download-qr-logo" width="34" height="34" />
         </div>
         <strong>Scan to install</strong>
         <span>Open your phone camera and point it here</span>

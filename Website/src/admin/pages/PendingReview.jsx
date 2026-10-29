@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   CheckCircle2,
@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { errorMessage, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -123,33 +124,24 @@ function ReviewPanel({ listing, onDone }) {
 
 export default function PendingReview() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
   const debounced = useDebounce(searchTerm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/listings/admin/all', {
         params: { status: 'pending', sort: 'oldest', q: debounced || undefined, page, limit: LIMIT },
       });
-      setData(response.data);
+      return { items: response.data.listings || [], total: response.data.total || 0, totalPages: response.data.totalPages || 1 };
     } catch (error) {
       toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load the review queue' });
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [debounced, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [debounced]);
+
+  const {
+    items: listings, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const onDone = (listing, decision) => {
     if (decision === 'approve') toast.success(`"${listing.title}" is live in the app.`, { title: 'Listing approved' });
@@ -157,8 +149,6 @@ export default function PendingReview() {
     setOpenId(null);
     load();
   };
-
-  const listings = data?.listings || [];
 
   return (
     <div className="sv-page">
@@ -171,14 +161,14 @@ export default function PendingReview() {
           {searchTerm ? <button type="button" className="clear-btn" onClick={() => setSearchTerm('')}><X className="item-icon" /> Clear</button> : null}
         </div>
         <div className="filter-group right">
-          <span className="status-badge pending">{data?.total || 0} waiting</span>
+          <span className="status-badge pending">{total} waiting</span>
           <button type="button" className="action-btn view" onClick={load} disabled={loading}>
             <RefreshCw className="item-icon" aria-hidden /> Refresh
           </button>
         </div>
       </div>
 
-      {loading && !data ? (
+      {loading && !listings.length ? (
         <div className="loading">Loading review queue...</div>
       ) : !listings.length ? (
         <div className="table-container">
@@ -224,7 +214,7 @@ export default function PendingReview() {
               );
             })}
           </div>
-          <Pagination page={page} totalPages={data.totalPages || 1} total={data.total || 0} limit={LIMIT} onPageChange={setPage} />
+          <InfiniteLoader shown={listings.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="listings" />
         </>
       )}
     </div>

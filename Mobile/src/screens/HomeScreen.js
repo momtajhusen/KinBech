@@ -1046,9 +1046,9 @@ const createStyles = (colors) => ({
     marginRight: 10,
   },
   brandLogo: {
-    width: 46,
-    height: 46,
-    marginLeft: -6,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
   },
   brandCopy: {
     flex: 1,

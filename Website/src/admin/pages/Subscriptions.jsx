@@ -25,7 +25,8 @@ import api from '../services/api';
 import Modal, { ModalSwitch } from '../components/Modal';
 import { toast } from '../components/Feedback';
 import PromptModal from '../components/PromptModal';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import PostLimitStepper, { PostLimitPresets } from '../components/PostLimitStepper';
 import EsewaGatewayCard from '../components/EsewaGatewayCard';
 import { adminPath } from '../routes';
@@ -408,27 +409,30 @@ export default function Subscriptions() {
   const initialQ = params.get('q') || '';
   const [tab, setTab] = useState('requests');
   const [status, setStatus] = useState(initialQ ? 'approved' : 'pending');
-  const [page, setPage] = useState(1);
-  const [requests, setRequests] = useState({ requests: [], counts: {}, revenue: null, total: 0, totalPages: 1 });
+  const [summary, setSummary] = useState(null);
   const [search, setSearch] = useState(initialQ);
   const [q, setQ] = useState(initialQ);
   const [plansData, setPlansData] = useState({ plans: [], payment: {} });
-  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [editing, setEditing] = useState(null);
   const [prompt, setPrompt] = useState(null);
 
-  const loadRequests = useCallback(async () => {
+  const fetchPage = useCallback(async (page) => {
     try {
       const { data } = await api.get('/subscriptions/admin/requests', { params: { status, page, q: q || undefined } });
       if (!Array.isArray(data?.requests)) throw new Error('Unexpected response');
-      setRequests(data);
+      setSummary({ counts: data.counts || {}, revenue: data.revenue || null });
+      return { items: data.requests, total: data.total || 0, totalPages: data.totalPages || 1 };
     } catch (err) {
       setMessage(errorText(err, 'Could not load requests'));
-    } finally {
-      setLoading(false);
+      setSummary((current) => current || { counts: {}, revenue: null });
+      throw err;
     }
-  }, [status, page, q]);
+  }, [status, q]);
+
+  const {
+    items: requestRows, total: requestTotal, loadingMore, hasMore, loadMore, reload: loadRequests,
+  } = useInfiniteList(fetchPage);
 
   const loadPlans = useCallback(async () => {
     try {
@@ -440,9 +444,7 @@ export default function Subscriptions() {
     }
   }, []);
 
-  useEffect(() => { loadRequests(); }, [loadRequests]);
   useEffect(() => { loadPlans(); }, [loadPlans]);
-  useEffect(() => { setPage(1); }, [status, q]);
   useEffect(() => {
     const timer = setTimeout(() => setQ(search.trim()), 350);
     return () => clearTimeout(timer);
@@ -505,14 +507,14 @@ export default function Subscriptions() {
       },
     });
 
-  const counts = requests.counts || {};
-  const revenue = requests.revenue || { amount: 0, amount30d: 0, online: 0, test: 0 };
+  const counts = summary?.counts || {};
+  const revenue = summary?.revenue || { amount: 0, amount30d: 0, online: 0, test: 0 };
   const activeSubscribers = plansData.plans.reduce((sum, plan) => sum + (plan.subscribers || 0), 0);
   const livePlans = plansData.plans.filter((plan) => plan.active).length;
   const esewaState = plansData.esewa || {};
   const paymentReady = Boolean(esewaState.enabled && esewaState.openToAll);
 
-  if (loading) return <div className="loading">Loading subscriptions...</div>;
+  if (!summary) return <div className="loading">Loading subscriptions...</div>;
 
   return (
     <div className="users-page subs-page">
@@ -602,9 +604,9 @@ export default function Subscriptions() {
               />
             </label>
           </div>
-          {requests.requests.length ? (
+          {requestRows.length ? (
             <div className="subs-request-list">
-              {requests.requests.map((row) => (
+              {requestRows.map((row) => (
                 <RequestCard key={row.id} row={row} onApprove={approve} onReject={reject} />
               ))}
             </div>
@@ -616,7 +618,14 @@ export default function Subscriptions() {
               </p>
             </div>
           )}
-          <Pagination page={page} totalPages={requests.totalPages} total={requests.total} limit={20} onPageChange={setPage} />
+          <InfiniteLoader
+            shown={requestRows.length}
+            total={requestTotal}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="requests"
+          />
         </div>
       ) : null}
 

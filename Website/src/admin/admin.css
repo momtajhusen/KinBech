@@ -2130,6 +2130,53 @@ code {
   color: var(--text-muted);
 }
 
+.infinite-loader {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+  padding: 1rem 0 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.infinite-loader-sentinel {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.infinite-loader-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary, var(--text-muted));
+}
+
+.infinite-loader-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  animation: liveSpin 0.7s linear infinite;
+}
+
+.infinite-loader-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.infinite-loader-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .pagination-info span {
   font-weight: 600;
   color: var(--text);

@@ -379,12 +379,17 @@ export function useAdminList(load, key) {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState('');
   const reqRef = useRef(0);
+  const moreRef = useRef(false);
   const loadRef = useRef(load);
   loadRef.current = load;
 
   const reload = useCallback(async (mode = 'loading') => {
     const id = ++reqRef.current;
+    moreRef.current = false;
+    setLoadingMore(false);
+    setMoreError('');
     if (mode === 'refresh') setRefreshing(true);
     else setStatus('loading');
     const res = await loadRef.current(1);
@@ -410,13 +415,26 @@ export function useAdminList(load, key) {
     reload();
   }, [key, reload]);
 
+  // Scroll stops asking after a failed page; the footer's Try again calls this directly.
   const loadMore = useCallback(async () => {
-    if (loadingMore || status !== 'ready' || list.page >= list.totalPages) return;
+    if (moreRef.current || status !== 'ready' || list.page >= list.totalPages) return;
     const id = reqRef.current;
+    moreRef.current = true;
     setLoadingMore(true);
-    const res = await loadRef.current(list.page + 1);
+    setMoreError('');
+    let res;
+    try {
+      res = await loadRef.current(list.page + 1);
+    } catch (e) {
+      res = { error: e?.message || 'Could not load more.' };
+    }
+    if (id !== reqRef.current) return;
+    moreRef.current = false;
     setLoadingMore(false);
-    if (id !== reqRef.current || res.error) return;
+    if (res.error) {
+      setMoreError(res.error);
+      return;
+    }
     setList((prev) => {
       const seen = new Set(prev.items.map((item) => item.id));
       return {
@@ -427,7 +445,7 @@ export function useAdminList(load, key) {
         extra: res.extra ?? prev.extra,
       };
     });
-  }, [loadingMore, status, list.page, list.totalPages]);
+  }, [status, list.page, list.totalPages]);
 
   const patchItem = useCallback((id, patch) => {
     setList((prev) => ({
@@ -444,7 +462,44 @@ export function useAdminList(load, key) {
     }));
   }, []);
 
-  return { ...list, status, error, refreshing, loadingMore, reload, loadMore, patchItem, removeItem };
+  const hasMore = status === 'ready' && list.page < list.totalPages;
+
+  return { ...list, status, error, refreshing, loadingMore, moreError, hasMore, reload, loadMore, patchItem, removeItem };
+}
+
+function ListFooter({ list, styles, colors }) {
+  if (list.status !== 'ready' || !list.items.length) return null;
+  const shown = list.items.length;
+  const total = Math.max(list.total ?? shown, shown);
+  if (list.loadingMore) {
+    return (
+      <View>
+        <SkeletonCard index={0} />
+        <View style={styles.footerRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.footerText}>Loading more…</Text>
+        </View>
+      </View>
+    );
+  }
+  if (list.moreError) {
+    return (
+      <View style={styles.footerBox}>
+        <Text style={styles.footerText}>{list.moreError}</Text>
+        <PressableScale onPress={list.loadMore} contentStyle={[styles.retryBtn, styles.solidGreen]}>
+          <Icon name="refresh" size={15} color={colors.white} />
+          <Text style={styles.retryText}>Try again</Text>
+        </PressableScale>
+      </View>
+    );
+  }
+  return (
+    <Text style={styles.footerMeta}>
+      {list.hasMore
+        ? `Showing ${shown.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}`
+        : `All ${total.toLocaleString('en-IN')} loaded`}
+    </Text>
+  );
 }
 
 export function AdminList({ list, renderItem, header, emptyTitle, emptyBody, emptyIcon }) {
@@ -467,8 +522,8 @@ export function AdminList({ list, renderItem, header, emptyTitle, emptyBody, emp
       renderItem={animatedItem}
       ListHeaderComponent={header}
       contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 110 }]}
-      onEndReached={list.loadMore}
-      onEndReachedThreshold={0.4}
+      onEndReached={list.moreError ? undefined : list.loadMore}
+      onEndReachedThreshold={0.6}
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl
@@ -498,7 +553,7 @@ export function AdminList({ list, renderItem, header, emptyTitle, emptyBody, emp
           <AdminEmpty icon={emptyIcon} title={emptyTitle} body={emptyBody} />
         )
       }
-      ListFooterComponent={list.loadingMore ? <ActivityIndicator style={styles.footerLoader} color={colors.primary} /> : null}
+      ListFooterComponent={<ListFooter list={list} styles={styles} colors={colors} />}
     />
   );
 }
@@ -790,7 +845,10 @@ const createStyles = (colors) => ({
   emptyBody: { marginTop: 4, fontSize: 13, fontWeight: '600', color: colors.textMuted, textAlign: 'center', lineHeight: 19 },
 
   listContent: { flexGrow: 1 },
-  footerLoader: { marginVertical: 18 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4, marginBottom: 14 },
+  footerBox: { alignItems: 'center', gap: 10, marginVertical: 16 },
+  footerText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, textAlign: 'center' },
+  footerMeta: { fontSize: 12, fontWeight: '600', color: colors.textMuted, textAlign: 'center', marginVertical: 16 },
   errorBox: { alignItems: 'center', padding: 32, gap: 14 },
   errorText: { fontSize: 14, fontWeight: '700', color: colors.error, textAlign: 'center' },
   retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 16 },

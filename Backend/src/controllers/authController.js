@@ -454,6 +454,38 @@ async function me(req, res, next) {
   }
 }
 
+/** The other account on this Google email (admin seat ↔ marketplace account). Switching still needs a Google sign-in. */
+async function getLinkedAccount(req, res, next) {
+  try {
+    const current = req.user;
+    const email = String(current.email || '').trim();
+    if (!email) return res.json({ account: null });
+
+    if (current.role === 'user') {
+      if (!current.googleId) return res.json({ account: null });
+      const admin = await findAdminByEmail(email);
+      if (!admin || admin.status === 'suspended') return res.json({ account: null });
+      return res.json({
+        account: { type: 'admin', name: admin.name || '', role: admin.role, avatarUrl: admin.avatarUrl || '' },
+      });
+    }
+
+    if (ADMIN_ROLES.includes(current.role)) {
+      const appUser = await User.findOne({
+        email: new RegExp(`^${escapeRegex(email)}$`, 'i'),
+        role: 'user',
+        status: { $ne: 'suspended' },
+      }).select('name avatarUrl');
+      if (!appUser) return res.json({ account: null });
+      return res.json({ account: { type: 'user', name: appUser.name || '', avatarUrl: appUser.avatarUrl || '' } });
+    }
+
+    res.json({ account: null });
+  } catch (error) {
+    next(error);
+  }
+}
+
 async function getReferral(req, res, next) {
   try {
     const code = await ensureReferralCode(req.user);
@@ -1846,6 +1878,7 @@ module.exports = {
   verifyOtp,
   googleLogin,
   me,
+  getLinkedAccount,
   updateMe,
   getSellerMode,
   saveDeviceToken,

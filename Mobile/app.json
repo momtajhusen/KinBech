@@ -21,7 +21,9 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icons/adaptive-icon.png",
-        "backgroundColor": "#00000000"
+        "backgroundImage": "./assets/icons/adaptive-icon-background.png",
+        "monochromeImage": "./assets/icons/adaptive-icon-monochrome.png",
+        "backgroundColor": "#047857"
       },
       "softwareKeyboardLayoutMode": "resize",
       "package": "com.codersalpha.kinbech",
@@ -94,7 +96,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0B0F17",
-          "image": "./assets/icons/app-icon.png",
+          "image": "./assets/images/splash-icon.png",
           "resizeMode": "contain",
           "imageWidth": 200
         }
@@ -123,6 +125,7 @@
       "./plugins/withIncomingCall",
       "./plugins/withCertificatePinning",
       "./plugins/withGradleMemory",
+      "./plugins/withScrollStyle",
       "./plugins/withAgoraSlim",
       "./plugins/withReleaseSigning",
       "./plugins/withReleaseSigning",

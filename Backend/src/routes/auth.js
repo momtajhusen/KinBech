@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { signup, login, verifyOtp, googleLogin, me, updateMe, getSellerMode, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
+const { signup, login, verifyOtp, googleLogin, me, getLinkedAccount, updateMe, getSellerMode, saveDeviceToken, completeSignup, updatePreferences, getBlockedUsers, getReferral, applyMyReferral, adminLogin, getAllAdmins, createAdmin, updateAdmin, deleteAdmin, getPlatformSettingsAdmin, updatePlatformSettingsAdmin, getPlatformAlerts, getDashboardStats, updatePlatformAlert, getAllUsers, updateUserStatus, getLiveActivity, pinStore, unpinStore, recordPinnedView, getPinnedStores, changeAdminPassword, logoutAllDevices, getAuditLogs } = require('../controllers/authController');
 const {
   getAddresses,
   createAddress,
@@ -72,6 +72,7 @@ router.post('/refresh', refreshLimiter, refreshTokens);
 // Protected routes
 router.post('/complete-signup', requireAuth, completeSignup);
 router.get('/me', requireAuth, me);
+router.get('/linked-account', requireAuth, getLinkedAccount);
 router.post('/logout-all', requireAuth, logoutAllDevices);
 router.post('/logout', logoutCurrent);
 router.post('/presence', optionalAuth, reportPresence);

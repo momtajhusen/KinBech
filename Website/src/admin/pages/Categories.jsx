@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import {
   Bike,
   BookOpen,
@@ -28,7 +28,8 @@ import CategoryImageField from '../components/CategoryImageField';
 import Modal, { ModalSwitch } from '../components/Modal';
 import { confirmAction, toast } from '../components/Feedback';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import api from '../services/api';
 
 // Ionicons names (used by the mobile app) mapped to their closest lucide icon
@@ -210,46 +211,31 @@ function CategoryModal({ type, editingId, initial, onClose, onSaved }) {
 
 const Categories = () => {
   const [type, setType] = useState('product');
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [view, setView] = useViewMode('categories', 'card');
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchCategories = useCallback(async (nextType = type) => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/categories/admin', { 
         params: { 
-          type: nextType,
+          type,
           page,
           limit
         } 
       });
       const { categories: data, total: totalCount, totalPages: pages } = response.data;
-      setCategories(data || []);
-      setTotal(totalCount || 0);
-      setTotalPages(pages || 1);
+      return { items: data || [], total: totalCount || 0, totalPages: pages || 1 };
     } catch (error) {
       console.error('Failed to fetch categories:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [type, page, limit]);
+  }, [type, limit]);
 
-  useEffect(() => {
-    fetchCategories(type);
-  }, [fetchCategories, type]);
-
-  // Reset to page 1 when type changes
-  useEffect(() => {
-    setPage(1);
-  }, [type]);
+  const {
+    items: categories, total, loading, loadingMore, hasMore, loadMore, reload: fetchCategories,
+  } = useInfiniteList(fetchPage);
 
   const openCreate = () => {
     setModal({ id: null, form: { ...emptyForm, sortOrder: total } });
@@ -282,7 +268,7 @@ const Categories = () => {
     try {
       await api.delete(`/categories/admin/${cat.id}`);
       toast.success(`"${cat.name}" deleted`);
-      await fetchCategories(type);
+      await fetchCategories();
     } catch {
       /* the API layer shows the error */
     }
@@ -326,7 +312,7 @@ const Categories = () => {
           onClose={() => setModal(null)}
           onSaved={() => {
             setModal(null);
-            fetchCategories(type);
+            fetchCategories();
           }}
         />
       ) : null}
@@ -455,12 +441,13 @@ const Categories = () => {
       )}
 
       {!loading && categories.length > 0 && (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
+        <InfiniteLoader
+          shown={categories.length}
           total={total}
-          limit={limit}
-          onPageChange={setPage}
+          hasMore={hasMore}
+          loading={loadingMore}
+          onLoadMore={loadMore}
+          label="categories"
         />
       )}
     </div>

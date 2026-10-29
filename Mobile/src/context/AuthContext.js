@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, getAuthToken, onAuthTokenChange, setAuthToken } from '../services/api';
+import { adoptSession, api, getAuthToken, onAuthTokenChange, setAuthToken } from '../services/api';
+import { closeParkedSessions, openLinkedAccount } from '../services/accountSwitch';
 import { shareSignedInWithNative } from '../services/callReadiness';
 import { signOutGoogle } from '../services/googleAuth';
 import { forgetDeviceTokenSync, getDeviceToken, getFCMToken } from '../services/notifications';
@@ -106,6 +107,7 @@ export function AuthProvider({ children }) {
         setToken(null);
         setUser(null);
         clearToken().catch(() => {});
+        closeParkedSessions().catch(() => {});
         AsyncStorage.removeItem(USER_KEY).catch(() => {});
         resetToLogin();
       }),
@@ -140,6 +142,18 @@ export function AuthProvider({ children }) {
         }
         return { user: null, error };
       },
+      /** Open the admin or seller account on the same Google email without signing out. */
+      async switchAccount(target) {
+        const next = await openLinkedAccount(user, target);
+        if (next.cancelled) return next;
+        await adoptSession(next.token, next.refreshToken);
+        forgetDeviceTokenSync();
+        setToken(next.token);
+        setUser(next.user);
+        await writeToken(next.token);
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(next.user));
+        return { user: next.user };
+      },
       async logout() {
         const sessionToken = getAuthToken();
         const knownDevice = getDeviceToken();
@@ -148,6 +162,7 @@ export function AuthProvider({ children }) {
           .then((deviceToken) => api.logout(deviceToken || '', sessionToken))
           .catch(() => {});
         forgetDeviceTokenSync();
+        closeParkedSessions().catch(() => {});
         signOutGoogle();
         setAuthToken(null);
         setToken(null);

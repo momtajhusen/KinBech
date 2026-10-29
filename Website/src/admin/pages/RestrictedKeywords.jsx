@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Ban, ChevronDown, Clock, Download, FileUp, Filter, Search, ShieldAlert, Upload, X } from 'lucide-react';
 import api from '../services/api';
 import Modal, { ModalSwitch, OptionCards } from '../components/Modal';
 import { confirmAction, errorMessage, toast } from '../components/Feedback';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 
 const MATCH_FIELD_OPTIONS = [
@@ -260,8 +261,6 @@ function KeywordModal({ editingId, initial, onClose, onSaved }) {
 }
 
 export default function RestrictedKeywords() {
-  const [keywords, setKeywords] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -272,14 +271,9 @@ export default function RestrictedKeywords() {
   const [importResult, setImportResult] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchKeywords = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const params = {
         page,
@@ -290,25 +284,21 @@ export default function RestrictedKeywords() {
       if (filter === 'inactive') params.active = 'false';
       if (debouncedQuery.trim()) params.q = debouncedQuery.trim();
       const response = await api.get('/moderation/keywords/admin', { params });
-      setKeywords(response.data.keywords || []);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
       if (response.data.stats) setStats(response.data.stats);
+      return {
+        items: response.data.keywords || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (error) {
       console.error('Failed to fetch keywords:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [filter, debouncedQuery, page, limit]);
+  }, [filter, debouncedQuery, limit]);
 
-  useEffect(() => {
-    fetchKeywords();
-  }, [fetchKeywords]);
-
-  // Reset to page 1 when filter or query changes
-  useEffect(() => {
-    setPage(1);
-  }, [filter, debouncedQuery]);
+  const {
+    items: keywords, total, loading, loadingMore, hasMore, loadMore, reload: fetchKeywords,
+  } = useInfiniteList(fetchPage);
 
   const openCreate = () => {
     setModal({ id: null, form: { ...emptyForm } });
@@ -562,12 +552,13 @@ export default function RestrictedKeywords() {
       )}
 
       {!loading && keywords.length > 0 && (
-        <Pagination
-          page={page}
-          totalPages={totalPages}
+        <InfiniteLoader
+          shown={keywords.length}
           total={total}
-          limit={limit}
-          onPageChange={setPage}
+          hasMore={hasMore}
+          loading={loadingMore}
+          onLoadMore={loadMore}
+          label="keywords"
         />
       )}
     </div>

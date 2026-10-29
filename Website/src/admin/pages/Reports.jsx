@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { ChevronDown, Clock, FileText, Filter, Flag, MessageSquare, Package, Search, User, X } from 'lucide-react';
 import api from '../services/api';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { useTheme } from '../context/ThemeContext';
 import RecordModal from '../components/RecordModal';
@@ -19,22 +20,15 @@ const REASON_LABELS = {
 
 const Reports = () => {
   const { colors } = useTheme();
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState('pending');
   const [view, setView] = useViewMode('reports', 'list');
   const debouncedSearch = useDebounce(searchTerm);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchReports = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/reports/admin/all', {
         params: {
@@ -64,24 +58,16 @@ const Reports = () => {
             : (report.status === 'dismissed' ? 'dismissed' : 'resolved')),
       }));
       
-      setReports(reportsData);
-      setTotal(totalCount || 0);
-      setTotalPages(pages || 1);
+      return { items: reportsData, total: totalCount || 0, totalPages: pages || 1 };
     } catch (error) {
       console.error('Failed to fetch reports:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [filter, debouncedSearch, page, limit]);
+  }, [filter, debouncedSearch, limit]);
 
-  useEffect(() => {
-    fetchReports();
-  }, [fetchReports]);
-
-  // Reset to page 1 when filter or search changes
-  useEffect(() => {
-    setPage(1);
-  }, [filter, debouncedSearch]);
+  const {
+    items: reports, total, loading, loadingMore, hasMore, loadMore, reload: fetchReports,
+  } = useInfiniteList(fetchPage);
 
   const filterOptions = [
     { value: 'all', label: 'All Reports' },
@@ -287,12 +273,13 @@ const Reports = () => {
             </div>
           )}
 
-          <Pagination 
-            page={page} 
-            totalPages={totalPages} 
-            total={total} 
-            limit={limit} 
-            onPageChange={setPage} 
+          <InfiniteLoader
+            shown={reports.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="reports"
           />
         </>
       )}

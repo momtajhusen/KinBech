@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Image, Linking, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ import { KIND_TONE, liveDoing, liveDuration, screenInfo } from '../../utils/live
 import { resolveMediaUrl } from '../../utils/listing';
 
 const POLL_MS = 5000;
+const LIVE_PAGE = 30;
 /** Pings arrive every 30s; anything quieter than this is shown as idle. */
 const IDLE_AFTER_MS = 40 * 1000;
 
@@ -91,6 +92,9 @@ export default function AdminLiveScreen({ navigation }) {
     return true;
   });
 
+  const [shown, setShown] = useState(LIVE_PAGE);
+  useEffect(() => { setShown(LIVE_PAGE); }, [filter, screenFilter]);
+
   const live = sessions.find((s) => s.key === selectedKey);
   const selected = live || (selectedKey ? snapshot : null);
 
@@ -101,11 +105,13 @@ export default function AdminLiveScreen({ navigation }) {
 
   const list = {
     status,
-    items: visible,
+    items: visible.slice(0, shown),
+    total: visible.length,
+    hasMore: shown < visible.length,
     error,
     refreshing,
     loadingMore: false,
-    loadMore: () => {},
+    loadMore: () => setShown((n) => (n < visible.length ? n + LIVE_PAGE : n)),
     reload: (mode) => (mode === 'refresh' ? refresh() : load()),
   };
 

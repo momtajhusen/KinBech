@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Image, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
@@ -7,6 +7,7 @@ import LogoutConfirmModal from '../../components/LogoutConfirmModal';
 import { Float, PressableScale, Pulse, Reanimated, SoftPop, enterCard, enterUp } from '../../components/Motion';
 import { AdminHeader, toneColors } from '../../components/admin/AdminKit';
 import { useAuth } from '../../context/AuthContext';
+import { useAccountSwitch } from '../../hooks/useAccountSwitch';
 import { api } from '../../services/api';
 import { useAdminStyles as useThemedStyles, useAdminTheme as useTheme } from '../../components/admin/adminTheme';
 import { ROLE_LABELS } from '../../utils/admin';
@@ -27,6 +28,7 @@ export default function AdminMoreScreen({ navigation }) {
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const { linked, switching, error: switchError, switchNow } = useAccountSwitch();
   const [counts, setCounts] = useState({});
   const [confirmLogout, setConfirmLogout] = useState(false);
   const avatar = resolveMediaUrl(user?.avatarUrl);
@@ -106,7 +108,33 @@ export default function AdminMoreScreen({ navigation }) {
           </Text>
         </View>
 
-        <PressableScale onPress={() => setConfirmLogout(true)} entering={enterUp(LINKS.length + 1, 45)} contentStyle={styles.logout}>
+        {linked ? (
+          <PressableScale
+            onPress={switchNow}
+            disabled={switching}
+            scaleTo={0.97}
+            entering={enterUp(LINKS.length + 1, 45)}
+            contentStyle={styles.switchCard}
+          >
+            <View style={[styles.rowIcon, { backgroundColor: colors.pastelGreen }]}>
+              <Icon name="swap-horizontal" size={17} color={colors.primary} />
+            </View>
+            <View style={styles.flex1}>
+              <Text style={styles.rowLabel}>Switch to seller account</Text>
+              <Text style={styles.rowBody} numberOfLines={1}>
+                {linked.name ? `${linked.name} · ` : ''}No need to log out
+              </Text>
+            </View>
+            {switching ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Icon name="chevron-forward" size={16} color={colors.textMuted} />
+            )}
+          </PressableScale>
+        ) : null}
+        {switchError ? <Text style={styles.switchError}>{switchError}</Text> : null}
+
+        <PressableScale onPress={() => setConfirmLogout(true)} entering={enterUp(LINKS.length + 2, 45)} contentStyle={styles.logout}>
           <Icon name="log-out" size={18} color={colors.error} />
           <Text style={styles.logoutText}>Log out</Text>
         </PressableScale>
@@ -174,6 +202,20 @@ const createStyles = (colors) => ({
 
   info: { flexDirection: 'row', gap: 8, marginTop: 14, marginHorizontal: 20 },
   infoText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: colors.textTertiary },
+
+  switchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 11,
+    marginTop: 18,
+    marginHorizontal: 16,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    boxShadow: colors.clay,
+  },
+  switchError: { marginTop: 8, marginHorizontal: 20, fontSize: 12, fontWeight: '600', color: colors.error },
 
   logout: {
     flexDirection: 'row',

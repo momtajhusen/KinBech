@@ -2,24 +2,24 @@ import { lazy, Suspense, useLayoutEffect } from 'react';
 import { Routes, Route, useLocation, useNavigationType } from 'react-router-dom';
 import AmbientBackground from './components/AmbientBackground';
 import Navbar from './components/Navbar';
+import LandingPage from './pages/LandingPage';
 
 const AdminApp = lazy(() => import('./admin/AdminApp'));
-import LandingPage from './pages/LandingPage';
-import ExplorePage from './pages/ExplorePage';
-import MapPage from './pages/MapPage';
-import ListingDetailPage from './pages/ListingDetailPage';
-import SellerProfilePage from './pages/SellerProfilePage';
-import CategoriesPage from './pages/CategoriesPage';
-import FeaturesPage from './pages/FeaturesPage';
-import HowItWorksPage from './pages/HowItWorksPage';
-import SellersPage from './pages/SellersPage';
-import SafetyPage from './pages/SafetyPage';
-import FaqPage from './pages/FaqPage';
-import DownloadPage from './pages/DownloadPage';
-import LegalHubPage from './pages/LegalHubPage';
-import LegalDocumentPage from './pages/LegalDocumentPage';
-import HumanCheckPage from './pages/HumanCheckPage';
-import SecurityPolicyPage from './pages/SecurityPolicyPage';
+const ExplorePage = lazy(() => import('./pages/ExplorePage'));
+const MapPage = lazy(() => import('./pages/MapPage'));
+const ListingDetailPage = lazy(() => import('./pages/ListingDetailPage'));
+const SellerProfilePage = lazy(() => import('./pages/SellerProfilePage'));
+const CategoriesPage = lazy(() => import('./pages/CategoriesPage'));
+const FeaturesPage = lazy(() => import('./pages/FeaturesPage'));
+const HowItWorksPage = lazy(() => import('./pages/HowItWorksPage'));
+const SellersPage = lazy(() => import('./pages/SellersPage'));
+const SafetyPage = lazy(() => import('./pages/SafetyPage'));
+const FaqPage = lazy(() => import('./pages/FaqPage'));
+const DownloadPage = lazy(() => import('./pages/DownloadPage'));
+const LegalHubPage = lazy(() => import('./pages/LegalHubPage'));
+const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'));
+const HumanCheckPage = lazy(() => import('./pages/HumanCheckPage'));
+const SecurityPolicyPage = lazy(() => import('./pages/SecurityPolicyPage'));
 
 // Back/forward (POP) keeps the browser's own scroll restore; query changes on one page do not jump.
 function ScrollToTop() {
@@ -39,6 +39,14 @@ function ScrollToTop() {
   return null;
 }
 
+function PageLoading() {
+  return (
+    <div className="page-main page-loading" aria-busy="true" aria-label="Loading">
+      <span className="explore-spinner" />
+    </div>
+  );
+}
+
 function PublicSite() {
   useLayoutEffect(() => {
     document.documentElement.classList.add('kb-public');
@@ -50,24 +58,26 @@ function PublicSite() {
       <ScrollToTop />
       <AmbientBackground />
       <Navbar />
-      <Routes>
-        <Route path="/" element={<main className="page-main"><LandingPage /></main>} />
-        <Route path="/explore" element={<ExplorePage />} />
-        <Route path="/map" element={<MapPage />} />
-        <Route path="/listing/:id" element={<ListingDetailPage />} />
-        <Route path="/seller/:id" element={<SellerProfilePage />} />
-        <Route path="/categories" element={<CategoriesPage />} />
-        <Route path="/features" element={<FeaturesPage />} />
-        <Route path="/how-it-works" element={<HowItWorksPage />} />
-        <Route path="/sellers" element={<SellersPage />} />
-        <Route path="/safety" element={<SafetyPage />} />
-        <Route path="/faq" element={<FaqPage />} />
-        <Route path="/download" element={<DownloadPage />} />
-        <Route path="/legal" element={<LegalHubPage />} />
-        <Route path="/legal/:docId" element={<LegalDocumentPage />} />
-        <Route path="/human-check" element={<HumanCheckPage />} />
-        <Route path="/security" element={<SecurityPolicyPage />} />
-      </Routes>
+      <Suspense fallback={<PageLoading />}>
+        <Routes>
+          <Route path="/" element={<main className="page-main"><LandingPage /></main>} />
+          <Route path="/explore" element={<ExplorePage />} />
+          <Route path="/map" element={<MapPage />} />
+          <Route path="/listing/:id" element={<ListingDetailPage />} />
+          <Route path="/seller/:id" element={<SellerProfilePage />} />
+          <Route path="/categories" element={<CategoriesPage />} />
+          <Route path="/features" element={<FeaturesPage />} />
+          <Route path="/how-it-works" element={<HowItWorksPage />} />
+          <Route path="/sellers" element={<SellersPage />} />
+          <Route path="/safety" element={<SafetyPage />} />
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/download" element={<DownloadPage />} />
+          <Route path="/legal" element={<LegalHubPage />} />
+          <Route path="/legal/:docId" element={<LegalDocumentPage />} />
+          <Route path="/human-check" element={<HumanCheckPage />} />
+          <Route path="/security" element={<SecurityPolicyPage />} />
+        </Routes>
+      </Suspense>
     </>
   );
 }

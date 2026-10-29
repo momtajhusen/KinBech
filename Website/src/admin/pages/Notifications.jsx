@@ -3,7 +3,8 @@ import { AlertTriangle, Bell, BellRing, Clock, LayoutPanelTop, Layers, Megaphone
 import api from '../services/api';
 import Modal, { OptionCards } from '../components/Modal';
 import { confirmAction, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import { BRAND_ICON_SRC } from '../../content/brandAssets';
 
 const TITLE_MAX = 100;
@@ -162,14 +163,9 @@ function ComposeModal({ draftId, initial, onClose, onDone }) {
 }
 
 const Notifications = () => {
-  const [recentNotifications, setRecentNotifications] = useState([]);
   const [drafts, setDrafts] = useState([]);
   const [compose, setCompose] = useState(null);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 10;
 
   const fetchDrafts = useCallback(async () => {
@@ -183,22 +179,25 @@ const Notifications = () => {
     }
   }, []);
 
-  const fetchRecentNotifications = useCallback(async () => {
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/notifications/admin/broadcasts', {
         params: { page, limit }
       });
-      setRecentNotifications(response.data.broadcasts || []);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return {
+        items: response.data.broadcasts || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+      throw error;
     }
-  }, [page, limit]);
+  }, [limit]);
 
-  useEffect(() => {
-    fetchRecentNotifications();
-  }, [fetchRecentNotifications]);
+  const {
+    items: recentNotifications, total, loadingMore, hasMore, loadMore, reload: fetchRecentNotifications,
+  } = useInfiniteList(fetchPage);
 
   useEffect(() => {
     fetchDrafts();
@@ -323,12 +322,13 @@ const Notifications = () => {
                 </div>
               ))}
             </div>
-            <Pagination
-              page={page}
-              totalPages={totalPages}
+            <InfiniteLoader
+              shown={recentNotifications.length}
               total={total}
-              limit={limit}
-              onPageChange={setPage}
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={loadMore}
+              label="notifications"
             />
           </div>
         </div>

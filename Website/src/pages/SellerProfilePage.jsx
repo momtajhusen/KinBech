@@ -1,15 +1,31 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { toCardItem, toSellerCard } from '../utils/listing';
 import { useGeolocation } from '../hooks/useGeolocation';
 import ProductCard from '../components/ProductCard';
+import ExplorePagination from '../components/ExplorePagination';
 import Footer from '../components/Footer';
 import SiteImage from '../components/SiteImage';
 import Breadcrumb from '../components/Breadcrumb';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import LocationCityRounded from '@mui/icons-material/LocationCityRounded';
 import { IconLocation, IconShield, IconStar } from '../components/Icons';
+
+const PAGE_SIZE = 24;
+
+function fetchListingsPage(source, page) {
+  const params = { page, limit: PAGE_SIZE };
+  const request = source.shopId
+    ? api.getShopListings(source.shopId, params)
+    : api.getListings({ ...params, seller: source.userId, ...source.geo });
+  return request.then((res) => ({
+    items: (res.listings || []).map(toCardItem).filter(Boolean),
+    page: res.page ?? page,
+    hasMore: Boolean(res.hasMore),
+    total: res.total,
+  }));
+}
 
 export default function SellerProfilePage() {
   const { id } = useParams();
@@ -20,8 +36,12 @@ export default function SellerProfilePage() {
 
   const [seller, setSeller] = useState(null);
   const [listings, setListings] = useState([]);
+  const [paging, setPaging] = useState({ page: 1, hasMore: false, total: 0 });
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const sourceRef = useRef(null);
+  const loadingMoreRef = useRef(false);
 
   const geoParams = useMemo(
     () => (coords ? { lat: coords.lat, lng: coords.lng } : {}),
@@ -42,18 +62,18 @@ export default function SellerProfilePage() {
         const card = toSellerCard(raw);
         setSeller(card);
 
-        if (raw.sellerType === 'shop' || raw.shopId) {
-          const shopId = raw.shopId || raw.id || raw._id;
-          const shopRes = await api.getShopListings(shopId);
-          if (!cancelled) {
-            setListings((shopRes.listings || []).map(toCardItem).filter(Boolean));
-          }
-        } else {
-          const userId = raw.userId || raw.id || raw._id;
-          const listRes = await api.getListings({ seller: userId, ...geoParams });
-          if (!cancelled) {
-            setListings((listRes.listings || []).map(toCardItem).filter(Boolean));
-          }
+        const source = raw.sellerType === 'shop' || raw.shopId
+          ? { shopId: raw.shopId || raw.id || raw._id }
+          : { userId: raw.userId || raw.id || raw._id, geo: geoParams };
+        const first = await fetchListingsPage(source, 1);
+        if (!cancelled) {
+          sourceRef.current = source;
+          setListings(first.items);
+          setPaging({
+            page: first.page,
+            hasMore: first.hasMore,
+            total: first.total ?? Math.max(card.listingCount || 0, first.items.length),
+          });
         }
       } catch (e) {
         if (!cancelled) setError(e.message || 'Seller not found');
@@ -65,6 +85,27 @@ export default function SellerProfilePage() {
     load();
     return () => { cancelled = true; };
   }, [id, geoParams]);
+
+  const loadMore = useCallback(async () => {
+    const source = sourceRef.current;
+    if (!source || !paging.hasMore || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const next = await fetchListingsPage(source, paging.page + 1);
+      if (source !== sourceRef.current) return;
+      setListings((prev) => {
+        const seen = new Set(prev.map((item) => item.id));
+        return [...prev, ...next.items.filter((item) => !seen.has(item.id))];
+      });
+      setPaging((prev) => ({ page: next.page, hasMore: next.hasMore, total: next.total ?? prev.total }));
+    } catch {
+      /* the Load more button stays for a manual retry */
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [paging]);
 
   const sellerName = seller?.name || 'Seller';
 
@@ -119,7 +160,7 @@ export default function SellerProfilePage() {
                   {seller.rating > 0 ? (
                     <span><IconStar width={14} height={14} /> {seller.rating.toFixed(1)} ({seller.reviewsCount} reviews)</span>
                   ) : null}
-                  <span><Inventory2Rounded aria-hidden /> {listings.length || seller.listingCount} listings</span>
+                  <span><Inventory2Rounded aria-hidden /> {paging.total || seller.listingCount} listings</span>
                   {seller.distanceLabel ? <span><IconLocation width={14} height={14} /> {seller.distanceLabel}</span> : null}
                   {seller.location ? <span><LocationCityRounded aria-hidden /> {seller.location}</span> : null}
                 </div>
@@ -168,16 +209,25 @@ export default function SellerProfilePage() {
 
             <section className="seller-profile-listings">
               <div className="explore-section-head">
-                <h2>Listings ({listings.length})</h2>
+                <h2>Listings ({paging.total || listings.length})</h2>
                 <Link to="/explore" className="detail-related-link">Explore all</Link>
               </div>
 
               {listings.length ? (
-                <div className="explore-grid">
-                  {listings.map((item) => (
-                    <ProductCard key={item.id} item={item} />
-                  ))}
-                </div>
+                <>
+                  <div className="explore-grid">
+                    {listings.map((item) => (
+                      <ProductCard key={item.id} item={item} />
+                    ))}
+                  </div>
+                  <ExplorePagination
+                    shown={listings.length}
+                    total={Math.max(paging.total, listings.length)}
+                    hasMore={paging.hasMore}
+                    loading={loadingMore}
+                    onLoadMore={loadMore}
+                  />
+                </>
               ) : (
                 <div className="explore-empty">
                   <SiteImage name="explore-empty" className="empty-art" />

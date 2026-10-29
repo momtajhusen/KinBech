@@ -3,7 +3,8 @@ import { Check, Copy, KeyRound, Store, User, UserCog, UserPlus, X } from 'lucide
 import api from '../services/api';
 import Modal, { OptionCards } from '../components/Modal';
 import { confirmAction, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import PostLimitStepper, { PostLimitPresets, clampPosts, postLimitLabel } from '../components/PostLimitStepper';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -116,7 +117,6 @@ const Settings = () => {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const isFullAdmin = isSuperAdmin || user?.role === 'admin';
-  const [admins, setAdmins] = useState([]);
   const [createdAdmin, setCreatedAdmin] = useState(null);
   const [platformSettings, setPlatformSettings] = useState({
     listingExpiryDays: 0,
@@ -125,7 +125,6 @@ const Settings = () => {
     supportEmail: 'support@kinbech.com',
   });
   const [editingAdmin, setEditingAdmin] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [inviteForm, setInviteForm] = useState({
     email: '',
@@ -135,28 +134,25 @@ const Settings = () => {
   const [modalError, setModalError] = useState('');
   const [copied, setCopied] = useState(false);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchAdmins = useCallback(async () => {
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/auth/admin/all', { params: { page, limit } });
-      setAdmins(response.data.admins || []);
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return {
+        items: response.data.admins || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (error) {
       console.error('Failed to fetch admins:', error);
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [page, limit]);
+  }, [limit]);
 
-  useEffect(() => {
-    fetchAdmins();
-  }, [fetchAdmins]);
+  const {
+    items: admins, total, loadingMore, hasMore, loadMore, reload: fetchAdmins,
+  } = useInfiniteList(fetchPage);
 
   useEffect(() => {
     api.get('/auth/admin/settings')
@@ -477,12 +473,13 @@ const Settings = () => {
                 </tbody>
               </table>
             </div>
-            <Pagination
-              page={page}
-              totalPages={totalPages}
+            <InfiniteLoader
+              shown={admins.length}
               total={total}
-              limit={limit}
-              onPageChange={setPage}
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={loadMore}
+              label="admins"
             />
           </div>
         </div>

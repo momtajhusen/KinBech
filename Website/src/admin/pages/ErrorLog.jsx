@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { ChevronDown, Filter, Search, X } from 'lucide-react';
 import api from '../services/api';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 
 function formatWhen(value) {
@@ -29,9 +30,7 @@ function statusBadge(status) {
 }
 
 export default function ErrorLog() {
-  const [errors, setErrors] = useState([]);
   const [stats, setStats] = useState({ openCount: 0, fatalCount: 0 });
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('open');
   const [source, setSource] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -41,14 +40,9 @@ export default function ErrorLog() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Pagination state
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
   const limit = 20;
 
-  const fetchErrors = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const params = { 
         status: filter, 
@@ -58,25 +52,21 @@ export default function ErrorLog() {
         limit 
       };
       const response = await api.get('/errors/admin', { params });
-      setErrors(response.data.errors || []);
       setStats(response.data.stats || { openCount: 0, fatalCount: 0 });
-      setTotal(response.data.total || 0);
-      setTotalPages(response.data.totalPages || 1);
+      return {
+        items: response.data.errors || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (err) {
       console.error('Failed to fetch errors', err);
-    } finally {
-      setLoading(false);
+      throw err;
     }
-  }, [filter, source, debouncedSearch, page, limit]);
+  }, [filter, source, debouncedSearch, limit]);
 
-  useEffect(() => {
-    fetchErrors();
-  }, [fetchErrors]);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [filter, source, debouncedSearch]);
+  const {
+    items: errors, total, loading, loadingMore, hasMore, loadMore, reload: fetchErrors,
+  } = useInfiniteList(fetchPage);
 
   // On narrower screens the panel sits below the table, so bring it into view.
   useEffect(() => {
@@ -215,12 +205,13 @@ export default function ErrorLog() {
               </tbody>
             </table>
             {errors.length === 0 ? <div className="empty-state">No errors found</div> : null}
-            <Pagination
-              page={page}
-              totalPages={totalPages}
+            <InfiniteLoader
+              shown={errors.length}
               total={total}
-              limit={limit}
-              onPageChange={setPage}
+              hasMore={hasMore}
+              loading={loadingMore}
+              onLoadMore={loadMore}
+              label="errors"
             />
           </div>
 

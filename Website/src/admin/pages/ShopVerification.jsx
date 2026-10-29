@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   BadgeCheck,
@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { confirmAction, errorMessage, toast } from '../components/Feedback';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -212,31 +213,24 @@ function ReviewPanel({ shop, onSaved }) {
 export default function ShopVerification() {
   const [status, setStatus] = useState('pending');
   const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, rejected: 0 });
   const [openId, setOpenId] = useState(null);
   const debounced = useDebounce(searchTerm);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const fetchPage = useCallback(async (page) => {
     try {
       const response = await api.get('/shops/admin/verification', { params: { status, q: debounced || undefined, page, limit: LIMIT } });
-      setData(response.data);
+      setCounts(response.data.counts || { pending: 0, approved: 0, rejected: 0 });
+      return { items: response.data.shops || [], total: response.data.total || 0, totalPages: response.data.totalPages || 1 };
     } catch (error) {
       toast.error(errorMessage(error, 'Please refresh the page.'), { title: 'Could not load the queue' });
-    } finally {
-      setLoading(false);
+      throw error;
     }
-  }, [status, debounced, page]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    setPage(1);
   }, [status, debounced]);
+
+  const {
+    items: shops, setItems: setShops, total, loading, loadingMore, hasMore, loadMore, reload: load,
+  } = useInfiniteList(fetchPage);
 
   const onSaved = (shop, decision) => {
     const copy = {
@@ -247,14 +241,13 @@ export default function ShopVerification() {
     }[decision] || ['Saved', ''];
     toast.success(copy[1] || copy[0], copy[1] ? { title: copy[0] } : undefined);
     if (decision === 'save') {
-      setData((prev) => ({ ...prev, shops: prev.shops.map((row) => (row.id === shop.id ? { ...row, ...shop } : row)) }));
+      setShops((prev) => prev.map((row) => (row.id === shop.id ? { ...row, ...shop } : row)));
     } else {
       setOpenId(null);
       load();
     }
   };
 
-  const counts = data?.counts || { pending: 0, approved: 0, rejected: 0 };
   const tabs = [
     ['pending', `Pending (${counts.pending})`],
     ['rejected', `Rejected (${counts.rejected})`],
@@ -281,14 +274,14 @@ export default function ShopVerification() {
         </div>
       </div>
 
-      {loading && !data ? (
+      {loading && !shops.length ? (
         <div className="loading">Loading verification queue...</div>
-      ) : !data?.shops?.length ? (
+      ) : !shops.length ? (
         <div className="table-container"><div className="empty-state">{status === 'pending' ? 'No shops waiting for verification' : 'No shops here'}</div></div>
       ) : (
         <>
           <div className="inbox-list">
-            {data.shops.map((shop) => {
+            {shops.map((shop) => {
               const open = openId === shop.id;
               const waited = waitingDays(shop.submittedAt);
               return (
@@ -323,7 +316,7 @@ export default function ShopVerification() {
               );
             })}
           </div>
-          <Pagination page={page} totalPages={data.totalPages || 1} total={data.total || 0} limit={LIMIT} onPageChange={setPage} />
+          <InfiniteLoader shown={shops.length} total={total} hasMore={hasMore} loading={loadingMore} onLoadMore={loadMore} label="shops" />
         </>
       )}
     </div>

@@ -2323,7 +2323,7 @@ body.explore-filter-sheet-lock {
 
 @media (max-width: 960px) {
   .explore-page {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   .explore-header .container.explore-header-mobile,
@@ -2362,12 +2362,20 @@ body.explore-filter-sheet-lock {
   }
 
   .explore-toolbar-top {
+    position: sticky;
+    top: var(--nav-h);
+    z-index: 20;
+    height: var(--explore-bar-h);
+    display: flex;
+    align-items: center;
     border-bottom: none;
     margin-bottom: 6px;
-    padding-bottom: 0;
+    padding-block: 6px;
+    background: var(--bg);
   }
 
   .explore-body {
+    --explore-bar-h: 62px;
     padding-bottom: 24px;
   }
 
@@ -2396,17 +2404,19 @@ body.explore-filter-sheet-lock {
   .explore-mobile-rail {
     display: block;
     position: sticky;
-    top: calc(var(--nav-h) + 4px);
+    top: calc(var(--nav-h) + var(--explore-bar-h) + 6px);
     align-self: start;
-    max-height: calc(100vh - var(--nav-h) - 8px);
+    max-height: calc(100dvh - var(--nav-h) - var(--explore-bar-h) - 14px);
     background: var(--bg-alt);
     border-top-right-radius: 18px;
+    border-bottom-right-radius: 18px;
     overflow: hidden;
   }
 
   .explore-mobile-rail-scroll {
-    max-height: calc(100vh - var(--nav-h) - 8px);
+    max-height: calc(100dvh - var(--nav-h) - var(--explore-bar-h) - 14px);
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding-bottom: 16px;
     scrollbar-width: none;
   }

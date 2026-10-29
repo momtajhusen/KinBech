@@ -4,7 +4,8 @@ import api from '../services/api';
 import MIcon from '../components/MIcon';
 import { confirmAction, toast } from '../components/Feedback';
 import ViewToggle, { useViewMode } from '../components/ViewToggle';
-import Pagination from '../components/Pagination';
+import InfiniteLoader from '../components/InfiniteLoader';
+import useInfiniteList from '../utils/useInfiniteList';
 import useDebounce from '../utils/useDebounce';
 import { adminPath } from '../routes';
 import { mediaUrl } from '../../config';
@@ -128,7 +129,7 @@ const FILTER_GROUPS = [
 ];
 
 const FILTER_FIELDS = FILTER_GROUPS.flatMap((group) => group.fields);
-const STATE_KEYS = ['q', 'type', 'sort', 'page', ...FILTER_FIELDS.map((field) => field.key)];
+const STATE_KEYS = ['q', 'type', 'sort', ...FILTER_FIELDS.map((field) => field.key)];
 const PAGE_SIZE = 20;
 
 const shortDate = (value) => (value ? new Date(value).toLocaleDateString() : '—');
@@ -149,7 +150,6 @@ function readState(params) {
   STATE_KEYS.forEach((key) => {
     state[key] = params.get(key) || '';
   });
-  state.page = Math.max(1, parseInt(state.page, 10) || 1);
   return state;
 }
 
@@ -253,14 +253,14 @@ const Users = () => {
   const [state, setState] = useState(() => readState(params));
   const [panelOpen, setPanelOpen] = useState(false);
   const [view, setView] = useViewMode('users', 'list');
-  const [data, setData] = useState({ users: [], counts: {}, total: 0, totalPages: 1, categories: [] });
-  const [loading, setLoading] = useState(true);
+  const [counts, setCounts] = useState({});
+  const [categories, setCategories] = useState([]);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState(null);
   const query = useDebounce(state, 300);
   const urlQ = params.get('q') || '';
 
-  const update = (patch) => setState((current) => ({ ...current, page: 1, ...patch }));
+  const update = (patch) => setState((current) => ({ ...current, ...patch }));
 
   const changeType = (type) => {
     const dropped = FILTER_GROUPS
@@ -274,50 +274,54 @@ const Users = () => {
   const activeFilters = FILTER_FIELDS.filter((field) => state[field.key]);
   const hasAnyFilter = activeFilters.length > 0 || Boolean(state.q);
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const fetchPage = useCallback(async (page) => {
+    // Later pages fail into InfiniteLoader's retry instead of replacing the list with an error.
+    if (page === 1) setError('');
     try {
-      const request = { limit: PAGE_SIZE };
+      const request = { limit: PAGE_SIZE, page };
       Object.entries(query).forEach(([key, value]) => {
         if (value !== '' && value !== null) request[key] = value;
       });
       const response = await api.get('/auth/admin/user-directory', { params: request });
-      setData(response.data);
+      setCounts(response.data.counts || {});
+      setCategories(response.data.categories || []);
+      return {
+        items: response.data.users || [],
+        total: response.data.total || 0,
+        totalPages: response.data.totalPages || 1,
+      };
     } catch (fetchError) {
-      setError(fetchError?.response?.data?.message || 'Could not load users');
-    } finally {
-      setLoading(false);
+      if (page === 1) setError(fetchError?.response?.data?.message || 'Could not load users');
+      throw fetchError;
     }
   }, [query]);
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  const {
+    items: users, total, loading, loadingMore, hasMore, loadMore, reload: fetchUsers,
+  } = useInfiniteList(fetchPage);
 
   useEffect(() => {
     const next = {};
     Object.entries(query).forEach(([key, value]) => {
-      if (value && !(key === 'page' && value === 1)) next[key] = String(value);
+      if (value) next[key] = String(value);
     });
     setParams(next, { replace: true });
   }, [query, setParams]);
 
   // The top search bar links here with ?q=; pick that up while already on this page.
   useEffect(() => {
-    setState((current) => (current.q === urlQ || query.q === urlQ ? current : { ...current, q: urlQ, page: 1 }));
+    setState((current) => (current.q === urlQ || query.q === urlQ ? current : { ...current, q: urlQ }));
   }, [urlQ]);
 
   const categoryOptions = useMemo(
-    () => (data.categories || []).map((category) => [category, category]),
-    [data.categories],
+    () => categories.map((category) => [category, category]),
+    [categories],
   );
 
   const clearAll = () => setState((current) => ({
     ...Object.fromEntries(STATE_KEYS.map((key) => [key, ''])),
     type: current.type,
     sort: current.sort,
-    page: 1,
   }));
 
   const openUser = (user) => navigate(adminPath(`users/${user.id}`));
@@ -412,7 +416,7 @@ const Users = () => {
               >
                 <MIcon name={type.icon} filled={on} />
                 <span className="ud-type-label">{type.label}</span>
-                <span className="ud-count">{data.counts?.[type.countKey] ?? 0}</span>
+                <span className="ud-count">{counts?.[type.countKey] ?? 0}</span>
               </button>
             );
           })}
@@ -420,7 +424,7 @@ const Users = () => {
         <div className="ud-topline-end">
           <span className="ud-results">
             <MIcon name="person_search" />
-            {data.total} result{data.total === 1 ? '' : 's'}
+            {total} result{total === 1 ? '' : 's'}
           </span>
           <ViewToggle view={view} onChange={setView} />
         </div>
@@ -492,7 +496,7 @@ const Users = () => {
               <MIcon name="restart_alt" /> Reset filters
             </button>
             <button type="button" className="btn btn-primary" onClick={() => setPanelOpen(false)}>
-              Show {data.total} user{data.total === 1 ? '' : 's'}
+              Show {total} user{total === 1 ? '' : 's'}
             </button>
           </div>
         </div>
@@ -512,9 +516,9 @@ const Users = () => {
 
       {error ? (
         <div className="table-container"><div className="empty-state">{error}</div></div>
-      ) : loading && !data.users.length ? (
+      ) : loading && !users.length ? (
         <div className="loading">Loading users...</div>
-      ) : !data.users.length ? (
+      ) : !users.length ? (
         <div className="table-container">
           <div className="empty-state ud-empty">
             <MIcon name="person_off" className="ud-empty-icon" />
@@ -526,7 +530,7 @@ const Users = () => {
         <>
           {view === 'card' ? (
             <div className={`ud-card-grid ${loading ? 'ud-loading' : ''}`}>
-              {data.users.map((user) => {
+              {users.map((user) => {
                 const info = typeInfo(user);
                 const selling = user.type !== 'buyer';
                 return (
@@ -611,7 +615,7 @@ const Users = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.users.map((user) => (
+                  {users.map((user) => (
                     <tr key={user.id}>
                       <td>
                         <button type="button" className="user-cell user-open" onClick={() => openUser(user)}>
@@ -643,12 +647,13 @@ const Users = () => {
             </div>
           )}
 
-          <Pagination
-            page={state.page}
-            totalPages={data.totalPages}
-            total={data.total}
-            limit={PAGE_SIZE}
-            onPageChange={(page) => setState((current) => ({ ...current, page }))}
+          <InfiniteLoader
+            shown={users.length}
+            total={total}
+            hasMore={hasMore}
+            loading={loadingMore}
+            onLoadMore={loadMore}
+            label="users"
           />
         </>
       )}
