@@ -175,6 +175,9 @@ function statusColor(status, colors) {
   return colors[STATUS_STYLES[status]?.color || 'statusActive'];
 }
 
+// A voice search's order, as this screen's sort.
+const VOICE_SORTS = { 'price-low': 'priceLow', 'price-high': 'priceHigh', newest: 'newest', popular: 'views' };
+
 function sortItems(items, sortBy) {
   const list = [...items];
   const time = (item) => new Date(item.createdAt || 0).getTime();
@@ -269,9 +272,12 @@ export default function MyListingsScreen({ navigation, route }) {
   );
 
   const matchesQuery = useVoiceSearchBox({
-    label: 'My own listings (items I am selling)',
     value: query,
     onChange: setQuery,
+    onFilters: (search) => {
+      setSortBy(VOICE_SORTS[search.sort] || 'newest');
+      setCondition(search.condition || 'all');
+    },
   });
 
   const filteredListings = useMemo(() => {
@@ -279,6 +285,7 @@ export default function MyListingsScreen({ navigation, route }) {
       if (status !== 'all' && item.status !== status) return false;
       if (category !== 'all' && item.category !== category) return false;
       if (condition !== 'all' && item.condition !== condition) return false;
+      if (!matchesQuery.inPriceRange(item.price)) return false;
       return matchesQuery(item.title, item.category, item.location);
     });
     return sortItems(items, sortBy);

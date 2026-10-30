@@ -77,6 +77,14 @@ const listingSchema = new mongoose.Schema(
       restoreCount: { type: Number, default: 0 },
     },
     moderationReason: { type: String, default: '' },
+    /** Last move by the daily category check (utils/categoryFix); a seller moving it back is then left alone. */
+    categoryFix: {
+      from: { type: String, default: '' },
+      to: { type: String, default: '' },
+      at: { type: Date, default: null },
+      /** The title the AI last named a category for, so it is asked once per title. */
+      aiTitle: { type: String, default: '' },
+    },
     matchedKeywords: [{ type: String }],
     heldAt: { type: Date, default: null },
     views: { type: Number, default: 0, index: true },

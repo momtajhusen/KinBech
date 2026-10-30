@@ -4,7 +4,8 @@ const STOP_WORDS = new Set([
 ]);
 
 const MAX_TOKENS = 6;
-const MAX_PHRASES = 6;
+// A search can name several items, each with other spellings.
+const MAX_PHRASES = 12;
 
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

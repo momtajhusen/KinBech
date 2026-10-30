@@ -348,4 +348,9 @@ module.exports = {
   resolveProductCategory,
   listProductCategoryNames,
   listProductCategories,
+  ALIASES,
+  JUNK,
+  TYPE_KEYWORDS,
+  hasPhrase,
+  wordText,
 };

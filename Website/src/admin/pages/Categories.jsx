@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Bike,
   BookOpen,
@@ -23,6 +23,7 @@ import {
   Store,
   Tag,
   Utensils,
+  Wand2,
 } from 'lucide-react';
 import CategoryImageField from '../components/CategoryImageField';
 import Modal, { ModalSwitch } from '../components/Modal';
@@ -209,6 +210,112 @@ function CategoryModal({ type, editingId, initial, onClose, onSaved }) {
   );
 }
 
+const FIX_POLL_MS = 3000;
+
+const timeText = (value) => (value ? new Date(value).toLocaleString() : '');
+
+/** Runs the daily category check once and shows what it moved. */
+function useCategoryFix(onCreated) {
+  const [status, setStatus] = useState(null);
+  const [starting, setStarting] = useState(false);
+  const wasRunning = useRef(false);
+  const running = Boolean(status?.manual?.running);
+
+  const load = useCallback(async () => {
+    try {
+      const { data } = await api.get('/categories/admin/fix-run');
+      setStatus(data);
+    } catch {
+      /* the API layer shows the error */
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(load, FIX_POLL_MS);
+    return () => clearInterval(timer);
+  }, [running, load]);
+
+  useEffect(() => {
+    if (running) {
+      wasRunning.current = true;
+      return;
+    }
+    if (!wasRunning.current || !status?.manual) return;
+    wasRunning.current = false;
+    const { error, movedCount = 0, created = [] } = status.manual;
+    if (error) toast.error(error);
+    else toast.success(`Category check done: ${movedCount} moved, ${created.length} new`);
+    if (created.length) onCreated();
+  }, [running, status, onCreated]);
+
+  const start = async () => {
+    const ok = await confirmAction({
+      title: 'Fix categories now?',
+      message: 'Checks every live listing\'s title and keywords, moves items that sit in the wrong category, and lets AI create a new category when nothing fits. This is the same check that runs every day.',
+      confirmLabel: 'Run check',
+    });
+    if (!ok) return;
+    setStarting(true);
+    try {
+      const { data } = await api.post('/categories/admin/fix-run');
+      wasRunning.current = true;
+      setStatus(data);
+    } catch {
+      load();
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  return { status, running, starting, start };
+}
+
+function CategoryFixPanel({ status, running }) {
+  const manual = status?.manual;
+  const daily = status?.daily;
+  if (!manual && !daily) {
+    return status ? (
+      <p className="page-hint">Category check runs every day at {status.dailyTime} (Nepal time).</p>
+    ) : null;
+  }
+  const moved = manual?.moved || [];
+  return (
+    <div className="category-fix-panel">
+      <p className="page-hint">
+        Category check runs every day at {status.dailyTime} (Nepal time).
+        {daily?.finishedAt ? ` Last daily run ${timeText(daily.finishedAt)}: ${daily.checked} checked, ${daily.moved} moved, ${daily.created} new.` : ''}
+      </p>
+      {running ? (
+        <p className="category-fix-line">Checking listings… started {timeText(manual.startedAt)}</p>
+      ) : null}
+      {manual && !running && manual.finishedAt ? (
+        <>
+          <p className="category-fix-line">
+            Last manual run {timeText(manual.finishedAt)}
+            {manual.error
+              ? `: failed (${manual.error})`
+              : `: ${manual.checked} checked, ${manual.movedCount} moved, ${(manual.created || []).length} new categories${(manual.created || []).length ? ` (${manual.created.join(', ')})` : ''}`}
+          </p>
+          {moved.length ? (
+            <ul className="category-fix-moves">
+              {moved.map((m) => (
+                <li key={m.id}>
+                  <strong>{m.title}</strong> — {m.from || 'none'} → {m.to}
+                  {m.ai ? <span className="category-fix-ai">AI</span> : null}
+                </li>
+              ))}
+              {manual.movedCount > moved.length ? <li>…and {manual.movedCount - moved.length} more</li> : null}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 const Categories = () => {
   const [type, setType] = useState('product');
   const [modal, setModal] = useState(null);
@@ -236,6 +343,8 @@ const Categories = () => {
   const {
     items: categories, total, loading, loadingMore, hasMore, loadMore, reload: fetchCategories,
   } = useInfiniteList(fetchPage);
+
+  const categoryFix = useCategoryFix(fetchCategories);
 
   const openCreate = () => {
     setModal({ id: null, form: { ...emptyForm, sortOrder: total } });
@@ -293,6 +402,15 @@ const Categories = () => {
         </div>
         <div className="page-header-actions">
           <ViewToggle view={view} onChange={setView} />
+          {type === 'product' ? (
+            <button
+              className="action-btn view"
+              onClick={categoryFix.start}
+              disabled={categoryFix.running || categoryFix.starting}
+            >
+              <Wand2 size={15} /> {categoryFix.running ? 'Fixing…' : 'Fix categories now'}
+            </button>
+          ) : null}
           <button className="action-btn view" onClick={openCreate}>
             + Add category
           </button>
@@ -303,6 +421,7 @@ const Categories = () => {
         These names and icons appear in the KinBech mobile app
         {type === 'product' ? ' (home, explore, post listing).' : ' (shop setup and explore stores).'}
       </p>
+      {type === 'product' ? <CategoryFixPanel status={categoryFix.status} running={categoryFix.running} /> : null}
 
       {modal ? (
         <CategoryModal

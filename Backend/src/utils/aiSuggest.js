@@ -29,6 +29,7 @@ const {
 } = require('./aiSettings');
 const { levelLimits } = require('./aiSellerLevel');
 const { catalogEntry } = require('./aiCatalog');
+const { describeSearchFields, normalizeOrder, normalizeWhere } = require('./searchLogic');
 
 // The phone waits 60 s for an AI fill, so every switch has to fit inside this budget.
 const REQUEST_DEADLINE_MS = 50 * 1000;
@@ -680,6 +681,41 @@ async function suggestListingFromImage({ data, mimeType = 'image/jpeg', categori
   return { suggestion: result, model, account, requestId, attempts, ms };
 }
 
+function parseListingCategory(rawText) {
+  const match = String(rawText || '').match(/\{[\s\S]*\}/);
+  try {
+    const name = String(JSON.parse(match ? match[0] : '')?.category || '').trim().replace(/\s+/g, ' ').slice(0, 36);
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/** The product category one listing belongs in, from its title and search words only (no photo). */
+async function suggestListingCategory({ title, searchWords = [], existing = [] }) {
+  const lines = [
+    'KinBech is a Nepali local buy-and-sell marketplace.',
+    `Listing title: "${String(title || '').slice(0, 120)}"`,
+    `Search words: ${searchWords.slice(0, 12).map((word) => `"${String(word).slice(0, 40)}"`).join(', ') || '(none)'}`,
+    '',
+    'Name the product category a buyer would browse to find this item.',
+    'Reply with JSON only, in exactly this shape: {"category": string}',
+    `- When one of these fits, reuse its exact name: ${existing.map((name) => `"${name}"`).join(', ')}.`,
+    '- Otherwise a new product class of 1 to 3 Title Case words, usually plural, e.g. "Traditional Wear", "Kitchen Appliances".',
+    '- Never a brand, model, colour, size, price or condition.',
+  ];
+  const { result } = await runGemini(
+    (generationConfig) => ({
+      systemInstruction: { parts: [{ text: SHOP_CATEGORY_INSTRUCTION }] },
+      contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }],
+      generationConfig: { ...generationConfig, temperature: 0.1, maxOutputTokens: 256 },
+    }),
+    parseListingCategory,
+    { purpose: 'category-fix', preferBulk: true }
+  );
+  return result;
+}
+
 /** Product category names a store of this type would sell. */
 async function suggestShopCategories({ type, name = '', description = '', existing = [], userId = '' }) {
   const { result, model } = await runGemini(
@@ -889,21 +925,67 @@ function voiceAlts(list, query) {
     .slice(0, 5);
 }
 
+const VOICE_MAX_ITEMS = 4;
+const VOICE_MAX_ALTS = 11;
+
+/**
+ * One search from the AI's answer. Several items become the first item's `query` plus every other item (and all
+ * other spellings) in `alts`, which listing search matches as "any of these"; `items` lists the item words.
+ */
 function normalizeVoiceSearch(search, categories = []) {
   const value = search && typeof search === 'object' ? search : {};
-  const query = voiceQueryText(value.query, 60);
-  let minPrice = voicePrice(value.minPrice);
-  let maxPrice = voicePrice(value.maxPrice);
+  const named = Array.isArray(value.items) ? value.items : value.query ? [{ query: value.query, alts: value.alts }] : [];
+  const items = [];
+  const seen = new Set();
+  named.slice(0, VOICE_MAX_ITEMS).forEach((item) => {
+    const query = voiceQueryText(typeof item === 'string' ? item : item?.query, 60);
+    const key = query.toLowerCase();
+    if (!query || seen.has(key)) return;
+    seen.add(key);
+    items.push({ query, alts: voiceAlts(item?.alts, query) });
+  });
+  const query = items[0]?.query || '';
+  const alts = [];
+  const taken = new Set([query.toLowerCase()]);
+  [...items.slice(1).map((item) => item.query), ...items.flatMap((item) => item.alts)].forEach((alt) => {
+    const key = alt.toLowerCase();
+    if (alts.length >= VOICE_MAX_ALTS || taken.has(key)) return;
+    taken.add(key);
+    alts.push(alt);
+  });
+  // The logic is `where`/`order` (see searchLogic); the plain filters below are read from it for app screens that
+  // filter their own list, and answers in the older plain shape still work.
+  const where = normalizeWhere(value.where).filter((entry) => {
+    if (entry.field !== 'category' || entry.op !== 'is') return true;
+    entry.value = matchName(categories, entry.value);
+    return Boolean(entry.value) && items.length <= 1;
+  });
+  const order = normalizeOrder(value.order);
+  const find = (field, ops) => where.find((entry) => entry.field === field && ops.includes(entry.op));
+  const range = find('price', ['between']);
+  let minPrice = voicePrice(value.minPrice) || voicePrice(find('price', ['>', '>='])?.value) || voicePrice(range?.value[0]);
+  let maxPrice = voicePrice(value.maxPrice) || voicePrice(find('price', ['<', '<='])?.value) || voicePrice(range?.value[1]);
   if (minPrice && maxPrice && minPrice > maxPrice) [minPrice, maxPrice] = [maxPrice, minPrice];
+  const first = order[0] ? `${order[0].field} ${order[0].dir}` : '';
+  const sortFromOrder = {
+    'price asc': 'price-low', 'price desc': 'price-high', 'postedDaysAgo asc': 'newest',
+    'distanceKm asc': 'nearby', 'views desc': 'popular',
+  }[first];
+  const english = voiceQueryText(value.english, 100) || items.map((item) => item.query).join(' and ');
+  const condition = value.condition || find('condition', ['is'])?.value;
   return {
+    english,
     query,
-    alts: query ? voiceAlts(value.alts, query) : [],
-    category: matchName(categories, value.category),
+    alts,
+    items: items.map((item) => item.query),
+    category: items.length > 1 ? null : matchName(categories, value.category) || find('category', ['is'])?.value || null,
     minPrice,
     maxPrice,
-    condition: VOICE_CONDITIONS.includes(value.condition) ? value.condition : null,
-    nearby: value.nearby === true,
-    sort: VOICE_SORTS.includes(value.sort) ? value.sort : 'relevance',
+    condition: VOICE_CONDITIONS.includes(condition) ? condition : null,
+    nearby: value.nearby === true || Boolean(find('distanceKm', ['<', '<=', 'between'])) || sortFromOrder === 'nearby',
+    sort: VOICE_SORTS.includes(value.sort) ? value.sort : sortFromOrder || 'relevance',
+    where,
+    order,
   };
 }
 
@@ -1103,6 +1185,185 @@ async function voiceSearchTurn({
   const ownBox = result.where === 'here' && !safeScreen.searchAll;
   return { ...result, ownBox, model, requestId, ms };
 }
+
+const VOICE_QUERY_INSTRUCTION = [
+  'You turn what a buyer typed or said into ONE search on KinBech, a Nepali local buy-and-sell app.',
+  'People write and speak Nepali, Hindi, Hinglish (Roman Hindi/Nepali) or English, often mixed, in any order and any',
+  'phrasing, and speech-to-text can mishear words. Understand the meaning, not particular phrases: every example below',
+  'only illustrates a rule, and words you have never seen in an example follow the same rules.',
+  'You never talk or ask anything: you only build the search.',
+  '',
+  'Reply with JSON only, in exactly this shape:',
+  '{"english": string, "items": [{"query": string, "alts": [string]}],',
+  ' "where": [{"field": string, "op": string, "value": any}], "order": [{"field": string, "dir": "asc"|"desc"}]}',
+  '',
+  'First understand the whole request in English, then split it: WHAT they want (the items) and every condition and',
+  'order they put on them (the logic). One message can name several items and several conditions; all of it is one',
+  'search, and every condition applies to every item.',
+  '',
+  'English:',
+  '- "english": the whole request as one short, clean English search phrase, the way a person would type it: every item',
+  '  joined by "and", then the conditions and order (e.g. "mobile and dustbin", "cheapest chairs first",',
+  '  "all items from seller Kaushal", "items near me"). Written even with no item; "" only when there is nothing to search.',
+  '',
+  'Items:',
+  '- "items": one entry for each different thing they name, in the order named; joined by and/aur/ra/र/या/वा/or/commas.',
+  '  [] when they name no item.',
+  '- "query": 1 to 4 English keywords the way sellers title that item (brand, model, product), e.g. "iphone 13", "study table".',
+  '  Translate any Nepali/Hindi item word to the usual English product word (e.g. कुर्सी -> "chair", स्कुटी -> "scooter").',
+  '  Fix obvious mishearings ("I phone" -> "iphone"). Never put a condition, order or request word in it.',
+  '  With a brand or model, drop generic words ("samsung ka phone" -> "samsung").',
+  '- "alts": the same item as Nepali/Hindi sellers may title it: Roman spelling, Devanagari, a common English synonym.',
+  '  2 to 5 short entries, the same thing only (e.g. "chair" -> ["kursi", "कुर्सी", "मेच"]); brand or model names -> []',
+  '  unless written differently.',
+  '- Generic words that mean "things/anything" in any language (items, stuff, saman, chij, कुरा, सामान) are not items.',
+  '',
+  'Logic: whatever condition or order they ask for, express it with these listing fields:',
+  '${FIELDS}',
+  '- "where": one entry per condition. "op": is, not, has (contains / sounds like, for names, places and text),',
+  '  <, <=, >, >= or between (value [low, high]). Numbers are plain numbers in the field\'s unit; names and places are',
+  '  in Roman English letters the way people spell them, without words like seller, shop, store, ji, dai, ko, ke.',
+  '- "order": the order they ask for, most important first ("cheapest" -> price asc, "near me" -> distanceKm asc,',
+  '  "latest" -> postedDaysAgo asc, "popular" -> views desc); [] when no order is asked.',
+  '- Prices are NPR; turn number words in any language into numbers (thousand/हजार/hazar = 1000, lakh/लाख = 100000).',
+  '  "around X" -> between [0.8X, 1.2X]. Just "cheap/budget" means price asc.',
+  '- "category": only when they name exactly one kind of item and it clearly is one of the product categories; then that',
+  '  item goes in where (category is …) and "items" is []. A narrower kind inside a category stays an item (scooter',
+  '  inside Vehicles). Two or more different items: no category.',
+  '- A condition no field can express is left out; never invent fields or values.',
+  '- Only conditions and no item (e.g. "the cheapest things", "everything this seller has", "whatever is near me"):',
+  '  "items" [] with the where/order kept.',
+  '- Nothing to search in the words (greeting, noise): "items", "where" and "order" all [].',
+  '- "Searching" names the list the search runs on (all items, the buyer\'s own items, one shop, help topics, categories).',
+  '  Build items and logic that make sense for that list; for help topics or category names, items are those words',
+  '  and there is no logic.',
+].join('\n').replace('${FIELDS}', describeSearchFields());
+
+function parseVoiceQuery(rawText, categories) {
+  const cleaned = String(rawText || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    try {
+      parsed = match ? JSON.parse(match[0]) : null;
+    } catch {
+      parsed = null;
+    }
+  }
+  return parsed && typeof parsed === 'object' ? normalizeVoiceSearch(parsed, categories) : null;
+}
+
+/** The buyer's spoken words as one search (words, category, price range, condition, nearby, sort); no reply. */
+// What the screen the buyer is on lists; the search runs on that list only.
+const VOICE_SEARCH_PLACES = {
+  explore: 'all items for sale on KinBech',
+  'search-results': 'all items for sale on KinBech',
+  saved: "the buyer's own saved items",
+  'my-listings': "the buyer's own items for sale",
+  shop: "one shop's items",
+  help: 'help topics about using the app (items are topic words such as "payment" or "delete account"; no prices)',
+  categories: 'product and store category names (items are category words)',
+  'store-categories': 'store category names for a new shop (items are category words)',
+};
+
+// Added when the app sends what it can open: the buyer may ask for any of it instead of a search.
+const VOICE_ACT_INSTRUCTION = [
+  '',
+  'App actions: the buyer may also ask the app to do something instead of searching, in any words. Understand what',
+  'they want done and add to the JSON:',
+  ' "do": "search"|"open"|"back"|"none", "open": string|null, "name": string|null',
+  '- "search": find or show items (also when they only describe items or conditions). "open": open one of the app',
+  '  places listed with the request. "back": close what is open now / go back. "none": nothing to do.',
+  '- "open": exactly one key from the app places, the one that fits what they asked; null unless "do" is "open".',
+  '  When nothing in the list fits, "do" is "search" if they want items, else "none"; never invent a key.',
+  '- "name": for a place that takes a name, the person or shop name they said, in Roman English letters as people',
+  '  spell it, without words like profile, seller, shop, ji, dai, ka, ko; else null.',
+  '- With "open", "back" or "none", "items", "where" and "order" are [] unless the place shows items they described.',
+].join('\n');
+
+/** The app places from the request: key, what it is, and whether it takes a name. */
+function voicePlaceList(places) {
+  return (Array.isArray(places) ? places : [])
+    .map((place) => ({
+      key: cleanVoiceText(place?.key, 40),
+      label: cleanVoiceText(place?.label, 120),
+      takesName: place?.takesName === true,
+    }))
+    .filter((place) => place.key && place.label)
+    .slice(0, 40);
+}
+
+/** What the buyer asked the app to do, kept only when it is one of the app's places. */
+function normalizeVoiceAct(value, places) {
+  const act = ['open', 'back', 'none'].includes(value?.do) ? value.do : 'search';
+  if (act !== 'open') return { do: act, open: null, name: null };
+  const place = places.find((entry) => entry.key === value.open);
+  if (!place) return { do: 'search', open: null, name: null };
+  return { do: 'open', open: place.key, name: place.takesName ? voiceQueryText(value.name, 60) || null : null };
+}
+
+async function voiceSearchQuery({ text, categories = [], userId = '', area = 'explore', places = [] }) {
+  const words = cleanVoiceText(text, 400);
+  const place = VOICE_SEARCH_PLACES[area] || VOICE_SEARCH_PLACES.explore;
+  const appPlaces = voicePlaceList(places);
+  const placeLines = appPlaces.length
+    ? `\nApp places: ${appPlaces.map((entry) => `"${entry.key}" (${entry.label}${entry.takesName ? '; takes a name' : ''})`).join(', ')}`
+    : '';
+  const { result } = await runGemini(
+    (generationConfig) => ({
+      systemInstruction: { parts: [{ text: appPlaces.length ? VOICE_QUERY_INSTRUCTION + VOICE_ACT_INSTRUCTION : VOICE_QUERY_INSTRUCTION }] },
+      contents: [{
+        role: 'user',
+        parts: [{
+          text: `Searching: ${place}${placeLines}\nProduct categories: ${categories.length ? categories.map((name) => `"${name}"`).join(', ') : '(none)'}\n\nBuyer said: "${words}"`,
+        }],
+      }],
+      generationConfig: { ...generationConfig, temperature: 0.2, maxOutputTokens: 1024 },
+    }),
+    (raw) => {
+      const search = parseVoiceQuery(raw, categories);
+      if (!search || !appPlaces.length) return search;
+      let answer = {};
+      try {
+        answer = JSON.parse(String(raw || '').match(/\{[\s\S]*\}/)?.[0] || '{}');
+      } catch {
+        answer = {};
+      }
+      return { ...search, act: normalizeVoiceAct(answer, appPlaces) };
+    },
+    {
+      purpose: 'voice',
+      userId,
+      level: '',
+      preferBulk: true,
+      quick: true,
+      deadlineMs: 12 * 1000,
+      onBlocked: () => normalizeVoiceSearch({}, categories),
+    }
+  );
+  return result;
+}
+
+// Said in Nepali once voice search opens: where the search happens and what to say. Keys match the app's search areas.
+const VOICE_ASK_TEXT = {
+  explore: 'किनबेचमा के खोज्ने हो, भन्नुहोस्।',
+  'search-results': 'किनबेचमा के खोज्ने हो, भन्नुहोस्।',
+  saved: 'सेभ गरेका सामानमा के खोज्ने हो, भन्नुहोस्।',
+  'my-listings': 'तपाईंको लिस्टिङमा के खोज्ने हो, भन्नुहोस्।',
+  shop: 'यो पसलमा के खोज्ने हो, भन्नुहोस्।',
+  help: 'सहायतामा के खोज्ने हो, भन्नुहोस्।',
+  categories: 'कुन क्याटेगोरी खोज्ने हो, भन्नुहोस्।',
+  'store-categories': 'कुन पसल क्याटेगोरी खोज्ने हो, भन्नुहोस्।',
+};
+
+/** The short Nepali "what to search" line for a search area (Explore when unknown); it never says the buyer's name. */
+function voiceAskText(area) {
+  return VOICE_ASK_TEXT[area] || VOICE_ASK_TEXT.explore;
+}
+
+const VOICE_SEARCHING_TEXT = 'ठिक छ, म यो खोज्दै छु।';
 
 /** The spoken result line after a search reply, from what the database really has. */
 function voiceResultLine(lang, summary) {
@@ -1381,10 +1642,14 @@ module.exports = {
   listAvailableModels,
   suggestListingFromImage,
   suggestShopCategories,
+  suggestListingCategory,
   testModel,
+  VOICE_SEARCHING_TEXT,
+  voiceAskText,
   voiceGreetingText,
   voiceNudgeText,
   voiceGoodbyeText,
   voiceResultLine,
+  voiceSearchQuery,
   voiceSearchTurn,
 };

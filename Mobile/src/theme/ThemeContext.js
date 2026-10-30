@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useCallback, useMemo, useState, useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import ScreenLoader from '../components/ScreenLoader';
 import { Theme, buildColors } from './colors';
 
 const ThemeContext = createContext();
@@ -79,8 +78,9 @@ export const ThemeProvider = ({ children }) => {
     [isDarkMode, themeMode, setTheme, palette]
   );
 
+  // Nothing yet, so the native launch gradient (plugins/withLaunchGradient) stays visible.
   if (loading) {
-    return <ScreenLoader label="KinBech" />;
+    return null;
   }
 
   return <ThemeContext.Provider value={theme}>{children}</ThemeContext.Provider>;

@@ -32,7 +32,6 @@ import { ProductCarouselSkeleton, Skeleton } from '../components/SkeletonLoader'
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api, getAuthToken } from '../services/api';
 import { useRequireLogin } from '../components/LoginPrompt';
-import { useVoiceScreen } from '../components/VoiceHost';
 import WelcomeModal from '../components/WelcomeModal';
 import PermissionPrompt from '../components/PermissionPrompt';
 import { useAuth } from '../context/AuthContext';
@@ -433,26 +432,6 @@ export default function HomeScreen({ navigation }) {
     () => [...nearbyListings].sort(compareTrendingNear).slice(0, 12).map(decorate),
     [nearbyListings, decorate]
   );
-
-  const voiceItems = (forYou.length ? forYou : fresh).slice(0, 8);
-  useVoiceScreen({
-    getCurrent: () => ({
-      screen: {
-        about: [`The numbered items are the first ones in the home feed (${forYou.length ? 'picked for you' : 'new near you'}).`],
-        items: voiceItems.map((item) => ({
-          title: item.title || item.listing?.title,
-          price: listingPrice(item),
-          km: item.distanceKm,
-          condition: item.condition,
-        })),
-      },
-    }),
-    onTurn: (turn) => {
-      if (turn?.action !== 'open_item') return undefined;
-      const item = voiceItems[(turn.pick || 0) - 1];
-      return item ? { act: () => openItem(item) } : null;
-    },
-  });
 
   const interestRank = useMemo(
     () => new Map(interestCategories.map((name, index) => [name, index])),

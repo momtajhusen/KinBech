@@ -654,21 +654,8 @@ export const api = {
       body: JSON.stringify(payload),
       timeoutMs: 60000,
     }),
-  voiceSearch: (payload, options = {}) =>
-    request('/ai/voice-search', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-      timeoutMs: 25000,
-      ...options,
-    }),
-  voiceGreeting: (payload = {}, options = {}) =>
-    request('/ai/voice-greeting', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 10000, ...options }),
-  voiceReady: (id, options = {}) =>
-    request(`/ai/voice-ready/${encodeURIComponent(id)}`, { timeoutMs: 10000, ...options }),
-  voiceAudioUrl: (id) => {
-    const base = getWorkingApiBaseUrl() || getApiBaseUrlCandidates()[0] || '';
-    return base ? `${base.replace(/\/$/, '')}/ai/voice-audio/${encodeURIComponent(id)}` : '';
-  },
+  voiceQuery: (payload, options = {}) =>
+    request('/ai/voice-query', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 15000, ...options }),
   updateListing: (id, payload) =>
     request(`/listings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteListing: (id) => request(`/listings/${id}`, { method: 'DELETE' }),

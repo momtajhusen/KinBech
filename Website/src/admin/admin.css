@@ -3835,6 +3835,38 @@ a.subs-user-name:hover {
   font-size: 0.9rem;
 }
 
+.category-fix-panel {
+  margin: -0.5rem 0 1rem;
+}
+
+.category-fix-line {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.category-fix-moves {
+  margin: 0;
+  padding-left: 1.2rem;
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.category-fix-moves li {
+  margin-bottom: 0.2rem;
+}
+
+.category-fix-ai {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--primary-light, rgba(91, 57, 198, 0.12));
+  color: var(--primary, #5b39c6);
+}
+
 .category-form {
   margin-bottom: 1.25rem;
   padding: 1.25rem;

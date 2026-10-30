@@ -289,14 +289,16 @@ export default function ShopProfileScreen({ route, navigation }) {
   }, [category, categoryChips]);
 
   const matchesQuery = useVoiceSearchBox({
-    label: `Items of the shop ${shop?.name || 'open now'}`,
     value: query,
     onChange: setQuery,
+    onFilters: (search) => {
+      setSortKey({ 'price-low': 'price_low', 'price-high': 'price_high' }[search.sort] || 'newest');
+    },
   });
 
   const visibleListings = useMemo(() => {
     let list = listings.filter(
-      (l) => (category === 'All' || l.category === category) && matchesQuery(l.title)
+      (l) => (category === 'All' || l.category === category) && matchesQuery.inPriceRange(l.price) && matchesQuery(l.title)
     );
     if (sortKey === 'price_low') list = [...list].sort((a, b) => (a.price || 0) - (b.price || 0));
     else if (sortKey === 'price_high') list = [...list].sort((a, b) => (b.price || 0) - (a.price || 0));

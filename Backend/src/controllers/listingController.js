@@ -27,6 +27,8 @@ const { featureListingWithCredit } = require('../utils/referral');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { getPlatformSettings } = require('../utils/platformSettings');
 const { resolveProductCategory } = require('../utils/productCategory');
+const { applyUnderstoodSearch, isRemembered, needsUnderstanding, understandSearch } = require('../utils/searchUnderstanding');
+const { buildSearchLogic, compareByOrder } = require('../utils/searchLogic');
 const { emitActivity } = require('../utils/realtime');
 const { listingActivityEvent } = require('../utils/activityEvents');
 const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
@@ -586,9 +588,39 @@ async function getListings(req, res, next) {
   }
 }
 
+/** Replaces the request's search with what the AI understood from `typed`; true when it understood something. */
+async function understandInto(req, typed) {
+  req.searchUnderstood = true;
+  const search = await understandSearch(typed, req.user?._id).catch(() => null);
+  if (!search) {
+    req.searchUnderstood = false;
+    return false;
+  }
+  // Express 5 parses `req.query` on every read, so the new query replaces it on this request.
+  Object.defineProperty(req, 'query', { value: applyUnderstoodSearch(req.query, search), writable: true, configurable: true });
+  const { q, alt, category, minPrice, maxPrice, condition, sort } = req.query;
+  req.searchUnderstood = {
+    english: search.english || '', items: search.items || [], q, alt: alt || null, category: category || null,
+    minPrice: minPrice || null, maxPrice: maxPrice || null, condition: condition || null, sort,
+    where: search.where || [], order: search.order || [],
+  };
+  return true;
+}
+
 async function searchListings(req, res, next) {
   try {
-    const filter = await withPlatformWindow(buildBaseFilter(req), req);
+    // Hindi/Nepali (any script) and whole sentences never match English titles as text; the AI first turns them into
+    // every item named, the category, price range, condition and order. A single plain word is tried as text first.
+    const typed = String(req.query.q || '').trim();
+    const canUnderstand = typed && !req.query.alt && !req.searchUnderstood;
+    if (canUnderstand && (needsUnderstanding(typed) || isRemembered(typed))) await understandInto(req, typed);
+    const logic = await buildSearchLogic(req.query.where, req.query.order);
+    const searchFilter = (options) => {
+      const base = buildBaseFilter(req, options);
+      if (logic.clauses.length) base.$and = [...(base.$and || []), ...logic.clauses];
+      return withPlatformWindow(base, req);
+    };
+    const filter = await searchFilter();
     const {
       lat, lng, radius, sort,
     } = req.query;
@@ -636,17 +668,18 @@ async function searchListings(req, res, next) {
       const personal = profile ? interestScore(doc, profile) * 20 : 0;
       const relevance = queryText ? relevanceOf(doc) + trust + personal : trust;
       return { doc, distance, relevance, trust };
-    }).filter(({ distance }) => {
+    }).filter((row) => {
+      if (!logic.checks.every((check) => check(row))) return false;
       if (!radiusKm) return true;
-      if (distance == null) return false;
-      return distance <= radiusKm;
+      if (row.distance == null) return false;
+      return row.distance <= radiusKm;
     });
 
     let matchMode = 'all';
     let sorted = rankDocs(await fetchDocs(filter));
     if (!sorted.length && phrases.some(([, words]) => words.length > 1)) {
       matchMode = 'partial';
-      const looseDocs = await fetchDocs(await withPlatformWindow(buildBaseFilter(req, { matchMode: 'any' }), req));
+      const looseDocs = await fetchDocs(await searchFilter({ matchMode: 'any' }));
       sorted = rankDocs(looseDocs.filter((doc) => hasWordMatch(doc, tokens)));
     }
 
@@ -719,6 +752,13 @@ async function searchListings(req, res, next) {
       });
     }
 
+    // The order the buyer asked for comes first; the usual ranking above settles ties.
+    if (logic.order.length) sorted.sort(compareByOrder(logic.order));
+
+    if (!sorted.length && canUnderstand && !req.searchUnderstood && await understandInto(req, typed)) {
+      return searchListings(req, res, next);
+    }
+
     const paged = paginateItems(sorted, page, limit);
     const payload = {
       listings: paged.items.map(({ doc, distance }) => listingPayload(doc, distance)),
@@ -729,6 +769,7 @@ async function searchListings(req, res, next) {
       hasMore: paged.hasMore,
       appliedSort: sortMode,
       matchMode,
+      understood: req.searchUnderstood || null,
     };
     if (!profile) listingQueryCache.set(cacheKey, payload);
     return res.json(presentListings(payload, userLat, userLng));

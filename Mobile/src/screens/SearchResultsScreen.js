@@ -408,7 +408,6 @@ export default function SearchResultsScreen({ navigation, route }) {
   };
 
   useVoiceSearchBox({
-    label: 'All KinBech listings and sellers (search results page)',
     searchAll: true,
     value: searchText,
     onChange: (text) => {

@@ -63,7 +63,7 @@ const REASONS = {
   },
   voice: {
     icon: 'mic',
-    title: 'Log in to talk to KinBech',
+    title: 'Log in to search by voice',
     message: 'Say what you want and see matching items near you.',
   },
   support: {

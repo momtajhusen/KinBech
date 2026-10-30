@@ -7,7 +7,6 @@ import EmptyState from '../components/EmptyState';
 import CallMinutesPill from '../components/CallMinutesPill';
 import { ChatItemSkeleton } from '../components/SkeletonLoader';
 import { PressableScale, enterUp } from '../components/Motion';
-import { useVoiceScreen } from '../components/VoiceHost';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { requireCallSetup } from '../services/callReadiness';
@@ -272,30 +271,6 @@ export default function ChatListScreen({ navigation }) {
       image,
     });
   };
-
-  const voiceChats = visible.slice(0, 8);
-  const chatName = (chat) => chat.otherUser?.shop?.name || chat.otherUser?.name || 'Seller';
-  useVoiceScreen({
-    getCurrent: () => ({
-      screen: {
-        about: [
-          voiceChats.length
-            ? `The numbered items are the buyer's chats (${unreadTotal} unread messages in total).`
-            : 'The buyer has no chats yet.',
-        ],
-        items: voiceChats.map((chat) => ({
-          title: `${chatName(chat)}${chat.listing?.title ? ` about ${chat.listing.title}` : ''}${chat.unreadCount ? `, ${chat.unreadCount} unread` : ''}`,
-        })),
-      },
-    }),
-    onTurn: (turn) => {
-      if (turn?.action !== 'open_item') return undefined;
-      const chat = voiceChats[(turn.pick || 0) - 1];
-      if (!chat) return null;
-      const image = resolveMediaUrl(chat.otherUser?.shop?.logo || chat.otherUser?.avatarUrl || '');
-      return { act: () => openChat({ chat, name: chatName(chat), image }) };
-    },
-  });
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

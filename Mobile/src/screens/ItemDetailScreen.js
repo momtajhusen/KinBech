@@ -20,7 +20,6 @@ import ZoomableImage from '../components/ZoomableImage';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useRequireLogin } from '../components/LoginPrompt';
-import { useVoiceScreen } from '../components/VoiceHost';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
@@ -107,12 +106,6 @@ export default function ItemDetailScreen({ navigation, route }) {
   const viewerThumbsRef = useRef(null);
   const viewerThumbWidthRef = useRef(0);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
-  // Filled each render below (after the item is known); the voice chat reads it when the buyer speaks.
-  const voiceRef = useRef({});
-  useVoiceScreen({
-    getCurrent: () => voiceRef.current.getCurrent?.() || {},
-    onTurn: (turn) => voiceRef.current.onTurn?.(turn),
-  });
 
   const loadListing = useCallback(async () => {
     if (!listingId) return;
@@ -403,53 +396,6 @@ export default function ItemDetailScreen({ navigation, route }) {
       item: card.listing || card,
       sharedId: card.id,
     });
-
-  voiceRef.current = {
-    getCurrent: () => ({
-      screen: {
-        about: [
-          `Item open: ${item.title}${item.price ? `, price ${item.price}` : ''}${item.condition ? `, condition ${item.condition}` : ''}`,
-          `Seller: ${listing.sellerType === 'shop' && listing.shopId ? `${listing.shopId.name || item.seller} (shop)` : item.seller}${sellerTrustLine ? ` - ${sellerTrustLine}` : ''}`,
-          item.location ? `Place: ${item.location}${distanceLabel ? ` (${distanceLabel} away)` : ''}` : '',
-          item.posted ? `Posted: ${item.posted}` : '',
-          shopTrustLine,
-          item.description ? `Description: ${String(item.description).replace(/\s+/g, ' ').slice(0, 170)}` : '',
-          relatedItems.length ? 'The numbered items are related items further down this page.' : '',
-        ].filter(Boolean),
-        commands: [
-          { key: 'chat_seller', label: 'Message the seller about this item' },
-          { key: 'save', label: isSaved(listingId) ? 'Remove it from saved items' : 'Save this item' },
-          { key: 'map', label: 'Show where the item is on a map' },
-          { key: 'seller_page', label: 'Open the seller or shop page' },
-          { key: 'photos', label: 'Show the photos full screen' },
-        ],
-        items: relatedItems.slice(0, 8).map((card) => ({
-          title: card.title,
-          price: Number(card.listing?.price ?? card.price) || null,
-          km: card.distanceKm,
-          condition: card.condition || card.listing?.condition,
-        })),
-      },
-    }),
-    onTurn: (turn) => {
-      if (turn?.action === 'open_item') {
-        const card = relatedItems[(turn.pick || 0) - 1];
-        return card ? { act: () => openRelated(card) } : null;
-      }
-      if (turn?.action !== 'do') return undefined;
-      if (turn.command === 'save') {
-        if (listingId) toggle(listingId);
-        return null;
-      }
-      const run = {
-        chat_seller: startChat,
-        map: () => requireLogin('map', handleOpenMap),
-        seller_page: openSellerPage,
-        photos: () => setViewerOpen(true),
-      }[turn.command];
-      return run ? { act: run } : null;
-    },
-  };
 
   const renderContactActions = () => (
     <View style={styles.priceActions}>

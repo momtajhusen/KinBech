@@ -54,6 +54,9 @@ function digits(value) {
   return String(value || '').replace(/[^\d]/g, '');
 }
 
+// A voice search's order, as this screen's sort.
+const VOICE_SORTS = { 'price-low': 'priceLow', 'price-high': 'priceHigh', nearby: 'nearest', newest: 'recent' };
+
 function sortItems(items, sortBy) {
   const list = [...items];
   if (sortBy === 'oldest') return list.sort((a, b) => a.savedOrder - b.savedOrder);
@@ -155,9 +158,14 @@ export default function WishlistScreen({ navigation }) {
   const hasDistance = items.some((item) => item.distanceKm != null);
 
   const matchesQuery = useVoiceSearchBox({
-    label: 'My saved items (wishlist)',
     value: query,
     onChange: setQuery,
+    onFilters: (search) => {
+      setSortBy(VOICE_SORTS[search.sort] || 'recent');
+      setCondition(search.condition || 'all');
+      setMinPrice(search.minPrice ? String(search.minPrice) : '');
+      setMaxPrice(search.maxPrice ? String(search.maxPrice) : '');
+    },
   });
 
   const filtered = useMemo(() => {

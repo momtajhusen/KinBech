@@ -1,14 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Icon from '../components/Icon';
 import { LinearGradient } from 'expo-linear-gradient';
-import {
-  Animated,
-  Dimensions,
+import { Dimensions, Pressable, Text, View } from 'react-native';
+import Animated, {
   Easing,
-  Pressable,
-  Text,
-  View,
-} from 'react-native';
+  Extrapolation,
+  cancelAnimation,
+  interpolate,
+  interpolateColor,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { scheduleOnRN } from 'react-native-worklets';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ROUTES } from '../navigation/helpers';
 import { useAuth } from '../context/AuthContext';
@@ -79,103 +87,74 @@ const SLIDES = [
 ];
 
 const LAST = SLIDES.length - 1;
-const pageRange = (i, spread = 1) => [
-  (i - spread) * SCREEN_WIDTH,
-  i * SCREEN_WIDTH,
-  (i + spread) * SCREEN_WIDTH,
-];
+const CLAMP = Extrapolation.CLAMP;
 
-function usePulse(delay = 0, duration = 1400) {
-  const value = useRef(new Animated.Value(0)).current;
+/** Where page `i` sits against the scroll: -1 one page to the right, 0 centered, 1 one page to the left. */
+const progressOf = (x, i) => {
+  'worklet';
+  return x / SCREEN_WIDTH - i;
+};
+
+function useLoop(duration, delay = 0) {
+  const value = useSharedValue(0);
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(value, {
-          toValue: 1,
-          duration,
-          delay,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(value, {
-          toValue: 0,
-          duration,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ])
+    value.value = withDelay(
+      delay,
+      withRepeat(withTiming(1, { duration, easing: Easing.inOut(Easing.quad) }), -1, true)
     );
-    loop.start();
-    return () => loop.stop();
-  }, [value, delay, duration]);
+    return () => cancelAnimation(value);
+  }, [value, duration, delay]);
   return value;
 }
 
-/** Scroll and intro values are JS-driven; pulse/spring values are native, so they live on separate nodes. */
-function Illustration({ slide, tone, index, active, scrollX, intro, colors, styles }) {
-  const pulse = usePulse(120);
-  const breathe = usePulse(0, 2200);
-  const activeScale = useRef(new Animated.Value(active ? 1 : 0.9)).current;
-  const float = pulse.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+function Illustration({ slide, tone, index, scrollX, intro, colors, styles }) {
+  const float = useLoop(1600, 120);
+  const breathe = useLoop(2200);
 
-  useEffect(() => {
-    Animated.spring(activeScale, {
-      toValue: active ? 1 : 0.9,
-      tension: 120,
-      friction: 10,
-      useNativeDriver: true,
-    }).start();
-  }, [active, activeScale]);
-
-  const range = pageRange(index);
-  const parallax = scrollX.interpolate({
-    inputRange: range,
-    outputRange: [-SCREEN_WIDTH * 0.35, 0, SCREEN_WIDTH * 0.35],
-    extrapolate: 'clamp',
+  // Everything follows the scroll position only, so the art never jumps when the page index flips.
+  const wrapStyle = useAnimatedStyle(() => {
+    const p = progressOf(scrollX.value, index);
+    const away = Math.min(Math.abs(p), 1);
+    const settle = 1 - (1 - away) * (1 - away);
+    const enter = interpolate(intro.value, [0, 0.55], [0, 1], CLAMP);
+    return {
+      opacity: interpolate(away, [0, 0.85], [1, 0], CLAMP) * interpolate(intro.value, [0, 0.4], [0, 1], CLAMP),
+      transform: [
+        { translateX: p * SCREEN_WIDTH * 0.3 },
+        { translateY: settle * 26 },
+        { scale: (1 - settle * 0.22) * (0.82 + enter * 0.18) },
+      ],
+    };
   });
-  const rotate = scrollX.interpolate({
-    inputRange: range,
-    outputRange: ['10deg', '0deg', '-10deg'],
-    extrapolate: 'clamp',
-  });
-  const scrollScale = scrollX.interpolate({ inputRange: range, outputRange: [0.6, 1, 0.6], extrapolate: 'clamp' });
-  const scrollFade = scrollX.interpolate({ inputRange: range, outputRange: [0, 1, 0], extrapolate: 'clamp' });
-  const introScale = intro.interpolate({ inputRange: [0, 0.55], outputRange: [0.8, 1], extrapolate: 'clamp' });
-  const introFade = intro.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' });
 
-  const haloScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.06] });
-  const haloFade = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] });
+  // Off-screen slides hold still, so the loops don't cost a frame update for art nobody sees.
+  const haloStyle = useAnimatedStyle(() => {
+    const away = Math.min(Math.abs(progressOf(scrollX.value, index)), 1);
+    const b = away < 1 ? breathe.value : 0;
+    return {
+      opacity: (0.55 + b * 0.45) * (1 - away),
+      transform: [{ scale: (0.92 + b * 0.14) * (1 + away * 0.35) }],
+    };
+  });
+  const haloInnerStyle = useAnimatedStyle(() => {
+    const visible = Math.abs(progressOf(scrollX.value, index)) < 1;
+    return { transform: [{ scale: 0.92 + (visible ? breathe.value : 0) * 0.14 }] };
+  });
+
+  const artStyle = useAnimatedStyle(() => {
+    const visible = Math.abs(progressOf(scrollX.value, index)) < 1;
+    return { transform: [{ translateY: visible ? -7 * float.value : 0 }] };
+  });
 
   return (
-    <Animated.View
-      style={[
-        styles.illustrationWrap,
-        {
-          opacity: Animated.multiply(scrollFade, introFade),
-          transform: [
-            { translateX: parallax },
-            { rotate },
-            { scale: Animated.multiply(scrollScale, introScale) },
-          ],
-        },
-      ]}
-    >
-      <Animated.View
-        style={[
-          styles.haloOuter,
-          { backgroundColor: `${tone}12`, opacity: haloFade, transform: [{ scale: haloScale }] },
-        ]}
-      />
-      <Animated.View style={[styles.haloInner, { backgroundColor: `${tone}1C`, transform: [{ scale: haloScale }] }]} />
+    <Animated.View style={[styles.illustrationWrap, wrapStyle]}>
+      <Animated.View style={[styles.haloOuter, { backgroundColor: `${tone}12` }, haloStyle]} />
+      <Animated.View style={[styles.haloInner, { backgroundColor: `${tone}1C` }, haloInnerStyle]} />
 
       {slide.image ? (
-        <Animated.Image
-          source={slide.image}
-          resizeMode="contain"
-          style={[styles.illustrationImage, { transform: [{ scale: activeScale }, { translateY: float }] }]}
-        />
+        <Animated.Image source={slide.image} resizeMode="contain" style={[styles.illustrationImage, artStyle]} />
       ) : (
-        <Animated.View style={{ transform: [{ scale: activeScale }, { translateY: float }] }}>
+        <Animated.View style={artStyle}>
           <LinearGradient
             colors={[slide.accent, colors.gradientEnd || colors.primary]}
             start={{ x: 0, y: 0 }}
@@ -190,60 +169,142 @@ function Illustration({ slide, tone, index, active, scrollX, intro, colors, styl
   );
 }
 
-function SlideText({ slide, tone, index, scrollX, intro, styles }) {
-  const fade = scrollX.interpolate({ inputRange: pageRange(index, 0.7), outputRange: [0, 1, 0], extrapolate: 'clamp' });
-  const [lead, highlight] = slide.title.split('\n');
+/** First-load cascade: each piece rises in a little after the last. It only moves during the intro. */
+function Rise({ intro, from, style, children }) {
+  const riseStyle = useAnimatedStyle(() => {
+    const enter = interpolate(intro.value, [from, from + 0.45], [0, 1], CLAMP);
+    return { opacity: enter, transform: [{ translateY: (1 - enter) * 18 }] };
+  });
+  return <Animated.View style={[style, riseStyle]}>{children}</Animated.View>;
+}
 
-  /** Each layer slides a bit further than the last, so content cascades during swipe and on first load. */
-  const layer = (offset, from) => {
-    const enter = intro.interpolate({ inputRange: [from, from + 0.45], outputRange: [0, 1], extrapolate: 'clamp' });
+/** Swipe cascade: the heading and the details slide by different amounts. Two groups keep frames cheap. */
+function Drift({ index, scrollX, offset, style, children }) {
+  const driftStyle = useAnimatedStyle(() => {
+    const p = progressOf(scrollX.value, index);
     return {
-      opacity: Animated.multiply(fade, enter),
-      transform: [
-        {
-          translateX: scrollX.interpolate({
-            inputRange: pageRange(index),
-            outputRange: [offset, 0, -offset],
-            extrapolate: 'clamp',
-          }),
-        },
-        { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
-      ],
+      opacity: interpolate(Math.abs(p), [0, 0.7], [1, 0], CLAMP),
+      transform: [{ translateX: -p * offset }],
     };
-  };
+  });
+  return <Animated.View style={[style, driftStyle]}>{children}</Animated.View>;
+}
+
+function SlideText({ slide, tone, index, scrollX, intro, styles }) {
+  const [lead, highlight] = slide.title.split('\n');
 
   return (
     <View style={styles.textBlock}>
-      <Animated.View
-        style={[styles.kicker, { backgroundColor: `${tone}1A`, borderColor: `${tone}3D` }, layer(40, 0.2)]}
-      >
-        <Icon name={slide.icon.replace('-outline', '')} size={13} color={tone} />
-        <Text style={[styles.kickerText, { color: tone }]}>{slide.kicker}</Text>
-      </Animated.View>
+      <Drift index={index} scrollX={scrollX} offset={60} style={styles.textGroup}>
+        <Rise
+          intro={intro}
+          from={0.2}
+          style={[styles.kicker, { backgroundColor: `${tone}1A`, borderColor: `${tone}3D` }]}
+        >
+          <Icon name={slide.icon.replace('-outline', '')} size={13} color={tone} />
+          <Text style={[styles.kickerText, { color: tone }]}>{slide.kicker}</Text>
+        </Rise>
 
-      <Animated.Text style={[styles.title, layer(90, 0.28)]}>
-        {lead}
-        {highlight ? <Text style={{ color: tone }}>{`\n${highlight}`}</Text> : null}
-      </Animated.Text>
+        <Rise intro={intro} from={0.28}>
+          <Text style={styles.title}>
+            {lead}
+            {highlight ? <Text style={{ color: tone }}>{`\n${highlight}`}</Text> : null}
+          </Text>
+        </Rise>
+      </Drift>
 
-      <Animated.Text style={[styles.body, layer(140, 0.36)]}>{slide.body}</Animated.Text>
+      <Drift index={index} scrollX={scrollX} offset={140} style={styles.textGroup}>
+        <Rise intro={intro} from={0.36} style={styles.bodyWrap}>
+          <Text style={styles.body}>{slide.body}</Text>
+        </Rise>
 
-      <View style={styles.chipsRow}>
-        {slide.chips.map(([icon, label], j) => (
-          <Animated.View
-            key={label}
-            style={[
-              styles.chip,
-              { backgroundColor: `${tone}12`, borderColor: `${tone}2E` },
-              layer(180 + j * 45, 0.44 + j * 0.06),
-            ]}
-          >
-            <Icon name={icon} size={13} color={tone} />
-            <Text style={styles.chipText}>{label}</Text>
-          </Animated.View>
-        ))}
-      </View>
+        <Rise intro={intro} from={0.44} style={styles.chipsRow}>
+          {slide.chips.map(([icon, label]) => (
+            <View key={label} style={[styles.chip, { backgroundColor: `${tone}12`, borderColor: `${tone}2E` }]}>
+              <Icon name={icon} size={13} color={tone} />
+              <Text style={styles.chipText}>{label}</Text>
+            </View>
+          ))}
+        </Rise>
+      </Drift>
     </View>
+  );
+}
+
+function Glow({ index, scrollX, tone, styles }) {
+  const glowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(Math.abs(progressOf(scrollX.value, index)), [0, 1], [1, 0], CLAMP),
+  }));
+  return (
+    <Animated.View pointerEvents="none" style={[styles.bgGlow, glowStyle]}>
+      <LinearGradient colors={[`${tone}2E`, `${tone}0D`, 'transparent']} style={styles.fill} />
+    </Animated.View>
+  );
+}
+
+function Dot({ index, scrollX, tone, border, onPress, styles }) {
+  const dotStyle = useAnimatedStyle(() => {
+    const away = Math.min(Math.abs(progressOf(scrollX.value, index)), 1);
+    return {
+      width: 8 + (1 - away) * 18,
+      backgroundColor: interpolateColor(away, [0, 1], [tone, border]),
+    };
+  });
+  return (
+    <Pressable onPress={onPress} hitSlop={8}>
+      <Animated.View style={[styles.dot, dotStyle]} />
+    </Pressable>
+  );
+}
+
+/**
+ * Holds the only page-dependent state (Next vs Get Started). Re-rendering it alone matters: a re-render
+ * of the whole screen snaps settled animated styles (text, footer, dots) back to their first-render values.
+ */
+function NextButton({ lastRef, onPress, colors, styles }) {
+  const [isLast, setIsLast] = useState(false);
+  const ctaScale = useSharedValue(1);
+  const label = useSharedValue(1);
+  const nudge = useLoop(700);
+  lastRef.current = setIsLast;
+
+  useEffect(() => {
+    label.value = 0;
+    label.value = withSpring(1, { damping: 12, stiffness: 160 });
+  }, [isLast, label]);
+
+  const ctaStyle = useAnimatedStyle(() => ({ transform: [{ scale: ctaScale.value }] }));
+  const labelStyle = useAnimatedStyle(() => ({
+    opacity: Math.min(label.value, 1),
+    transform: [{ scale: 0.85 + label.value * 0.15 }],
+  }));
+  const arrowStyle = useAnimatedStyle(() => ({
+    transform: isLast
+      ? [{ rotate: `${-12 + nudge.value * 24}deg` }]
+      : [{ translateX: nudge.value * 5 }],
+  }));
+
+  return (
+    <Animated.View style={ctaStyle}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => {
+          ctaScale.value = withSpring(0.96, { damping: 14, stiffness: 300 });
+        }}
+        onPressOut={() => {
+          ctaScale.value = withSpring(1, { damping: 13, stiffness: 280 });
+        }}
+      >
+        <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.nextButton}>
+          <Animated.View style={[styles.nextInner, labelStyle]}>
+            <Text style={styles.nextText}>{isLast ? 'Get Started' : 'Next'}</Text>
+            <Animated.View key={isLast ? 'sparkles' : 'arrow'} style={arrowStyle}>
+              <Icon name={isLast ? 'sparkles' : 'arrow-forward'} size={20} color={colors.onGradient} />
+            </Animated.View>
+          </Animated.View>
+        </LinearGradient>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -251,64 +312,47 @@ export default function OnboardingScreen({ navigation }) {
   const { colors, isDark } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const [index, setIndex] = useState(0);
   const { completeOnboarding } = useAuth();
+  // The pager is a native paging ScrollView (smooth on its own); the art and text follow it on the UI thread.
   const scrollRef = useRef(null);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const ctaScale = useRef(new Animated.Value(1)).current;
-  const intro = useRef(new Animated.Value(0)).current;
-  const label = useRef(new Animated.Value(1)).current;
-  const nudge = usePulse(0, 700);
-  const indexRef = useRef(0);
-  /** Page a Next/dot tap is scrolling to; scroll events are ignored until it lands so the index can't snap back. */
-  const targetRef = useRef(null);
-  const targetTimerRef = useRef(null);
+  const scrollX = useSharedValue(0);
+  const shownIndex = useSharedValue(0);
+  /** Page the pager rests on or a Next/dot tap is heading to, so a second tap mid-scroll continues from there. */
+  const targetRef = useRef(0);
+  const lastRef = useRef(null);
+  const intro = useSharedValue(0);
   const finishingRef = useRef(false);
 
-  const syncIndex = (x) => {
-    const next = Math.max(0, Math.min(LAST, Math.round(x / SCREEN_WIDTH)));
-    if (next !== indexRef.current) {
-      indexRef.current = next;
-      setIndex(next);
-    }
-  };
-  const clearTarget = () => {
-    targetRef.current = null;
-    clearTimeout(targetTimerRef.current);
-  };
+  const showIndex = useCallback((next) => {
+    targetRef.current = next;
+    lastRef.current?.(next === LAST);
+  }, []);
 
-  const onScroll = useRef(
-    Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
-      useNativeDriver: false,
-      listener: (e) => {
-        const x = e.nativeEvent.contentOffset.x;
-        const target = targetRef.current;
-        if (target != null) {
-          if (Math.abs(x - target * SCREEN_WIDTH) < 2) clearTarget();
-          return;
-        }
-        syncIndex(x);
-      },
-    })
-  ).current;
-
-  useEffect(() => () => clearTimeout(targetTimerRef.current), []);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      const x = e.contentOffset.x;
+      scrollX.value = x;
+      const page = Math.round(x / SCREEN_WIDTH);
+      if (Math.abs(x - page * SCREEN_WIDTH) > 1 || page === shownIndex.value) return;
+      shownIndex.value = page;
+      scheduleOnRN(showIndex, Math.max(0, Math.min(LAST, page)));
+    },
+  });
 
   useEffect(() => {
-    Animated.timing(intro, {
-      toValue: 1,
-      duration: 1100,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
+    intro.value = withTiming(1, { duration: 1100, easing: Easing.out(Easing.cubic) });
   }, [intro]);
 
-  const isLast = index === LAST;
-
-  useEffect(() => {
-    label.setValue(0);
-    Animated.spring(label, { toValue: 1, tension: 160, friction: 9, useNativeDriver: true }).start();
-  }, [isLast, label]);
+  const skipStyle = useAnimatedStyle(() => ({
+    opacity:
+      intro.value *
+      interpolate(scrollX.value, [(LAST - 1) * SCREEN_WIDTH, (LAST - 0.4) * SCREEN_WIDTH], [1, 0], CLAMP),
+    transform: [{ translateY: (1 - intro.value) * -8 }],
+  }));
+  const footerStyle = useAnimatedStyle(() => {
+    const enter = interpolate(intro.value, [0.5, 1], [0, 1], CLAMP);
+    return { opacity: enter, transform: [{ translateY: (1 - enter) * 24 }] };
+  });
 
   if (!colors) {
     return null;
@@ -318,11 +362,7 @@ export default function OnboardingScreen({ navigation }) {
 
   const goToSlide = (i) => {
     const next = Math.max(0, Math.min(LAST, i));
-    clearTarget();
     targetRef.current = next;
-    targetTimerRef.current = setTimeout(clearTarget, 800);
-    indexRef.current = next;
-    setIndex(next);
     scrollRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
   };
 
@@ -334,50 +374,22 @@ export default function OnboardingScreen({ navigation }) {
   };
 
   const onNext = () => {
-    if (indexRef.current >= LAST) {
+    if (targetRef.current >= LAST) {
       finishOnboarding();
     } else {
-      goToSlide(indexRef.current + 1);
+      goToSlide(targetRef.current + 1);
     }
   };
-
-  const skipFade = scrollX.interpolate({
-    inputRange: [(LAST - 1) * SCREEN_WIDTH, (LAST - 0.4) * SCREEN_WIDTH],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-  const ctaEnter = intro.interpolate({ inputRange: [0.5, 1], outputRange: [0, 1], extrapolate: 'clamp' });
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <ThemeStatusBar />
       {SLIDES.map((slide, i) => (
-        <Animated.View
-          key={slide.title}
-          pointerEvents="none"
-          style={[
-            styles.bgGlow,
-            { opacity: scrollX.interpolate({ inputRange: pageRange(i), outputRange: [0, 1, 0], extrapolate: 'clamp' }) },
-          ]}
-        >
-          <LinearGradient
-            colors={[`${toneOf(slide)}2E`, `${toneOf(slide)}0D`, 'transparent']}
-            style={styles.fill}
-          />
-        </Animated.View>
+        <Glow key={slide.title} index={i} scrollX={scrollX} tone={toneOf(slide)} styles={styles} />
       ))}
 
-      <Animated.View
-        pointerEvents={isLast ? 'none' : 'auto'}
-        style={[
-          styles.skipBtn,
-          {
-            opacity: Animated.multiply(intro, skipFade),
-            transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }) }],
-          },
-        ]}
-      >
-        <Pressable onPress={finishOnboarding} hitSlop={10}>
+      <Animated.View style={[styles.skipBtn, { top: insets.top }, skipStyle]}>
+        <Pressable onPress={() => targetRef.current < LAST && finishOnboarding()} hitSlop={10}>
           <Text style={styles.skipText}>Skip</Text>
         </Pressable>
       </Animated.View>
@@ -389,11 +401,6 @@ export default function OnboardingScreen({ navigation }) {
         decelerationRate="fast"
         showsHorizontalScrollIndicator={false}
         onScroll={onScroll}
-        onScrollBeginDrag={clearTarget}
-        onMomentumScrollEnd={(e) => {
-          clearTarget();
-          syncIndex(e.nativeEvent.contentOffset.x);
-        }}
         scrollEventThrottle={16}
         style={styles.pager}
       >
@@ -403,7 +410,6 @@ export default function OnboardingScreen({ navigation }) {
               slide={slide}
               tone={toneOf(slide)}
               index={i}
-              active={i === index}
               scrollX={scrollX}
               intro={intro}
               colors={colors}
@@ -421,80 +427,22 @@ export default function OnboardingScreen({ navigation }) {
         ))}
       </Animated.ScrollView>
 
-      <Animated.View
-        style={[
-          styles.footer,
-          {
-            marginBottom: Math.max(insets.bottom, 20),
-            opacity: ctaEnter,
-            transform: [{ translateY: ctaEnter.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
-          },
-        ]}
-      >
+      <Animated.View style={[styles.footer, { marginBottom: Math.max(insets.bottom, 20) }, footerStyle]}>
         <View style={styles.dotsRow}>
           {SLIDES.map((slide, i) => (
-            <Pressable key={slide.title} onPress={() => goToSlide(i)} hitSlop={8}>
-              <Animated.View
-                style={[
-                  styles.dot,
-                  {
-                    width: scrollX.interpolate({
-                      inputRange: pageRange(i),
-                      outputRange: [8, 26, 8],
-                      extrapolate: 'clamp',
-                    }),
-                    backgroundColor: scrollX.interpolate({
-                      inputRange: pageRange(i),
-                      outputRange: [colors.border, toneOf(slide), colors.border],
-                      extrapolate: 'clamp',
-                    }),
-                  },
-                ]}
-              />
-            </Pressable>
+            <Dot
+              key={slide.title}
+              index={i}
+              scrollX={scrollX}
+              tone={toneOf(slide)}
+              border={colors.border}
+              onPress={() => goToSlide(i)}
+              styles={styles}
+            />
           ))}
         </View>
 
-        <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-          <Pressable
-            onPress={onNext}
-            onPressIn={() =>
-              Animated.spring(ctaScale, { toValue: 0.96, useNativeDriver: true, tension: 300, friction: 12 }).start()
-            }
-            onPressOut={() =>
-              Animated.spring(ctaScale, { toValue: 1, useNativeDriver: true, tension: 280, friction: 11 }).start()
-            }
-          >
-            <LinearGradient
-              colors={colors.gradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.nextButton}
-            >
-              <Animated.View
-                style={[
-                  styles.nextInner,
-                  {
-                    opacity: label,
-                    transform: [{ scale: label.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }],
-                  },
-                ]}
-              >
-                <Text style={styles.nextText}>{isLast ? 'Get Started' : 'Next'}</Text>
-                <Animated.View
-                  key={isLast ? 'sparkles' : 'arrow'}
-                  style={{
-                    transform: isLast
-                      ? [{ rotate: nudge.interpolate({ inputRange: [0, 1], outputRange: ['-12deg', '12deg'] }) }]
-                      : [{ translateX: nudge.interpolate({ inputRange: [0, 1], outputRange: [0, 5] }) }],
-                  }}
-                >
-                  <Icon name={isLast ? 'sparkles' : 'arrow-forward'} size={20} color={colors.onGradient} />
-                </Animated.View>
-              </Animated.View>
-            </LinearGradient>
-          </Pressable>
-        </Animated.View>
+        <NextButton lastRef={lastRef} onPress={onNext} colors={colors} styles={styles} />
       </Animated.View>
     </View>
   );
@@ -576,6 +524,10 @@ const createStyles = (colors) => ({
     width: '100%',
     alignItems: 'center',
   },
+  textGroup: {
+    width: '100%',
+    alignItems: 'center',
+  },
   kicker: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -600,9 +552,11 @@ const createStyles = (colors) => ({
     lineHeight: 37,
     letterSpacing: -0.5,
   },
-  body: {
+  bodyWrap: {
     marginTop: 12,
     maxWidth: 330,
+  },
+  body: {
     fontSize: 15,
     lineHeight: 22,
     color: colors.textMuted,

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
+import DeveloperOptionsScreen, { useDeveloperOptionsBlocked } from './src/screens/DeveloperOptionsScreen';
 import { ImageCropSheetHost } from './src/components/ImageCropSheet';
 import { ListingCameraHost } from './src/components/ListingCamera';
 import { LoginPromptHost } from './src/components/LoginPrompt';
@@ -56,6 +57,8 @@ function GlobalErrorBridge({ children }) {
 }
 
 export default function App() {
+  const [devOptionsOn, recheckDevOptions] = useDeveloperOptionsBlocked();
+
   useEffect(() => {
     // Setup FCM
     const setupFCM = async () => {
@@ -85,6 +88,16 @@ export default function App() {
       if (cleanup) cleanup();
     };
   }, []);
+
+  if (devOptionsOn) {
+    return (
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <DeveloperOptionsScreen onRecheck={recheckDevOptions} />
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    );
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

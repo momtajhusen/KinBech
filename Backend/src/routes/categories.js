@@ -14,6 +14,7 @@ const {
   deleteCategory,
   uploadCategoryImage,
 } = require('../controllers/categoryController');
+const { categoryFixStatus, startManualCategoryFix } = require('../utils/categoryFix');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -79,6 +80,23 @@ router.post(
   },
   uploadCategoryImage
 );
+/** The daily category check (utils/categoryFix), run once now from the admin panel. */
+router.get('/admin/fix-run', requireScope('categories'), async (req, res, next) => {
+  try {
+    res.json(await categoryFixStatus());
+  } catch (error) {
+    next(error);
+  }
+});
+router.post('/admin/fix-run', requireScope('categories'), auditRoute('categories.fix-run'), async (req, res, next) => {
+  try {
+    const started = await startManualCategoryFix(req.user?._id);
+    if (!started) return res.status(409).json({ message: 'A category check is already running.' });
+    return res.status(202).json(await categoryFixStatus());
+  } catch (error) {
+    return next(error);
+  }
+});
 router.post('/admin', requireScope('categories'), auditRoute('categories.create', { targetType: 'category' }), createCategory);
 router.patch('/admin/:id', requireScope('categories'), auditRoute('categories.update', { targetType: 'category', param: 'id' }), updateCategory);
 router.delete('/admin/:id', requireScope('categories'), auditRoute('categories.delete', { targetType: 'category', param: 'id' }), deleteCategory);

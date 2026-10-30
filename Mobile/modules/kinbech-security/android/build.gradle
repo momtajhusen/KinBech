@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.codersalpha.kinbech'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.kinbechsecurity"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}

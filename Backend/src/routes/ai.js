@@ -8,10 +8,13 @@ const {
   listAvailableModels,
   suggestListingFromImage,
   testModel,
+  VOICE_SEARCHING_TEXT,
+  voiceAskText,
   voiceGreetingText,
   voiceNudgeText,
   voiceGoodbyeText,
   voiceResultLine,
+  voiceSearchQuery,
   voiceSearchTurn,
 } = require('../utils/aiSuggest');
 const { openLiveSpeech, pipeSpeech, waitSpeechReady } = require('../utils/voiceLive');
@@ -19,6 +22,8 @@ const { searchSummary } = require('../controllers/listingController');
 const { CATALOG, catalogEntry } = require('../utils/aiCatalog');
 const { LEVELS, levelLimits, sellerLevel } = require('../utils/aiSellerLevel');
 const { listProductCategoryNames, resolveProductCategory } = require('../utils/productCategory');
+const { rememberSearch } = require('../utils/searchUnderstanding');
+const { findSellerByName } = require('../utils/searchLogic');
 const {
   addAiAccount,
   candidateAccounts,
@@ -232,22 +237,59 @@ router.get('/voice-audio/:id', (req, res) => {
 });
 
 /**
- * Lines the voice chat says on its own, with the buyer's name, already being spoken:
- * `kind` "greeting" (Nepali hello when it opens), "nudge" (after a quiet while, in `lang`) or
- * "goodbye" (still quiet after the nudges, just before the chat closes, in `lang`).
+ * Lines the voice helper says on its own, already being spoken: `kind` "ask" (Nepali: where voice search
+ * looks, for the search `area`, and what to say) or "searching" (once the buyer has spoken); older app
+ * builds' voice chat also asks for "greeting", "nudge" and "goodbye" (in `lang`, with the buyer's name).
  */
 router.post('/voice-greeting', requireAuth, async (req, res) => {
   const userId = String(req.user._id);
-  const kind = ['nudge', 'goodbye'].includes(req.body?.kind) ? req.body.kind : 'greeting';
-  const lang = kind !== 'greeting' && ['ne', 'hi', 'en'].includes(req.body?.lang) ? req.body.lang : 'ne';
-  const text = kind === 'nudge'
-    ? voiceNudgeText(req.user.name, lang)
-    : kind === 'goodbye' ? voiceGoodbyeText(req.user.name, lang) : voiceGreetingText(req.user.name);
+  const kind = ['nudge', 'goodbye', 'ask', 'searching'].includes(req.body?.kind) ? req.body.kind : 'greeting';
+  let lang = ['nudge', 'goodbye'].includes(kind) && ['ne', 'hi', 'en'].includes(req.body?.lang) ? req.body.lang : 'ne';
+  let text;
+  if (kind === 'ask' || kind === 'searching') {
+    lang = 'ne';
+    text = kind === 'ask' ? voiceAskText(String(req.body?.area || '')) : VOICE_SEARCHING_TEXT;
+  } else if (kind === 'nudge') {
+    text = voiceNudgeText(req.user.name, lang);
+  } else {
+    text = kind === 'goodbye' ? voiceGoodbyeText(req.user.name, lang) : voiceGreetingText(req.user.name);
+  }
   const speech = takeVoiceTurn(userId, 'speech', VOICE_SPEECH_PER_DAY) ? openLiveSpeech({ userId }) : null;
   res.json({ text, lang, speechId: speech ? speech.say(text) : null });
 });
 
-/** One turn of the Explore voice chat: the buyer's words and screen in, a spoken reply and what the app should do out. */
+/** Voice search: the buyer's spoken words in, one search out (words, category, price range, condition, sort). */
+router.post('/voice-query', requireAuth, aiLimiter, async (req, res) => {
+  try {
+    const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim();
+    if (!text) return res.status(400).json({ message: 'Say something to search' });
+    const userId = String(req.user._id);
+    if (!takeVoiceTurn(userId)) {
+      return res.status(429).json({ message: 'Voice search limit reached for today. Please type to search.' });
+    }
+    const categories = (await listProductCategoryNames()).slice(0, 80);
+    const area = String(req.body?.area || 'explore');
+    const search = await voiceSearchQuery({ text, categories, userId, area, places: req.body?.places });
+    // Opening someone by name: the app gets which seller or shop it is (or none found).
+    if (search?.act?.do === 'open' && search.act.name) {
+      search.act.target = await findSellerByName(search.act.name).catch(() => null);
+    }
+    // Explore and search results search all listings with these words, so they reuse this answer.
+    if ((area === 'explore' || area === 'search-results') && (!search?.act || search.act.do === 'search')) {
+      rememberSearch(text, search);
+      // The app searches with the AI's English phrase, so that is kept too.
+      rememberSearch(search?.english, search);
+    }
+    return res.json({ search });
+  } catch (error) {
+    const status = error.status === 429 || error.status === 503 ? error.status : 502;
+    if (status === 502) console.error('[ai] voice-query failed:', error.message || error);
+    else console.warn('[ai] voice-query:', error.message);
+    return res.status(status).json({ message: status === 502 ? 'Voice search could not understand. Please try again.' : error.message });
+  }
+});
+
+/** One turn of the Explore voice chat (older app builds): the buyer's words and screen in, a spoken reply and what the app should do out. */
 router.post('/voice-search', requireAuth, aiLimiter, async (req, res) => {
   try {
     const text = String(req.body?.text || '').replace(/\s+/g, ' ').trim();

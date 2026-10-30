@@ -39,7 +39,7 @@ import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useCategories, mergeSidebarCategories, refreshCategories } from '../utils/categories';
 import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
-import { useExploreVoiceTurns, useVoiceScreen } from '../components/VoiceHost';
+import { useExploreVoiceTurns } from '../components/VoiceHost';
 import EmptyState from '../components/EmptyState';
 import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
@@ -57,7 +57,7 @@ import {
 } from '../components/Motion';
 import ExploreFilterSheet, { DEFAULT_EXPLORE_FILTERS, countActiveFilters } from '../components/ExploreFilterSheet';
 
-const SIDEBAR_WIDTH = 76;
+const SIDEBAR_WIDTH = 70;
 const GRID_GUTTER = 8;
 const GRID_PADDING = 10;
 const ALL_TINT = '#047857';
@@ -650,10 +650,8 @@ export default function ExploreScreen({ navigation, route }) {
   const searchAbortRef = useRef(null);
   const searchQueryRef = useRef('');
   searchQueryRef.current = searchQuery;
-  const voiceStateRef = useRef({});
   // Other spellings/languages the voice helper gave for its query ("kursi,कुर्सी" for "chair").
   const voiceAltsRef = useRef(null);
-  const voicePickRef = useRef({ items: [], sellers: [] });
 
   const hasLoadedRef = useRef(seededProducts.length > 0);
   const productsFpRef = useRef(catalogFingerprint(seededProducts));
@@ -883,7 +881,7 @@ export default function ExploreScreen({ navigation, route }) {
 
   // Load the selected category from API so sidebar filter shows correct items, then shuffle
   useEffect(() => {
-    if (!activeCategory || activeCategory === 'All' || activeTab !== 'products') {
+    if (!activeCategory || activeCategory === 'All' || activeTab !== 'products' || searchQuery) {
       return undefined;
     }
 
@@ -906,7 +904,7 @@ export default function ExploreScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [activeCategory, activeTab, userCoords, mergeProducts]);
+  }, [activeCategory, activeTab, searchQuery, userCoords, mergeProducts]);
 
   const loadMoreProducts = useCallback(async () => {
     if (loadingMoreRef.current) return;
@@ -950,6 +948,7 @@ export default function ExploreScreen({ navigation, route }) {
     return () => clearTimeout(timer);
   }, [cleanSearch, searchQuery, voiceText, applySearch]);
 
+  const searchResultsForRef = useRef('');
   const runSearch = useCallback(async (q, filters = DEFAULT_EXPLORE_FILTERS) => {
     searchAbortRef.current?.abort();
     if (!q) {
@@ -976,6 +975,7 @@ export default function ExploreScreen({ navigation, route }) {
     ]);
     if (controller.signal.aborted || listingRes?.aborted || sellerRes?.aborted) return;
 
+    searchResultsForRef.current = q;
     setSearchProducts(
       listingRes?.error ? [] : (listingRes?.data?.listings || []).map(toCardItem).filter(Boolean)
     );
@@ -1092,49 +1092,59 @@ export default function ExploreScreen({ navigation, route }) {
   };
 
   const categories = useMemo(() => {
-    const useLive = activeTab === 'products' && !searchActive && liveCounts;
-    const allOption = {
-      label: 'All',
-      icon: activeTab === 'products' ? 'grid' : 'storefront',
-      tint: ALL_TINT,
-      count: activeTab === 'products'
-        ? Math.max(sourceProducts.length, useLive ? liveCounts.total || 0 : 0)
-        : sourceSellers.length,
-    };
-    // Keep the selected category visible even if it just ran out of items.
-    const options = { hideEmpty: true, keep: [activeCategory, initialCategory].filter(Boolean) };
-
-    if (activeTab === 'products') {
+    const isProducts = activeTab === 'products';
+    const nameOf = isProducts
+      ? (it) => it.category || it.listing?.category
+      : (seller) => seller.category || 'General';
+    const tally = (list) => {
       const found = {};
-      for (const it of sourceProducts) {
-        const name = it.category || it.listing?.category;
+      for (const item of list) {
+        const name = nameOf(item);
         if (name) found[name] = (found[name] || 0) + 1;
       }
-      if (useLive) {
-        const known = new Set(productCategories.map((c) => c.label));
-        for (const [name, count] of Object.entries(liveCounts.counts)) {
-          if (count > 0 && (known.has(name) || found[name])) found[name] = Math.max(found[name] || 0, count);
-        }
-      }
-      return mergeSidebarCategories(productCategories, found, allOption, interestCategories, options);
-    }
+      return found;
+    };
+    const bump = (found, name, count) => {
+      if (count > 0) found[name] = Math.max(found[name] || 0, count);
+    };
 
-    const found = {};
-    for (const seller of sourceSellers) {
-      const name = seller.category || 'General';
-      found[name] = (found[name] || 0) + 1;
+    // The sidebar keeps the full category list while searching; the search only reorders it.
+    const found = tally(isProducts ? products : uniqueSellers);
+    const hits = searchActive ? tally(isProducts ? searchProducts : sourceSellers) : null;
+    const allOption = {
+      label: 'All',
+      icon: isProducts ? 'grid' : 'storefront',
+      tint: ALL_TINT,
+      count: isProducts ? Math.max(products.length, liveCounts?.total || 0) : uniqueSellers.length,
+    };
+    if (isProducts && liveCounts) {
+      const known = new Set(productCategories.map((c) => c.label));
+      for (const [name, count] of Object.entries(liveCounts.counts)) {
+        if (known.has(name) || found[name]) bump(found, name, count);
+      }
     }
-    if (!searchActive && sellerCounts) {
-      const bump = (name, count) => {
-        if (count > 0) found[name] = Math.max(found[name] || 0, count);
-      };
-      for (const [name, info] of Object.entries(sellerCounts.categories || {})) bump(name, info.sellers);
-      for (const [name, count] of Object.entries(sellerCounts.storeTypes || {})) bump(name, count);
+    if (!isProducts && sellerCounts) {
+      for (const [name, info] of Object.entries(sellerCounts.categories || {})) bump(found, name, info.sellers);
+      for (const [name, count] of Object.entries(sellerCounts.storeTypes || {})) bump(found, name, count);
       allOption.count = Math.max(allOption.count, sellerCounts.totals?.sellers || 0);
     }
-    return mergeSidebarCategories([...shopCategories, ...productCategories], found, allOption, [], options);
+    for (const [name, count] of Object.entries(hits || {})) bump(found, name, count);
+
+    // Keep the selected category visible even if it just ran out of items.
+    const options = { hideEmpty: true, keep: [activeCategory, initialCategory].filter(Boolean) };
+    const list = isProducts
+      ? mergeSidebarCategories(productCategories, found, allOption, hits ? [] : interestCategories, options)
+      : mergeSidebarCategories([...shopCategories, ...productCategories], found, allOption, [], options);
+    if (!hits) return list;
+
+    const [all, ...rest] = list;
+    const hitCount = (cat) => hits[cat.label] || 0;
+    const matched = rest.filter(hitCount).sort((a, b) => hitCount(b) - hitCount(a));
+    return [all, ...matched, ...rest.filter((cat) => !hitCount(cat))];
   }, [
-    sourceProducts,
+    products,
+    uniqueSellers,
+    searchProducts,
     sourceSellers,
     activeTab,
     searchActive,
@@ -1146,6 +1156,20 @@ export default function ExploreScreen({ navigation, route }) {
     shopCategories,
     interestCategories,
   ]);
+
+  // After a product search lands, select its category when every result shares one, else "All".
+  const searchPickRef = useRef('');
+  useEffect(() => {
+    if (!searchActive) {
+      searchPickRef.current = '';
+      return;
+    }
+    if (activeTab !== 'products' || searchPickRef.current === searchQuery) return;
+    if (searchResultsForRef.current !== searchQuery || searching) return;
+    searchPickRef.current = searchQuery;
+    const names = new Set(searchProducts.map((it) => it.category || it.listing?.category).filter(Boolean));
+    setActiveCategory(names.size === 1 ? [...names][0] : 'All');
+  }, [searchActive, activeTab, searchQuery, searching, searchProducts]);
 
   useEffect(() => {
     if (activeTab !== 'sellers' || !activeCategory || activeCategory === 'All') return undefined;
@@ -1294,65 +1318,15 @@ export default function ExploreScreen({ navigation, route }) {
     setSelectedFilters(filters);
   }, []);
 
-  /** Snapshot sent with each voice turn; the numbered lists are kept so "open the 2nd one" maps back. */
-  const getVoiceState = useCallback(() => {
-    const state = voiceStateRef.current;
-    voicePickRef.current = { items: state.items || [], sellers: state.sellers || [] };
-    return {
-      current: state.current,
-      screen: {
-        tab: state.tab,
-        category: state.category,
-        shopCategories: state.shopCategories,
-        items: (state.items || []).map((item) => ({
-          title: item.title || item.listing?.title,
-          price: listingPrice(item),
-          km: item.distanceKm,
-          condition: item.condition || item.listing?.condition,
-        })),
-        sellers: (state.sellers || []).map((seller) => ({
-          name: seller.name,
-          category: seller.category,
-          shop: seller.sellerType === 'shop' || Boolean(seller.shopId),
-          km: seller.distance,
-        })),
-      },
-    };
-  }, []);
-
-  /**
-   * Does what the AI chose on Explore (also searches said on other screens). Returns undefined for
-   * turns the app handles everywhere (other screens, stop, chat).
-   */
+  /** Shows a voice search (said here or on a screen without its own search box). */
   const handleVoiceTurn = useCallback((turn) => {
     setVoiceText('');
     setSearchText(searchQueryRef.current);
-    const action = turn?.action;
-    if (action === 'open_item' || action === 'open_seller') {
-      const list = action === 'open_item' ? voicePickRef.current.items : voicePickRef.current.sellers;
-      const picked = list[(turn.pick || 0) - 1];
-      if (!picked) return null;
-      return {
-        act: () => (action === 'open_item' ? handleProductPress(picked) : handleSellerPress(picked)),
-      };
-    }
-    if (action !== 'search' && action !== 'browse' && action !== 'clear') return undefined;
-    if (action === 'browse') {
-      const tab = turn.view?.tab === 'sellers' ? 'sellers' : 'products';
-      skipEnter.current = true;
+    // Opening a tab by voice shows all of it, so an earlier search does not hide what was asked for.
+    if (turn?.action === 'view') {
       setSearchText('');
       applySearch('');
-      setTargetTab(tab);
-      setActiveTab(tab);
-      if (tab === 'sellers') setSortBy((prev) => (PRICE_SORTS.includes(prev) ? DEFAULT_SORT : prev));
-      setActiveCategory(turn.view?.category || 'All');
-      return null;
-    }
-    if (action === 'clear') {
-      setSortBy(DEFAULT_SORT);
-      setSelectedFilters(DEFAULT_EXPLORE_FILTERS);
-      setSearchText('');
-      applySearch('');
+      switchTab(turn.tab === 'sellers' ? 'sellers' : 'products');
       return null;
     }
     const search = turn?.search || {};
@@ -1363,9 +1337,13 @@ export default function ExploreScreen({ navigation, route }) {
       condition: search.condition || '',
       nearby: Boolean(search.nearby),
     };
-    const q = String(search.query || search.category || '').replace(/\s+/g, ' ').trim();
-    const alts = search.query && Array.isArray(search.alts) ? search.alts.filter(Boolean) : [];
-    voiceAltsRef.current = alts.length ? { q, alt: alts.join(',') } : null;
+    // The search runs on the AI's clean English phrase ("mobile and dustbin", "all items from seller Kaushal"). The
+    // server keeps the whole search the AI built for that phrase (every item, and any logic: seller, place, order...)
+    // and runs it, so nothing is lost here.
+    const items = Array.isArray(search.items) ? search.items.filter(Boolean) : [];
+    const heard = String(turn?.heard || '').replace(/\s+/g, ' ').trim();
+    const q = String(search.english || items.join(' and ') || search.category || heard).replace(/\s+/g, ' ').trim();
+    voiceAltsRef.current = null;
 
     skipEnter.current = true;
     setTargetTab('products');
@@ -1373,10 +1351,10 @@ export default function ExploreScreen({ navigation, route }) {
     setSelectedFilters(filters);
     setSortBy(VOICE_SORTS[search.sort] || DEFAULT_SORT);
     setSearchText(q);
-    if (q === searchQueryRef.current && alts.length) runSearch(q, filters);
+    if (q === searchQueryRef.current) runSearch(q, filters);
     else applySearch(q);
     return null;
-  }, [applySearch, handleProductPress, handleSellerPress, runSearch]);
+  }, [applySearch, runSearch, switchTab]);
 
   /** Live words go into the search box; when the buyer stops, a rough search starts before the AI answers. */
   const handleVoiceHeard = useCallback((text, done) => {
@@ -1394,7 +1372,6 @@ export default function ExploreScreen({ navigation, route }) {
     applySearch(quick);
   }, [applySearch]);
 
-  useVoiceScreen({ getCurrent: getVoiceState, onHeard: handleVoiceHeard, onTurn: handleVoiceTurn });
   useExploreVoiceTurns(handleVoiceTurn, handleVoiceHeard);
 
   const activeMeta = categories.find((c) => c.label === activeCategory) || categories[0];
@@ -1528,29 +1505,6 @@ export default function ExploreScreen({ navigation, route }) {
     },
   ].filter((block) => block && block.list && block.list.length > 0);
 
-  const voiceSellers = [];
-  const seenVoiceSellers = new Set();
-  sellerBlocks.forEach((block) => block.list.forEach((seller) => {
-    const id = String(seller._id || seller.id);
-    if (seenVoiceSellers.has(id) || voiceSellers.length >= 8) return;
-    seenVoiceSellers.add(id);
-    voiceSellers.push(seller);
-  }));
-  voiceStateRef.current = {
-    current: {
-      query: searchQuery,
-      minPrice: selectedFilters.priceMin,
-      maxPrice: selectedFilters.priceMax,
-      condition: selectedFilters.condition || null,
-      nearby: Boolean(selectedFilters.nearby),
-      sort: Object.keys(VOICE_SORTS).find((key) => key !== 'relevance' && VOICE_SORTS[key] === sortBy) || 'relevance',
-    },
-    tab: activeTab,
-    category: activeCategory || 'All',
-    shopCategories: shopCategories.map((c) => c.label).filter(Boolean),
-    items: activeTab === 'products' ? filteredProducts.slice(0, 8) : [],
-    sellers: activeTab === 'sellers' ? voiceSellers : [],
-  };
 
   return (
     <>
