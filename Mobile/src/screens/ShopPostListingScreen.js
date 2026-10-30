@@ -29,6 +29,7 @@ import {
   withCategoryFirst,
 } from '../utils/categories';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
+import ListingLiveModal from '../components/ListingLiveModal';
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import { useListingAiFill } from '../hooks/useListingAiFill';
@@ -568,21 +569,28 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       setAlertConfig(manualReviewAlert(data.moderation.reason, openMyListings));
       return;
     }
-    setAlertConfig(postedAlert(inReview, openMyListings));
+    setAlertConfig(
+      postedAlert(inReview, openMyListings, {
+        title: payload.title,
+        price: payload.price,
+        photo: mainPhoto ? resolveMediaUrl(mainPhoto) : null,
+      })
+    );
   };
 
-  const postedAlert = (inReview, onDone) => {
+  const postedAlert = (inReview, onDone, listing) => {
     const done = () => {
       setAlertConfig(null);
       onDone();
     };
     return {
-      type: 'success',
+      live: true,
+      inReview,
+      listing,
       title: inReview ? 'Sent for review' : 'Product is live!',
       message: inReview
         ? 'It goes live after a quick check. You can see it in My Listings.'
         : 'Buyers nearby can see it now. You can manage it in My Listings.',
-      primaryButton: { text: 'OK' },
       onClose: done,
     };
   };
@@ -1008,10 +1016,11 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       </View>
 
       <AlertModal
-        visible={!!alertConfig}
+        visible={!!alertConfig && !alertConfig.live}
         onClose={() => setAlertConfig(null)}
-        {...(alertConfig || {})}
+        {...(alertConfig?.live ? {} : alertConfig || {})}
       />
+      <ListingLiveModal visible={!!alertConfig?.live} {...(alertConfig?.live ? alertConfig : {})} />
       <PostLimitModal
         visible={limitModal}
         quota={quota}

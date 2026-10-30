@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
-import VoiceSearchButton from '../components/VoiceSearchButton';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 import HighlightText from '../components/HighlightText';
 import ProductCard from '../components/ProductCard';
@@ -66,6 +66,8 @@ const SCOPES = [
   { key: 'products', label: 'Products' },
   { key: 'sellers', label: 'Sellers' },
 ];
+
+const VOICE_SORTS = { 'price-low': 'price-low', 'price-high': 'price-high', nearby: 'distance', newest: 'newest', popular: 'trending' };
 
 const SORT_ORDER = [
   { key: 'relevance', label: 'Best match', icon: 'sparkles-outline' },
@@ -122,6 +124,8 @@ export default function SearchResultsScreen({ navigation, route }) {
   const loadResultsRef = useRef(null);
   const hasListingsRef = useRef(false);
   const userCoordsRef = useRef({ lat: null, lng: null });
+  // Live voice words are not searched; the AI's cleaned-up search follows a moment later.
+  const voiceTypingRef = useRef(false);
 
   const [searchText, setSearchText] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery);
@@ -154,6 +158,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const [matchMode, setMatchMode] = useState('all');
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
   userCoordsRef.current = userCoords;
+  const [voiceAlt, setVoiceAlt] = useState(null);
   const [hasLocationPerm, setHasLocationPerm] = useState(true);
 
   const categoryActive = Boolean(filters.category && filters.category !== 'All' && filters.category !== 'More');
@@ -215,7 +220,7 @@ export default function SearchResultsScreen({ navigation, route }) {
 
   useEffect(() => {
     const clean = trimmedText.replace(/\s+/g, ' ').trim();
-    if (clean === query) return undefined;
+    if (clean === query || voiceTypingRef.current) return undefined;
     if (clean.length > 0 && clean.length < MIN_SEARCH_CHARS) return undefined;
     const timer = setTimeout(() => {
       setQuery(clean);
@@ -228,13 +233,14 @@ export default function SearchResultsScreen({ navigation, route }) {
   const queryParams = useMemo(() => {
     const next = { sort: sortKey };
     if (query) next.q = query;
+    if (query && voiceAlt?.q === query) next.alt = voiceAlt.alt;
     if (categoryActive) next.category = filters.category;
     if (conditionActive) next.condition = filters.condition;
     if (filters.priceMin != null) next.minPrice = Number(filters.priceMin);
     if (filters.priceMax != null) next.maxPrice = Number(filters.priceMax);
     if (distanceActive) next.radius = Number(filters.radiusKm);
     return next;
-  }, [query, filters, sortKey, categoryActive, conditionActive, distanceActive]);
+  }, [query, voiceAlt, filters, sortKey, categoryActive, conditionActive, distanceActive]);
 
   const loadResults = useCallback(async ({ silent = false, pageToLoad = 1, append = false } = {}) => {
     let controller = null;
@@ -395,6 +401,51 @@ export default function SearchResultsScreen({ navigation, route }) {
     Keyboard.dismiss();
     inputRef.current?.blur();
   }, []);
+
+  const typeSearch = (text) => {
+    voiceTypingRef.current = false;
+    setSearchText(text);
+  };
+
+  useVoiceSearchBox({
+    label: 'All KinBech listings and sellers (search results page)',
+    searchAll: true,
+    value: searchText,
+    onChange: (text) => {
+      voiceTypingRef.current = true;
+      setSearchText(text);
+    },
+    onSearch: (text, turn) => {
+      voiceTypingRef.current = false;
+      const search = turn.search || {};
+      if (turn.action === 'clear') {
+        setVoiceAlt(null);
+        setFilters({ category: undefined, condition: undefined, priceMin: null, priceMax: null, radiusKm: null });
+        setSearchText('');
+        setQuery('');
+        return;
+      }
+      const alts = Array.isArray(search.alts) ? search.alts.filter(Boolean) : [];
+      setVoiceAlt(text && search.query && alts.length ? { q: text, alt: alts.join(',') } : null);
+      setFilters((prev) => ({
+        ...prev,
+        category: search.query ? prev.category : search.category || prev.category,
+        condition: search.condition || undefined,
+        priceMin: search.minPrice ?? null,
+        priceMax: search.maxPrice ?? null,
+        radiusKm: search.nearby ? prev.radiusKm || 10 : prev.radiusKm,
+      }));
+      if (VOICE_SORTS[search.sort]) {
+        sortTouchedRef.current = true;
+        setSortKey(VOICE_SORTS[search.sort]);
+      }
+      if (text) submitSearch(text);
+      else if (search.category) {
+        setSearchText('');
+        setQuery('');
+      } else setSearchText(query);
+    },
+  });
 
   const clearInput = () => {
     setSearchText('');
@@ -1051,7 +1102,7 @@ export default function SearchResultsScreen({ navigation, route }) {
             <TextInput
               ref={inputRef}
               value={searchText}
-              onChangeText={setSearchText}
+              onChangeText={typeSearch}
               onFocus={() => setInputFocused(true)}
               onBlur={handleBlur}
               style={styles.searchInput}
@@ -1079,13 +1130,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                 <Icon name="close-circle" size={18} color={colors.textMuted} />
               </Pressable>
             ) : null}
-            <VoiceSearchButton
-              color={colors.textMuted}
-              onResult={(text, isFinal) => {
-                setSearchText(text);
-                if (isFinal) submitSearch(text);
-              }}
-            />
+            <VoiceSearchToggle size={30} />
           </View>
 
           <Pressable style={styles.filterIconBtn} onPress={() => setFiltersOpen(true)}>

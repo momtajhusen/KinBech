@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import GradientButton from '../components/GradientButton';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { PressableScale, enterUp } from '../components/Motion';
 import { ROUTES } from '../navigation/helpers';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
@@ -19,13 +20,15 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
   const [query, setQuery] = useState('');
 
   const cardWidth = (width - 32 - 10) / 2;
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return shopCategories;
-    return shopCategories.filter((cat) =>
-      `${cat.label} ${cat.description || ''}`.toLowerCase().includes(q)
-    );
-  }, [shopCategories, query]);
+  const matchesQuery = useVoiceSearchBox({
+    label: 'Store categories to pick for my new shop',
+    value: query,
+    onChange: setQuery,
+  });
+  const visible = useMemo(
+    () => shopCategories.filter((cat) => matchesQuery(cat.label, cat.description)),
+    [shopCategories, matchesQuery]
+  );
   const selectedMeta = shopCategories.find((cat) => cat.label === selectedCategory);
 
   const handleContinue = () => {
@@ -96,6 +99,7 @@ export default function StoreCategorySelectionScreen({ navigation, route }) {
               <Icon name="close-circle" size={18} color={colors.textMuted} />
             </Pressable>
           ) : null}
+          <VoiceSearchToggle size={30} />
         </View>
 
         {visible.length ? (

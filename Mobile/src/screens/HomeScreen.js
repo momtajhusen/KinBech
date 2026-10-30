@@ -32,6 +32,7 @@ import { ProductCarouselSkeleton, Skeleton } from '../components/SkeletonLoader'
 import { navigateToTab, openItemDetail, ROUTES, TABS } from '../navigation/helpers';
 import { api, getAuthToken } from '../services/api';
 import { useRequireLogin } from '../components/LoginPrompt';
+import { useVoiceScreen } from '../components/VoiceHost';
 import WelcomeModal from '../components/WelcomeModal';
 import PermissionPrompt from '../components/PermissionPrompt';
 import { useAuth } from '../context/AuthContext';
@@ -433,6 +434,26 @@ export default function HomeScreen({ navigation }) {
     [nearbyListings, decorate]
   );
 
+  const voiceItems = (forYou.length ? forYou : fresh).slice(0, 8);
+  useVoiceScreen({
+    getCurrent: () => ({
+      screen: {
+        about: [`The numbered items are the first ones in the home feed (${forYou.length ? 'picked for you' : 'new near you'}).`],
+        items: voiceItems.map((item) => ({
+          title: item.title || item.listing?.title,
+          price: listingPrice(item),
+          km: item.distanceKm,
+          condition: item.condition,
+        })),
+      },
+    }),
+    onTurn: (turn) => {
+      if (turn?.action !== 'open_item') return undefined;
+      const item = voiceItems[(turn.pick || 0) - 1];
+      return item ? { act: () => openItem(item) } : null;
+    },
+  });
+
   const interestRank = useMemo(
     () => new Map(interestCategories.map((name, index) => [name, index])),
     [interestCategories]
@@ -657,9 +678,6 @@ export default function HomeScreen({ navigation }) {
           <SearchBar
             placeholder="Search products, stores, sellers..."
             onPress={() => navigation.navigate(ROUTES.SEARCH_RESULTS)}
-            onVoiceResult={(text, isFinal) => {
-              if (isFinal) navigation.navigate(ROUTES.SEARCH_RESULTS, { query: text });
-            }}
           />
         </View>
       </View>
@@ -694,7 +712,6 @@ export default function HomeScreen({ navigation }) {
                   </View>
                 );
               }
-              const tint = cat.color || cat.tint || colors.primary;
               const countLabel = cat.isMore
                 ? `${cat.count} categor${cat.count === 1 ? 'y' : 'ies'}`
                 : `${cat.count} item${cat.count === 1 ? '' : 's'}`;
@@ -707,13 +724,8 @@ export default function HomeScreen({ navigation }) {
                   scaleTo={0.95}
                   onPress={() => (cat.isMore ? navigation.navigate(ROUTES.ALL_CATEGORIES) : openCategory(cat.label))}
                 >
-                  <LinearGradient
-                    colors={[`${tint}33`, `${tint}0D`]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[styles.categoryCard, { borderColor: `${tint}40` }]}
-                  >
-                    <SoftPop index={index} style={[styles.categoryIcon, { backgroundColor: tint }]}>
+                  <View style={styles.categoryCard}>
+                    <SoftPop index={index} style={styles.categoryIcon}>
                       {cat.imageUrl ? (
                         <Image source={{ uri: cat.imageUrl }} style={styles.categoryImage} />
                       ) : (
@@ -725,10 +737,10 @@ export default function HomeScreen({ navigation }) {
                       {countPending ? (
                         <Skeleton width="55%" height={8} borderRadius={4} marginTop={4} />
                       ) : (
-                        <Text style={[styles.categoryCountLabel, { color: tint }]} numberOfLines={1}>{countLabel}</Text>
+                        <Text style={styles.categoryCountLabel} numberOfLines={1}>{countLabel}</Text>
                       )}
                     </View>
-                  </LinearGradient>
+                  </View>
                 </PressableScale>
               );
             })}
@@ -1201,6 +1213,7 @@ const createStyles = (colors) => ({
     paddingHorizontal: 7,
     borderRadius: 12,
     borderWidth: 1,
+    borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   categorySkeleton: {
@@ -1214,6 +1227,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    backgroundColor: colors.primary,
   },
   categoryImage: {
     width: 28,
@@ -1232,7 +1246,8 @@ const createStyles = (colors) => ({
   categoryCountLabel: {
     marginTop: 1,
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: colors.textMuted,
   },
   tabRow: {
     paddingHorizontal: 16,

@@ -7,6 +7,25 @@ import { upsertCategoryMemory } from '../utils/categories';
 
 export const AI_LIMIT_MESSAGE = "Today's AI limit is used up. Please fill the details yourself.";
 
+// Gemini reads a photo at roughly 1000 px: a smaller copy blurs labels and model numbers,
+// a larger one only slows the upload.
+const AI_PHOTO_EDGE = 1024;
+const AI_PHOTO_QUALITY = 0.8;
+
+async function photoForAi(uri) {
+  const original = await ImageManipulator.manipulateAsync(uri, []);
+  const longest = Math.max(original.width || 0, original.height || 0);
+  const resize =
+    longest > AI_PHOTO_EDGE
+      ? [{ resize: original.width >= original.height ? { width: AI_PHOTO_EDGE } : { height: AI_PHOTO_EDGE } }]
+      : [];
+  return ImageManipulator.manipulateAsync(uri, resize, {
+    compress: AI_PHOTO_QUALITY,
+    format: ImageManipulator.SaveFormat.JPEG,
+    base64: true,
+  });
+}
+
 /** Individual sellers sell used items: suggested price is this share of the brand-new price. */
 export const USED_PRICE_SHARE = { Good: 0.5, Fair: 0.25 };
 
@@ -62,12 +81,7 @@ export function useListingAiFill({
     setFilling(true);
     setError('');
     try {
-      // Shrink before sending — a smaller photo comes back much faster.
-      const prepared = await ImageManipulator.manipulateAsync(
-        photoUri,
-        [{ resize: { width: 640 } }],
-        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-      );
+      const prepared = await photoForAi(photoUri);
       if (!prepared?.base64) throw new Error('Could not read that photo');
 
       const { data, error: apiError } = await api.suggestListingDetails({

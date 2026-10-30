@@ -150,6 +150,7 @@ const MATERIAL = {
   shirt: ['tshirt-crew', 'tshirt-crew-outline'],
   snow: ['snowflake', 'snowflake'],
   sparkles: ['creation', 'creation-outline'],
+  speaker: ['account-voice', 'account-voice'],
   square: ['square', 'square-outline'],
   star: ['star', 'star-outline'],
   storefront: ['storefront', 'storefront-outline'],

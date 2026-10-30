@@ -5,7 +5,7 @@ const Listing = require('../models/Listing');
 const { haversineDistanceKm } = require('../utils/listing');
 const { coordsForPlaceName } = require('../utils/nepalLocations');
 const { mapShopCategory } = require('../utils/shopCategory');
-const { scoreSeller, sellerMatches } = require('../utils/searchMatch');
+const { scoreSeller, searchPhrases, sellerMatches } = require('../utils/searchMatch');
 const { phoneVisible, sellerSignals } = require('../utils/token');
 const { currentAudience, sameAudienceUser } = require('../utils/audience');
 
@@ -111,14 +111,15 @@ function parseLocation(req) {
   };
 }
 
-function matchesQuery(seller, q) {
-  if (!q) return true;
-  return sellerMatches(seller, q);
+function matchesQuery(seller, phrases) {
+  if (!phrases.length) return true;
+  return phrases.some((phrase) => sellerMatches(seller, phrase));
 }
 
 async function collectSellers(req) {
   const { lat: userLat, lng: userLng } = parseLocation(req);
   const q = String(req.query.q || req.query.query || '').trim();
+  const phrases = q ? searchPhrases(q, req.query.alt) : [];
   const type = String(req.query.type || 'all').toLowerCase();
   const rawCategory = String(req.query.category || '').trim();
   const category =
@@ -174,7 +175,7 @@ async function collectSellers(req) {
       const card = toShopSeller(shop, shopListings, userLat, userLng, phoneOwners.has(String(shop.owner)));
       if (verifiedOnly && !card.verified) continue;
       if (topRated && card.rating < 4) continue;
-      if (!matchesQuery(card, q)) continue;
+      if (!matchesQuery(card, phrases)) continue;
       sellers.push(card);
     }
   }
@@ -192,7 +193,7 @@ async function collectSellers(req) {
         const userListings = byUser.get(String(user._id)) || [];
         const card = toIndividualSeller(user, userListings, userLat, userLng);
         if (topRated) continue;
-        if (!matchesQuery(card, q)) continue;
+        if (!matchesQuery(card, phrases)) continue;
         sellers.push(card);
       }
     }
@@ -205,7 +206,7 @@ async function collectSellers(req) {
   };
 
   if (q) {
-    const scores = new Map(sellers.map((seller) => [seller, scoreSeller(seller, q)]));
+    const scores = new Map(sellers.map((seller) => [seller, Math.max(0, ...phrases.map((phrase) => scoreSeller(seller, phrase)))]));
     sellers.sort((a, b) => (scores.get(b) - scores.get(a)) || byDistance(a, b));
   } else if (nearbyFirst && userLat != null && userLng != null) {
     sellers.sort(byDistance);

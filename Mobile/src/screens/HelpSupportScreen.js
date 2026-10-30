@@ -12,7 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Icon from '../components/Icon';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { useRequireLogin } from '../components/LoginPrompt';
-import VoiceSearchButton from '../components/VoiceSearchButton';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 /**
@@ -105,6 +105,11 @@ export default function HelpSupportScreen({ navigation }) {
   const [showAll, setShowAll] = useState(false);
   const scrollRef = useRef(null);
   const faqTopRef = useRef(0);
+  const matchesQuery = useVoiceSearchBox({
+    label: 'Help topics and questions about using KinBech',
+    value: search,
+    onChange: setSearch,
+  });
 
   // Guard against undefined colors
   if (!colors) {
@@ -126,8 +131,7 @@ export default function HelpSupportScreen({ navigation }) {
   const query = search.trim().toLowerCase();
   const matchingFaqs = FAQS.filter((faq) => {
     if (topic && faq.topic !== topic) return false;
-    if (!query) return true;
-    return faq.question.toLowerCase().includes(query) || faq.answer.toLowerCase().includes(query);
+    return matchesQuery(faq.question, faq.answer);
   });
   const collapsible = !topic && !query && matchingFaqs.length > FAQ_PREVIEW;
   const filteredFaqs = collapsible && !showAll ? matchingFaqs.slice(0, FAQ_PREVIEW) : matchingFaqs;
@@ -177,7 +181,7 @@ export default function HelpSupportScreen({ navigation }) {
               <Icon name="close-circle" size={18} color={colors.textMuted} />
             </Pressable>
           ) : null}
-          <VoiceSearchButton color={colors.textMuted} onResult={(text) => setSearch(text)} />
+          <VoiceSearchToggle size={26} />
         </View>
 
         <View style={styles.categoryGrid}>

@@ -2,7 +2,7 @@ import Icon from './Icon';
 import { forwardRef } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
-import VoiceSearchButton from './VoiceSearchButton';
+import { VoiceSearchToggle } from './VoiceHost';
 
 const createStyles = (colors) => ({
   container: {
@@ -61,7 +61,7 @@ const SearchBar = forwardRef(function SearchBar({
   onSubmitEditing,
   onFilterPress,
   onPress,
-  onVoiceResult,
+  voice = true,
   onClear,
   onFocus,
   onBlur,
@@ -71,9 +71,7 @@ const SearchBar = forwardRef(function SearchBar({
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
 
-  const voiceButton = onVoiceResult ? (
-    <VoiceSearchButton color={colors.textMuted} onResult={onVoiceResult} />
-  ) : null;
+  const voiceButton = voice ? <VoiceSearchToggle /> : null;
 
   const filterButton = onFilterPress ? (
     <Pressable onPress={onFilterPress} hitSlop={8} style={styles.filterBtn}>

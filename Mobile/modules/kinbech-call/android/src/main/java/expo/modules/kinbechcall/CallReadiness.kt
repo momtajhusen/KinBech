@@ -61,6 +61,11 @@ object CallReadiness {
         Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg")),
         Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
       )
+      // Shown without a tap, so only the system dialog: never a Settings screen.
+      "batteryPrompt" -> return startFirst(
+        context,
+        listOf(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$pkg")))
+      )
       "battery" -> if (AUTOSTART_BRANDS.contains(Build.MANUFACTURER.orEmpty().lowercase())) {
         emptyList<Intent>()
       } else {
@@ -69,7 +74,10 @@ object CallReadiness {
       "autostart" -> AUTOSTART_SCREENS.map { Intent().setComponent(it) }
       else -> emptyList<Intent>()
     } + Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg"))
+    return startFirst(context, candidates)
+  }
 
+  private fun startFirst(context: Context, candidates: List<Intent>): Boolean {
     for (intent in candidates) {
       if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       try {

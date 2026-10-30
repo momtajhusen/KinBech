@@ -4,18 +4,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { FadeIn, FadeInDown, ZoomIn, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import Icon from './Icon';
 import { PressableScale, Reanimated, Wiggle } from './Motion';
-import {
-  closeCallSetup,
-  confirmAutostart,
-  openCallSetting,
-  readCallSetupSteps,
-  subscribeCallSetup,
-} from '../services/callReadiness';
+import { closeCallSetup, openCallSetting, readCallSetupSteps, subscribeCallSetup } from '../services/callReadiness';
 import { callHaptic } from '../services/callHaptics';
 import { useTheme, useThemedStyles } from '../theme';
 
-function StepRow({ step, index, waitingConfirm, onAction, onConfirm, styles, colors }) {
-  const showConfirm = step.confirmable && !step.done && waitingConfirm;
+function StepRow({ step, index, onAction, styles, colors }) {
   return (
     <Reanimated.View entering={FadeInDown.delay(120 + index * 70).duration(380)} style={[styles.step, step.done && styles.stepDone]}>
       <View style={[styles.stepIcon, step.done && styles.stepIconDone]}>
@@ -31,11 +24,7 @@ function StepRow({ step, index, waitingConfirm, onAction, onConfirm, styles, col
         <Text style={styles.stepTitle}>{step.title}</Text>
         <Text style={styles.stepHint}>{step.done ? 'Done' : step.hint}</Text>
       </View>
-      {step.done ? null : showConfirm ? (
-        <PressableScale contentStyle={[styles.stepBtn, styles.stepBtnConfirm]} onPress={() => onConfirm(step)}>
-          <Text style={styles.stepBtnText}>It's on</Text>
-        </PressableScale>
-      ) : (
+      {step.done ? null : (
         <PressableScale contentStyle={styles.stepBtn} onPress={() => onAction(step)}>
           <Text style={styles.stepBtnText}>{step.cta}</Text>
         </PressableScale>
@@ -50,7 +39,6 @@ export default function CallSetupModal() {
   const styles = useThemedStyles(createStyles);
   const [visible, setVisible] = useState(false);
   const [steps, setSteps] = useState([]);
-  const [waitingConfirm, setWaitingConfirm] = useState(false);
   const progress = useSharedValue(0);
   const visibleRef = useRef(false);
 
@@ -70,10 +58,7 @@ export default function CallSetupModal() {
       subscribeCallSetup((open) => {
         visibleRef.current = open;
         setVisible(open);
-        if (open) {
-          setWaitingConfirm(false);
-          refresh();
-        }
+        if (open) refresh();
       }),
     [refresh]
   );
@@ -97,15 +82,7 @@ export default function CallSetupModal() {
 
   const runStep = (step) => {
     callHaptic('toggleOn');
-    if (step.confirmable) setWaitingConfirm(true);
     openCallSetting(step.action);
-  };
-
-  const confirmStep = async () => {
-    callHaptic('toggleOn');
-    await confirmAutostart();
-    setWaitingConfirm(false);
-    refresh();
   };
 
   const onPrimary = () => {
@@ -113,20 +90,12 @@ export default function CallSetupModal() {
       closeCallSetup();
       return;
     }
-    if (nextStep.confirmable && waitingConfirm) {
-      confirmStep();
-      return;
-    }
     runStep(nextStep);
   };
 
   const bar = useAnimatedStyle(() => ({ width: `${Math.max(6, progress.value * 100)}%` }));
 
-  const primaryLabel = allDone
-    ? 'All set, close'
-    : nextStep?.confirmable && waitingConfirm
-      ? `Yes, ${nextStep.title.toLowerCase()} is on`
-      : 'Fix next step';
+  const primaryLabel = allDone ? 'All set, close' : 'Fix next step';
 
   return (
     <Modal
@@ -167,9 +136,7 @@ export default function CallSetupModal() {
                   key={step.key}
                   step={step}
                   index={index}
-                  waitingConfirm={waitingConfirm}
                   onAction={runStep}
-                  onConfirm={confirmStep}
                   styles={styles}
                   colors={colors}
                 />
@@ -317,9 +284,6 @@ const createStyles = (colors) =>
       paddingVertical: 8,
       borderRadius: 999,
       backgroundColor: colors.primary,
-    },
-    stepBtnConfirm: {
-      backgroundColor: colors.success || colors.primary,
     },
     stepBtnText: {
       fontSize: 12.5,

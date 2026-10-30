@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import EmptyState from '../components/EmptyState';
-import VoiceSearchButton from '../components/VoiceSearchButton';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { useCategories } from '../utils/categories';
@@ -313,11 +313,13 @@ export default function AllCategoriesScreen({ navigation, route }) {
     [shopCatalog, sellerStats, colors]
   );
 
+  const matchesQuery = useVoiceSearchBox({
+    label: tab === 'products' ? 'Product category names' : 'Seller and store category names',
+    value: query,
+    onChange: setQuery,
+  });
   const needle = query.trim().toLowerCase();
-  const matches = (item) =>
-    !needle ||
-    item.label.toLowerCase().includes(needle) ||
-    String(item.description || '').toLowerCase().includes(needle);
+  const matches = (item) => matchesQuery(item.label, item.description);
 
   const filtered = categories.filter((c) => c.count > 0 && matches(c)).sort((a, b) => b.count - a.count);
   const filteredSellerCats = sellerCategories.filter(matches);
@@ -636,7 +638,7 @@ export default function AllCategoriesScreen({ navigation, route }) {
             <Icon name="close-circle" size={18} color={colors.textTertiary} />
           </Pressable>
         ) : null}
-        <VoiceSearchButton color={colors.textTertiary} size={18} onResult={(text) => setQuery(text)} />
+        <VoiceSearchToggle size={30} />
       </View>
 
       <SlidingTabs value={tab} onChange={setTab} styles={styles} colors={colors} />

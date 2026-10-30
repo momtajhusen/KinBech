@@ -20,6 +20,7 @@ import ZoomableImage from '../components/ZoomableImage';
 import { useAuth } from '../context/AuthContext';
 import { useWishlist } from '../context/WishlistContext';
 import { useRequireLogin } from '../components/LoginPrompt';
+import { useVoiceScreen } from '../components/VoiceHost';
 import { INFO_COPY, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
@@ -106,6 +107,12 @@ export default function ItemDetailScreen({ navigation, route }) {
   const viewerThumbsRef = useRef(null);
   const viewerThumbWidthRef = useRef(0);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
+  // Filled each render below (after the item is known); the voice chat reads it when the buyer speaks.
+  const voiceRef = useRef({});
+  useVoiceScreen({
+    getCurrent: () => voiceRef.current.getCurrent?.() || {},
+    onTurn: (turn) => voiceRef.current.onTurn?.(turn),
+  });
 
   const loadListing = useCallback(async () => {
     if (!listingId) return;
@@ -355,6 +362,95 @@ export default function ItemDetailScreen({ navigation, route }) {
     });
   };
 
+  const startChat = () => requireLogin('chat', async () => {
+    const sellerId = item.sellerId;
+    if (!sellerId) {
+      navigation.navigate(ROUTES.CHAT, { name: item.seller });
+      return;
+    }
+    if (user?.id && String(user.id) === String(sellerId)) {
+      Alert.alert('Your listing', 'You cannot chat with yourself on this item.');
+      return;
+    }
+    const { data, error } = await api.createChat({
+      listingId,
+      userId: sellerId,
+    });
+    if (error) {
+      Alert.alert('Chat failed', error);
+      return;
+    }
+    navigation.navigate(ROUTES.CHAT, {
+      chatId: data.chat.id,
+      name: data.chat.otherUser?.shop?.name || data.chat.otherUser?.name || item.seller,
+      listing: listing,
+      otherUserId: data.chat.otherUser?.id || sellerId,
+      image: resolveMediaUrl(data.chat.otherUser?.shop?.logo || data.chat.otherUser?.avatarUrl || ''),
+    });
+  });
+
+  const openSellerPage = () => {
+    if (listing.sellerType === 'shop' && listing.shopId) {
+      navigation.navigate(ROUTES.SHOP_PROFILE, { shopId: listing.shopId._id || listing.shopId.id || listing.shopId });
+    } else {
+      navigation.navigate(ROUTES.SELLER_PROFILE, { seller: item.sellerData });
+    }
+  };
+
+  const openRelated = (card) =>
+    navigation.push(ROUTES.ITEM_DETAIL, {
+      listingId: card.id,
+      item: card.listing || card,
+      sharedId: card.id,
+    });
+
+  voiceRef.current = {
+    getCurrent: () => ({
+      screen: {
+        about: [
+          `Item open: ${item.title}${item.price ? `, price ${item.price}` : ''}${item.condition ? `, condition ${item.condition}` : ''}`,
+          `Seller: ${listing.sellerType === 'shop' && listing.shopId ? `${listing.shopId.name || item.seller} (shop)` : item.seller}${sellerTrustLine ? ` - ${sellerTrustLine}` : ''}`,
+          item.location ? `Place: ${item.location}${distanceLabel ? ` (${distanceLabel} away)` : ''}` : '',
+          item.posted ? `Posted: ${item.posted}` : '',
+          shopTrustLine,
+          item.description ? `Description: ${String(item.description).replace(/\s+/g, ' ').slice(0, 170)}` : '',
+          relatedItems.length ? 'The numbered items are related items further down this page.' : '',
+        ].filter(Boolean),
+        commands: [
+          { key: 'chat_seller', label: 'Message the seller about this item' },
+          { key: 'save', label: isSaved(listingId) ? 'Remove it from saved items' : 'Save this item' },
+          { key: 'map', label: 'Show where the item is on a map' },
+          { key: 'seller_page', label: 'Open the seller or shop page' },
+          { key: 'photos', label: 'Show the photos full screen' },
+        ],
+        items: relatedItems.slice(0, 8).map((card) => ({
+          title: card.title,
+          price: Number(card.listing?.price ?? card.price) || null,
+          km: card.distanceKm,
+          condition: card.condition || card.listing?.condition,
+        })),
+      },
+    }),
+    onTurn: (turn) => {
+      if (turn?.action === 'open_item') {
+        const card = relatedItems[(turn.pick || 0) - 1];
+        return card ? { act: () => openRelated(card) } : null;
+      }
+      if (turn?.action !== 'do') return undefined;
+      if (turn.command === 'save') {
+        if (listingId) toggle(listingId);
+        return null;
+      }
+      const run = {
+        chat_seller: startChat,
+        map: () => requireLogin('map', handleOpenMap),
+        seller_page: openSellerPage,
+        photos: () => setViewerOpen(true),
+      }[turn.command];
+      return run ? { act: run } : null;
+    },
+  };
+
   const renderContactActions = () => (
     <View style={styles.priceActions}>
       <Pressable style={styles.viewMapBtn} onPress={() => requireLogin('map', handleOpenMap)}>
@@ -363,32 +459,7 @@ export default function ItemDetailScreen({ navigation, route }) {
       </Pressable>
       <Pressable
         style={styles.chatBtnWrap}
-        onPress={() => requireLogin('chat', async () => {
-          const sellerId = item.sellerId;
-          if (!sellerId) {
-            navigation.navigate(ROUTES.CHAT, { name: item.seller });
-            return;
-          }
-          if (user?.id && String(user.id) === String(sellerId)) {
-            Alert.alert('Your listing', 'You cannot chat with yourself on this item.');
-            return;
-          }
-          const { data, error } = await api.createChat({
-            listingId,
-            userId: sellerId,
-          });
-          if (error) {
-            Alert.alert('Chat failed', error);
-            return;
-          }
-          navigation.navigate(ROUTES.CHAT, {
-            chatId: data.chat.id,
-            name: data.chat.otherUser?.shop?.name || data.chat.otherUser?.name || item.seller,
-            listing: listing,
-            otherUserId: data.chat.otherUser?.id || sellerId,
-            image: resolveMediaUrl(data.chat.otherUser?.shop?.logo || data.chat.otherUser?.avatarUrl || ''),
-          });
-        })}
+        onPress={startChat}
       >
         <LinearGradient
           colors={colors.gradient}
@@ -727,13 +798,7 @@ export default function ItemDetailScreen({ navigation, route }) {
                     compact
                     width={RELATED_CARD_WIDTH}
                     sharedId={card.id}
-                    onPress={() =>
-                      navigation.push(ROUTES.ITEM_DETAIL, {
-                        listingId: card.id,
-                        item: card.listing || card,
-                        sharedId: card.id,
-                      })
-                    }
+                    onPress={() => openRelated(card)}
                   />
                 ))}
               </View>

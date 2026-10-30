@@ -3,28 +3,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import KinBechCall from '../../modules/kinbech-call';
 import { resolveMediaUrl } from '../utils/listing';
 
-const AUTOSTART_KEY = 'kinbech_call_autostart_confirmed';
 // "Not now" only hides the sheet briefly, so moving from the chat list into a chat does not show it twice.
 const NOT_NOW_MS = 60 * 1000;
-const BRAND_NAMES = {
-  vivo: 'Vivo',
-  iqoo: 'iQOO',
-  xiaomi: 'Xiaomi',
-  redmi: 'Redmi',
-  poco: 'POCO',
-  oppo: 'OPPO',
-  realme: 'realme',
-  oneplus: 'OnePlus',
-  huawei: 'Huawei',
-  honor: 'Honor',
-  infinix: 'Infinix',
-  tecno: 'TECNO',
-  itel: 'itel',
-};
+const BATTERY_ASKED_KEY = 'kinbech_battery_asked_at';
+// Android's own dialog; asking again on every launch after "Deny" would nag.
+const BATTERY_ASK_EVERY_MS = 3 * 24 * 60 * 60 * 1000;
 
 let visible = false;
 let hiddenUntil = 0;
-let autostartConfirmed = null;
+let batteryAsking = false;
 const listeners = new Set();
 
 /** Lets the native push receiver load caller photos (server paths) before JS has started. */
@@ -62,25 +49,27 @@ export function openCallSetting(kind) {
   }
 }
 
-async function loadAutostartConfirmed() {
-  if (autostartConfirmed === null) {
-    autostartConfirmed = (await AsyncStorage.getItem(AUTOSTART_KEY).catch(() => null)) === '1';
+/** Opens Android's one-tap "Let KinBech run in background?" dialog by itself while that is still off. */
+export async function autoAllowBackground() {
+  if (batteryAsking) return;
+  const state = readCallReadiness();
+  if (!state || state.batteryUnrestricted) return;
+  batteryAsking = true;
+  try {
+    const last = Number(await AsyncStorage.getItem(BATTERY_ASKED_KEY).catch(() => 0)) || 0;
+    if (Date.now() - last < BATTERY_ASK_EVERY_MS) return;
+    await AsyncStorage.setItem(BATTERY_ASKED_KEY, String(Date.now())).catch(() => {});
+    openCallSetting('batteryPrompt');
+  } finally {
+    batteryAsking = false;
   }
-  return autostartConfirmed;
-}
-
-/** Android cannot report OEM autostart, so the user tells us once they have switched it on. */
-export async function confirmAutostart() {
-  autostartConfirmed = true;
-  await AsyncStorage.setItem(AUTOSTART_KEY, '1').catch(() => {});
 }
 
 /** Every switch a call needs to ring while the app is closed or the phone is locked, with its state. */
 export async function readCallSetupSteps() {
   const state = readCallReadiness();
   if (!state) return null;
-  const brand = BRAND_NAMES[state.manufacturer] || 'Phone';
-  const steps = [
+  return [
     {
       key: 'notifications',
       icon: 'notifications',
@@ -99,29 +88,7 @@ export async function readCallSetupSteps() {
       cta: 'Allow',
       done: Boolean(state.fullScreen),
     },
-    {
-      key: 'battery',
-      icon: 'battery-charging',
-      title: 'Run in background',
-      hint: 'Tap Allow on the next popup so Android does not put KinBech to sleep.',
-      action: 'batteryRequest',
-      cta: 'Allow',
-      done: Boolean(state.batteryUnrestricted),
-    },
   ];
-  if (state.needsAutostart) {
-    steps.push({
-      key: 'autostart',
-      icon: 'rocket',
-      title: `${brand} autostart`,
-      hint: `${brand} closes apps you swipe away. Turn KinBech on in the list that opens.`,
-      action: 'autostart',
-      cta: 'Open',
-      confirmable: true,
-      done: await loadAutostartConfirmed(),
-    });
-  }
-  return steps;
 }
 
 function emit() {

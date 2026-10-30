@@ -61,6 +61,11 @@ const REASONS = {
     title: 'Log in to view location',
     message: 'See where the item is and plan a safe meetup nearby.',
   },
+  voice: {
+    icon: 'mic',
+    title: 'Log in to talk to KinBech',
+    message: 'Say what you want and see matching items near you.',
+  },
   support: {
     icon: 'help-buoy',
     title: 'Log in to contact support',

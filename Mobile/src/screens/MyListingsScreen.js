@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import Icon from '../components/Icon';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { LinearGradient } from 'expo-linear-gradient';
 import { openItemDetail, navigateToTab, ROUTES, TABS } from '../navigation/helpers';
 import { useAuth } from '../context/AuthContext';
@@ -267,19 +268,21 @@ export default function MyListingsScreen({ navigation, route }) {
     [listings]
   );
 
+  const matchesQuery = useVoiceSearchBox({
+    label: 'My own listings (items I am selling)',
+    value: query,
+    onChange: setQuery,
+  });
+
   const filteredListings = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const items = listings.filter((item) => {
       if (status !== 'all' && item.status !== status) return false;
       if (category !== 'all' && item.category !== category) return false;
       if (condition !== 'all' && item.condition !== condition) return false;
-      if (q && !`${item.title} ${item.category || ''} ${item.location || ''}`.toLowerCase().includes(q)) {
-        return false;
-      }
-      return true;
+      return matchesQuery(item.title, item.category, item.location);
     });
     return sortItems(items, sortBy);
-  }, [listings, status, category, condition, query, sortBy]);
+  }, [listings, status, category, condition, matchesQuery, sortBy]);
 
   const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
   useEffect(() => {
@@ -903,6 +906,7 @@ export default function MyListingsScreen({ navigation, route }) {
                   <Icon name="close-circle" size={16} color={colors.textMuted} />
                 </Pressable>
               ) : null}
+              <VoiceSearchToggle size={28} />
             </View>
             <Pressable
               onPress={() => setSheetOpen(true)}

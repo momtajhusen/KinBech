@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -153,8 +154,13 @@ export default function WishlistScreen({ navigation }) {
   );
   const hasDistance = items.some((item) => item.distanceKm != null);
 
+  const matchesQuery = useVoiceSearchBox({
+    label: 'My saved items (wishlist)',
+    value: query,
+    onChange: setQuery,
+  });
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     const min = Number(digits(minPrice)) || 0;
     const max = Number(digits(maxPrice)) || 0;
     const list = items.filter((item) => {
@@ -166,13 +172,10 @@ export default function WishlistScreen({ navigation }) {
       if (sellerType === 'individual' && item.isShop) return false;
       if (min && item.priceValue < min) return false;
       if (max && item.priceValue > max) return false;
-      if (q && !`${item.title} ${item.category} ${item.location} ${item.sellerName || ''}`.toLowerCase().includes(q)) {
-        return false;
-      }
-      return true;
+      return matchesQuery(item.title, item.category, item.location, item.sellerName);
     });
     return sortItems(list, sortBy);
-  }, [items, query, status, category, condition, sellerType, minPrice, maxPrice, sortBy]);
+  }, [items, matchesQuery, status, category, condition, sellerType, minPrice, maxPrice, sortBy]);
 
   const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
   useEffect(() => {
@@ -385,6 +388,7 @@ export default function WishlistScreen({ navigation }) {
                   <Icon name="close-circle" size={16} color={colors.textMuted} />
                 </Pressable>
               ) : null}
+              <VoiceSearchToggle size={28} />
             </View>
             <Pressable
               onPress={() => setSheetOpen(true)}

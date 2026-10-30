@@ -15,9 +15,10 @@ import BottomTabBar from '../components/BottomTabBar';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { consumeNativePendingCall } from '../services/callWatch';
-import { shareMediaBaseWithNative } from '../services/callReadiness';
+import { autoAllowBackground, shareMediaBaseWithNative } from '../services/callReadiness';
 import CallSetupModal from '../components/CallSetupModal';
-import { syncDeviceToken } from '../services/notifications';
+import VoiceHost from '../components/VoiceHost';
+import { getNotificationPermission, syncDeviceToken } from '../services/notifications';
 import { resolveMediaUrl } from '../utils/listing';
 import {
   consumeInitialCallNotification,
@@ -364,6 +365,7 @@ function PushAlertBridge() {
 function DeviceTokenBridge() {
   const { ready, isLoggedIn, user } = useAuth();
   const userId = user?._id || user?.id || '';
+  const callsOn = isLoggedIn && !isAdminUser(user);
 
   useEffect(() => {
     if (!ready || !isLoggedIn) return undefined;
@@ -373,6 +375,23 @@ function DeviceTokenBridge() {
     });
     return () => sub.remove();
   }, [ready, isLoggedIn, userId]);
+
+  // Waits for notification permission so Android's background dialog never stacks on the permission prompt.
+  useEffect(() => {
+    if (!ready || !callsOn) return undefined;
+    const askBackground = () =>
+      getNotificationPermission()
+        .then(({ granted }) => granted && autoAllowBackground())
+        .catch(() => {});
+    const timer = setTimeout(askBackground, 3000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') askBackground();
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, [ready, callsOn]);
 
   return null;
 }
@@ -663,6 +682,7 @@ export default function AppNavigator() {
         <Stack.Screen name="TesterMode" component={TesterModeScreen} />
         <Stack.Screen name="ContactUs" component={ContactUsScreen} />
       </Stack.Navigator>
+      <VoiceHost />
       <SignedInModal />
       <AccountChoiceModal />
     </NavigationContainer>

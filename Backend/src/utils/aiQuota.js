@@ -32,14 +32,15 @@ async function usedToday(day = nepalDay()) {
 
 /**
  * Takes one AI call from today's allowance. Returns { ok, used, limit } or
- * { ok: false, status, body } with a friendly message.
+ * { ok: false, status, body } with a friendly message. New sellers skip the app-wide cap so
+ * their first listings always get AI help.
  */
-async function reserveAiCall(userId) {
+async function reserveAiCall(userId, { level = '' } = {}) {
   const day = nepalDay();
   const { perUser, global } = await limits();
   const retryAfter = secondsUntilNepalMidnight();
 
-  if (global > 0 && (await usedToday(day)) >= global) {
+  if (level !== 'new' && global > 0 && (await usedToday(day)) >= global) {
     raiseAlert({
       type: 'ai_cost_cap',
       title: 'AI daily cost cap reached',

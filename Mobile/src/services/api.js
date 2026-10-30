@@ -386,10 +386,44 @@ function buildCandidates() {
   return candidates;
 }
 
+let probeInFlight = null;
+
+/**
+ * Asks every candidate server at once and keeps the first that answers, so a request never waits out
+ * a long timeout on an address that stopped answering (e.g. the Wi-Fi one while the USB tunnel works).
+ */
+function findWorkingBaseUrl() {
+  if (probeInFlight) return probeInFlight;
+  const candidates = buildCandidates();
+  if (candidates.length < 2) return Promise.resolve(workingBaseUrl);
+  probeInFlight = new Promise((resolve) => {
+    let left = candidates.length;
+    let found = false;
+    candidates.forEach((baseUrl) => {
+      requestWithTimeout(safeUrl(baseUrl, '/health'), { method: 'GET' }, 2500)
+        .then(({ response }) => {
+          if (!response.ok || found) return;
+          found = true;
+          workingBaseUrl = baseUrl;
+          resolve(baseUrl);
+        })
+        .catch(() => {})
+        .finally(() => {
+          left -= 1;
+          if (left === 0) resolve(workingBaseUrl);
+        });
+    });
+  }).finally(() => {
+    probeInFlight = null;
+  });
+  return probeInFlight;
+}
+
 async function request(path, options = {}) {
   const { headers: extraHeaders, timeoutMs: overrideTimeout, skipAuthRefresh, keepRefreshToken, ...rest } = options;
   const initialTimeoutMs = overrideTimeout || 8000;
   if (!skipAuthRefresh) await ensureFreshToken();
+  if (!workingBaseUrl) await findWorkingBaseUrl();
 
   let lastData = null;
   let lastStatus = null;
@@ -401,9 +435,9 @@ async function request(path, options = {}) {
 
     for (let cIdx = 0; cIdx < candidates.length; cIdx++) {
       const baseUrl = candidates[cIdx];
-      const isPrimary = cIdx === 0;
-      const attemptsPerUrl = isPrimary ? 1 : 1;
-      const baseTimeout = isPrimary ? initialTimeoutMs : 2000;
+      const attemptsPerUrl = 1;
+      // The next address gets the full time too: slow answers (AI, uploads) are not a dead server.
+      const baseTimeout = initialTimeoutMs;
 
       for (let attempt = 0; attempt < attemptsPerUrl; attempt++) {
         const timeoutMs = baseTimeout + attempt * 1000 + (pass * 1000);
@@ -463,7 +497,10 @@ async function request(path, options = {}) {
           const isNetErr = isNetworkError(msg);
 
           if (isNetErr) {
-            if (workingBaseUrl === baseUrl) workingBaseUrl = null;
+            if (workingBaseUrl === baseUrl) {
+              workingBaseUrl = null;
+              findWorkingBaseUrl();
+            }
             if (cIdx < candidates.length - 1) {
               console.log(`Switching to next candidate URL: ${candidates[cIdx + 1]}`);
               break;
@@ -617,6 +654,21 @@ export const api = {
       body: JSON.stringify(payload),
       timeoutMs: 60000,
     }),
+  voiceSearch: (payload, options = {}) =>
+    request('/ai/voice-search', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 25000,
+      ...options,
+    }),
+  voiceGreeting: (payload = {}, options = {}) =>
+    request('/ai/voice-greeting', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 10000, ...options }),
+  voiceReady: (id, options = {}) =>
+    request(`/ai/voice-ready/${encodeURIComponent(id)}`, { timeoutMs: 10000, ...options }),
+  voiceAudioUrl: (id) => {
+    const base = getWorkingApiBaseUrl() || getApiBaseUrlCandidates()[0] || '';
+    return base ? `${base.replace(/\/$/, '')}/ai/voice-audio/${encodeURIComponent(id)}` : '';
+  },
   updateListing: (id, payload) =>
     request(`/listings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteListing: (id) => request(`/listings/${id}`, { method: 'DELETE' }),

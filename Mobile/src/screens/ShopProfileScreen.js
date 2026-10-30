@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Icon from '../components/Icon';
 import * as Location from 'expo-location';
+import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
+import { FadeInDown, ZoomIn } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Image,
   Linking,
   Pressable,
   ScrollView,
   Share,
+  StyleSheet,
   Text,
   TextInput,
   View,
@@ -18,9 +23,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ProductCardSkeleton, Skeleton } from '../components/SkeletonLoader';
 import { isNearEnd } from '../utils/scroll';
-import VoiceSearchButton from '../components/VoiceSearchButton';
+import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import EmptyState from '../components/EmptyState';
 import ProductCard from '../components/ProductCard';
+import { Ping, PressableScale, Reanimated, Shimmer, enterCard } from '../components/Motion';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
@@ -38,11 +44,19 @@ const SORTS = [
   { key: 'price_high', label: 'Price ↓' },
 ];
 
-const LOGO_SIZE = 48;
-const SIDEBAR_WIDTH = 62;
-const GRID_GUTTER = 8;
-const GRID_PADDING = 10;
+const TABS = [
+  { key: 'products', label: 'Products', icon: 'grid-outline', activeIcon: 'grid' },
+  { key: 'reviews', label: 'Reviews', icon: 'star-outline', activeIcon: 'star' },
+  { key: 'about', label: 'About', icon: 'information-circle-outline', activeIcon: 'information-circle' },
+];
+
+const BANNER_HEIGHT = 200;
+const TOP_BAR_HEIGHT = 52;
+const APP_ICON = 84;
+const GRID_GUTTER = 10;
+const GRID_PADDING = 12;
 const SHOP_PAGE = 30;
+const HERO_GRADIENT = ['#022C22', '#065F46', '#10B981'];
 
 function mergeById(prev, incoming) {
   const byId = new Map(prev.map((item) => [String(item._id || item.id), item]));
@@ -107,8 +121,13 @@ function timeAgo(value) {
   return `${Math.floor(days / 365)}y ago`;
 }
 
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return (parts.slice(0, 2).map((part) => part[0]).join('') || 'S').toUpperCase();
+}
+
 export default function ShopProfileScreen({ route, navigation }) {
-  const { colors } = useTheme();
+  const { colors, isDarkMode } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -128,9 +147,18 @@ export default function ShopProfileScreen({ route, navigation }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [userCoords, setUserCoords] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [solidBar, setSolidBar] = useState(false);
+  const [heroHeight, setHeroHeight] = useState(560);
   const pagingRef = useRef({ shopId: null, page: 0, hasMore: false });
   const loadingMoreRef = useRef(false);
+  const solidBarRef = useRef(false);
+  const tabRef = useRef(tab);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const tabAnim = useRef(new Animated.Value(0)).current;
   const productPresets = useCategories('product');
+  const bannerHeight = BANNER_HEIGHT + insets.top;
+  const barHeight = TOP_BAR_HEIGHT + insets.top;
+  tabRef.current = tab;
 
   useEffect(() => {
     let active = true;
@@ -195,6 +223,9 @@ export default function ShopProfileScreen({ route, navigation }) {
     setLoadingMore(false);
   }, [shopId]);
 
+  const loadMoreRef = useRef(loadMoreListings);
+  loadMoreRef.current = loadMoreListings;
+
   const { refreshing, onRefresh } = usePullRefresh(() => loadShopData({ silent: true }));
 
   useFocusEffect(
@@ -204,7 +235,33 @@ export default function ShopProfileScreen({ route, navigation }) {
     }, [loadShopData, shopId])
   );
 
-  const sidebarCategories = useMemo(() => {
+  useEffect(() => {
+    Animated.spring(tabAnim, {
+      toValue: Math.max(0, TABS.findIndex((t) => t.key === tab)),
+      useNativeDriver: true,
+      damping: 18,
+      stiffness: 190,
+      mass: 0.7,
+    }).start();
+  }, [tab, tabAnim]);
+
+  const onScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+        listener: (event) => {
+          const solid = event.nativeEvent.contentOffset.y > bannerHeight - barHeight - 40;
+          if (solid !== solidBarRef.current) {
+            solidBarRef.current = solid;
+            setSolidBar(solid);
+          }
+          if (tabRef.current === 'products' && isNearEnd(event, 800)) loadMoreRef.current();
+        },
+      }),
+    [scrollY, bannerHeight, barHeight]
+  );
+
+  const categoryChips = useMemo(() => {
     const counts = {};
     listings.forEach((listing) => {
       const label = String(listing.category || '').trim();
@@ -217,35 +274,34 @@ export default function ShopProfileScreen({ route, navigation }) {
         return {
           label,
           icon: preset?.icon || 'pricetag-outline',
-          tint: preset?.tint || preset?.color || '#F59E0B',
           imageUrl: preset?.imageUrl || '',
           count: counts[label],
         };
       })
       .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-    return [
-      { label: 'All', icon: 'grid-outline', tint: '#047857', imageUrl: '', count: listings.length },
-      ...items,
-    ];
+    return [{ label: 'All', icon: 'grid-outline', imageUrl: '', count: listings.length }, ...items];
   }, [listings, productPresets]);
 
   useEffect(() => {
-    if (category !== 'All' && !sidebarCategories.some((item) => item.label === category)) {
+    if (category !== 'All' && !categoryChips.some((item) => item.label === category)) {
       setCategory('All');
     }
-  }, [category, sidebarCategories]);
+  }, [category, categoryChips]);
+
+  const matchesQuery = useVoiceSearchBox({
+    label: `Items of the shop ${shop?.name || 'open now'}`,
+    value: query,
+    onChange: setQuery,
+  });
 
   const visibleListings = useMemo(() => {
-    const needle = query.trim().toLowerCase();
     let list = listings.filter(
-      (l) =>
-        (category === 'All' || l.category === category) &&
-        (!needle || String(l.title || '').toLowerCase().includes(needle))
+      (l) => (category === 'All' || l.category === category) && matchesQuery(l.title)
     );
     if (sortKey === 'price_low') list = [...list].sort((a, b) => (a.price || 0) - (b.price || 0));
     else if (sortKey === 'price_high') list = [...list].sort((a, b) => (b.price || 0) - (a.price || 0));
     return list;
-  }, [listings, query, category, sortKey]);
+  }, [listings, matchesQuery, category, sortKey]);
 
   const ratingBars = useMemo(() => {
     const counts = [0, 0, 0, 0, 0];
@@ -257,20 +313,25 @@ export default function ShopProfileScreen({ route, navigation }) {
   }, [reviews]);
 
   if (loading && !shop) {
-    const skeletonCard = Math.floor((width - 36) / 2);
+    const skeletonCard = Math.floor((width - GRID_PADDING * 2 - GRID_GUTTER) / 2);
     return (
       <View style={styles.root}>
         <ThemeStatusBar variant="header" />
-        <View style={[styles.skeletonWrap, { paddingTop: insets.top + 8 }]}>
-          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.skeletonBack}>
-            <Icon name="chevron-back" size={22} color={colors.text} />
-          </Pressable>
-          <Skeleton width="100%" height={140} borderRadius={18} />
-          <View style={styles.skeletonRow}>
-            <Skeleton width={56} height={56} borderRadius={28} />
+        <Skeleton width="100%" height={bannerHeight} borderRadius={0} />
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={10}
+          style={[styles.glassBtn, styles.skeletonBack, { top: insets.top + 8 }]}
+        >
+          <Icon name="chevron-back" size={22} color="#FFFFFF" />
+        </Pressable>
+        <View style={styles.skeletonWrap}>
+          <View style={styles.skeletonCard}>
+            <Skeleton width={APP_ICON} height={APP_ICON} borderRadius={24} />
             <View style={styles.skeletonText}>
-              <Skeleton width="60%" height={16} borderRadius={6} />
-              <Skeleton width="40%" height={12} borderRadius={6} />
+              <Skeleton width="70%" height={18} borderRadius={6} />
+              <Skeleton width="45%" height={12} borderRadius={6} />
+              <Skeleton width="35%" height={20} borderRadius={10} />
             </View>
           </View>
           <View style={styles.skeletonGrid}>
@@ -311,7 +372,36 @@ export default function ShopProfileScreen({ route, navigation }) {
   const distanceLabel = hasCoords && userCoords
     ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, Number(coords.lat), Number(coords.lng)))
     : null;
-  const cardWidth = Math.floor((width - SIDEBAR_WIDTH - GRID_PADDING * 2 - GRID_GUTTER) / 2);
+  const cover = shop.coverImage ? resolveMediaUrl(shop.coverImage) : '';
+  const logo = shop.logo ? resolveMediaUrl(shop.logo) : '';
+  const cardWidth = Math.floor((width - GRID_PADDING * 2 - GRID_GUTTER) / 2);
+  const tabWidth = (width - 34) / TABS.length;
+  const todayIndex = new Date().getDay();
+
+  const bannerShift = scrollY.interpolate({
+    inputRange: [-bannerHeight, 0, bannerHeight],
+    outputRange: [-bannerHeight / 2, 0, bannerHeight * 0.3],
+    extrapolateRight: 'clamp',
+  });
+  const bannerScale = scrollY.interpolate({
+    inputRange: [-bannerHeight, 0],
+    outputRange: [2, 1],
+    extrapolate: 'clamp',
+  });
+  const barOpacity = scrollY.interpolate({
+    inputRange: [bannerHeight - barHeight - 80, bannerHeight - barHeight - 20],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const tabShift = scrollY.interpolate({
+    inputRange: [heroHeight - barHeight, heroHeight],
+    outputRange: [0, barHeight],
+    extrapolate: 'clamp',
+  });
+  const tabSlide = tabAnim.interpolate({
+    inputRange: [0, 1, 2],
+    outputRange: [0, tabWidth, tabWidth * 2],
+  });
 
   const openChat = async () => {
     if (chatBusy || !ownerId) return;
@@ -356,245 +446,52 @@ export default function ShopProfileScreen({ route, navigation }) {
     }).catch(() => {});
   };
 
-  const actions = isOwner
+  const reportShop = () =>
+    requireLogin('report', () => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId }));
+
+  const quickActions = isOwner
     ? [
-        { key: 'edit', icon: 'create-outline', label: 'Edit shop', primary: true, onPress: () => navigation.navigate(ROUTES.EDIT_SHOP) },
+        { key: 'edit', icon: 'create-outline', label: 'Edit shop', onPress: () => navigation.navigate(ROUTES.EDIT_SHOP) },
         { key: 'stats', icon: 'analytics-outline', label: 'Stats', onPress: () => navigation.navigate(ROUTES.SHOP_DASHBOARD) },
-        { key: 'qr', icon: 'qr-code-outline', label: 'QR', onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR) },
+        { key: 'qr', icon: 'qr-code-outline', label: 'Store QR', onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR) },
         { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
       ]
     : [
-        { key: 'chat', icon: 'chatbubble-ellipses-outline', label: chatBusy ? 'Opening…' : 'Chat', primary: true, onPress: startChat },
+        shop.phone ? { key: 'call', icon: 'call-outline', label: 'Call', onPress: callShop } : null,
+        shop.whatsapp
+          ? { key: 'whatsapp', icon: 'logo-whatsapp', label: 'WhatsApp', onPress: () => openLink(whatsappUrl(shop.whatsapp)) }
+          : null,
+        placeText || hasCoords ? { key: 'map', icon: 'navigate-outline', label: 'Directions', onPress: openDirections } : null,
         { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
-      ];
+      ].filter(Boolean);
 
   const stats = [
-    { label: reviewCount ? `${reviewCount} reviews` : 'No reviews', value: reviewCount ? rating.toFixed(1) : '–', icon: 'star', tint: colors.warning },
-    { label: 'Products', value: listings.length, icon: 'cube-outline', tint: colors.primary },
-    { label: 'Since', value: sinceYear || '–', icon: 'calendar-outline', tint: colors.menuBlue },
+    {
+      key: 'rating',
+      icon: 'star',
+      value: reviewCount ? rating.toFixed(1) : 'New',
+      label: reviewCount ? `${reviewCount} review${reviewCount === 1 ? '' : 's'}` : 'Rating',
+    },
+    {
+      key: 'products',
+      icon: 'cube',
+      value: `${listings.length}${pagingRef.current.hasMore ? '+' : ''}`,
+      label: 'Products',
+    },
+    distanceLabel
+      ? { key: 'distance', icon: 'navigate', value: distanceLabel, label: 'Away' }
+      : { key: 'since', icon: 'calendar', value: sinceYear || '–', label: 'On KinBech' },
   ];
 
-  const renderProducts = () => (
-    <View style={styles.catalog}>
-      <View style={styles.sidebar}>
-        <ScrollView
-          style={styles.sidebarList}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.sidebarContent, { paddingBottom: insets.bottom }]}
-        >
-          {sidebarCategories.map((cat) => {
-            const isActive = cat.label === category;
-            const tint = cat.tint || colors.primary;
-            return (
-              <Pressable
-                key={cat.label}
-                style={[styles.sideItem, isActive && styles.sideItemActive]}
-                onPress={() => setCategory(cat.label)}
-              >
-                {isActive ? <View style={styles.sideIndicator} /> : null}
-                <View
-                  style={[
-                    styles.sideIcon,
-                    { backgroundColor: isActive ? tint : `${tint}22` },
-                    isActive && [styles.sideIconActive, { shadowColor: tint }],
-                  ]}
-                >
-                  {cat.imageUrl ? (
-                    <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
-                  ) : (
-                    <Icon name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
-                  )}
-                </View>
-                <Text numberOfLines={2} style={[styles.sideLabel, isActive && styles.sideLabelActive]}>
-                  {cat.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      <ScrollView
-        style={styles.mainContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
-        refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        scrollEventThrottle={100}
-        onScroll={(event) => {
-          if (isNearEnd(event, 800)) loadMoreListings();
-        }}
-      >
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Icon name="search" size={15} color={colors.textMuted} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder={`Search in ${shop.name}`}
-              placeholderTextColor={colors.textMuted}
-              style={styles.searchInput}
-              returnKeyType="search"
-            />
-            {query ? (
-              <Pressable onPress={() => setQuery('')} hitSlop={8}>
-                <Icon name="close-circle" size={16} color={colors.textMuted} />
-              </Pressable>
-            ) : null}
-            <VoiceSearchButton color={colors.textMuted} size={18} onResult={(text) => setQuery(text)} />
-          </View>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.sortScroll}
-          contentContainerStyle={styles.sortRow}
-        >
-          {SORTS.map((option) => {
-            const active = sortKey === option.key;
-            return (
-              <Pressable
-                key={option.key}
-                style={[styles.sortChip, active && styles.sortChipActive]}
-                onPress={() => setSortKey(option.key)}
-              >
-                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        {visibleListings.length === 0 ? (
-          <View style={[styles.emptyBox, styles.emptyBoxInset]}>
-            <Icon name="cube-outline" size={22} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>
-              {listings.length ? 'No products match' : 'No products yet'}
-            </Text>
-            <Text style={styles.emptyBody}>
-              {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.productGrid}>
-            {visibleListings.map((listing) => {
-              const id = listing._id || listing.id;
-              const card = toCardItem({ ...listing, id });
-              if (!card) return null;
-              return (
-                <ProductCard
-                  key={String(id)}
-                  {...card}
-                  condition={listing.condition}
-                  postedAt={listing.createdAt}
-                  compact
-                  width={cardWidth}
-                  onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
-                />
-              );
-            })}
-          </View>
-        )}
-        {loadingMore ? (
-          <View style={styles.loadMoreRow}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
-        ) : null}
-      </ScrollView>
-    </View>
-  );
-
-  const renderReviews = () => (
-    <View style={styles.section}>
-      <View style={styles.ratingCard}>
-        <View style={styles.ratingBig}>
-          <Text style={styles.ratingBigValue}>{reviewCount ? rating.toFixed(1) : '–'}</Text>
-          <View style={styles.starsRow}>
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Icon
-                key={i}
-                name={i <= Math.round(rating) ? 'star' : 'star-outline'}
-                size={12}
-                color={colors.warning}
-              />
-            ))}
-          </View>
-          <Text style={styles.ratingBigLabel}>{reviewCount} reviews</Text>
-        </View>
-        <View style={styles.bars}>
-          {[5, 4, 3, 2, 1].map((star) => {
-            const count = ratingBars[star - 1];
-            const pct = reviews.length ? count / reviews.length : 0;
-            return (
-              <View key={star} style={styles.barRow}>
-                <Text style={styles.barLabel}>{star}</Text>
-                <View style={styles.barTrack}>
-                  <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
-                </View>
-                <Text style={styles.barCount}>{count}</Text>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-
-      {reviews.length === 0 ? (
-        <View style={styles.emptyBox}>
-          <Icon name="star-outline" size={22} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No reviews yet</Text>
-          <Text style={styles.emptyBody}>Reviews from buyers will appear here.</Text>
-        </View>
-      ) : (
-        reviews.map((review) => (
-          <View key={review._id} style={styles.reviewCard}>
-            <View style={styles.reviewHeader}>
-              <View style={styles.reviewAvatar}>
-                {review.reviewer?.avatarUrl ? (
-                  <Image source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }} style={styles.fillImage} />
-                ) : (
-                  <Icon name="person" size={14} color={colors.textMuted} />
-                )}
-              </View>
-              <View style={styles.flex1}>
-                <Text style={styles.reviewName} numberOfLines={1}>
-                  {review.reviewer?.name || 'Buyer'}
-                </Text>
-                <View style={styles.starsRow}>
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <Icon
-                      key={i}
-                      name={i <= review.rating ? 'star' : 'star-outline'}
-                      size={10}
-                      color={colors.warning}
-                    />
-                  ))}
-                </View>
-              </View>
-              <Text style={styles.reviewDate}>{timeAgo(review.createdAt)}</Text>
-            </View>
-            {review.review ? <Text style={styles.reviewText}>{review.review}</Text> : null}
-            {review.listing?.title ? (
-              <Text style={styles.reviewItem} numberOfLines={1}>
-                Bought: {review.listing.title}
-              </Text>
-            ) : null}
-          </View>
-        ))
-      )}
-    </View>
-  );
+  const highlights = [
+    shop.isVerified ? { icon: 'shield-checkmark', text: 'Verified business' } : null,
+    shop.deliveryAvailable ? { icon: 'bicycle', text: 'Home delivery' } : { icon: 'walk', text: 'Pickup & meetup' },
+    shop.paymentMethods?.length ? { icon: 'wallet', text: shop.paymentMethods.slice(0, 3).join(' · ') } : null,
+    shop.returnPolicy ? { icon: 'refresh', text: 'Returns accepted' } : null,
+    shop.establishedYear ? { icon: 'ribbon', text: `Since ${shop.establishedYear}` } : null,
+  ].filter(Boolean);
 
   const infoRows = [
-    {
-      icon: 'time-outline',
-      label: 'Opening hours',
-      value: shop.openingHours || 'Not set',
-      extra: isOpen == null ? null : isOpen ? 'Open now' : 'Closed',
-      extraColor: isOpen ? colors.success : colors.danger,
-    },
-    shop.openDays?.length && shop.openDays.length < 7
-      ? { icon: 'calendar-number-outline', label: 'Open on', value: shop.openDays.join(', ') }
-      : null,
     placeText ? { icon: 'location-outline', label: 'Address', value: placeText, onPress: openDirections } : null,
     shop.phone ? { icon: 'call-outline', label: 'Phone', value: shop.phone, onPress: isOwner ? null : callShop } : null,
     shop.whatsapp
@@ -622,57 +519,375 @@ export default function ShopProfileScreen({ route, navigation }) {
     },
   ].filter(Boolean);
 
-  const renderStoreSummary = () => (
-    <View style={styles.summary}>
-      {shop.tagline ? (
-        <Text style={styles.tagline} numberOfLines={2}>
-          {shop.tagline}
+  const renderOpenPill = () =>
+    isOpen == null ? null : (
+      <View style={[styles.pill, { backgroundColor: isOpen ? colors.pastelGreen : colors.pastelRed }]}>
+        {isOpen ? (
+          <Ping size={6} color={colors.success} />
+        ) : (
+          <View style={[styles.pillDot, { backgroundColor: colors.danger }]} />
+        )}
+        <Text style={[styles.pillText, { color: isOpen ? colors.success : colors.danger }]}>
+          {isOpen ? 'Open now' : 'Closed'}
         </Text>
-      ) : null}
-      <View style={styles.metaRow}>
-        <View style={styles.storeTag}>
-          <Icon name="storefront" size={10} color={colors.onPrimary} />
-          <Text style={styles.storeTagText}>STORE</Text>
-        </View>
-        {shop.category ? <Text style={styles.metaText}>{shop.category}</Text> : null}
-        {shop.isVerified ? <Text style={styles.verifiedText}>Business verified</Text> : null}
-        {shop.deliveryAvailable ? (
-          <View style={styles.deliveryTag}>
-            <Icon name="bicycle" size={10} color={colors.menuBlue} />
-            <Text style={styles.deliveryTagText}>Delivery</Text>
-          </View>
-        ) : null}
       </View>
-      {placeText || distanceLabel ? (
-        <View style={styles.locationRow}>
-          <Icon name="location-outline" size={14} color={colors.textMuted} />
-          {placeText ? (
-            <Text style={styles.locationText} numberOfLines={1}>{placeText}</Text>
-          ) : null}
-          {distanceLabel ? (
-            <Text style={styles.distanceText}>{placeText ? `· ${distanceLabel}` : distanceLabel}</Text>
-          ) : null}
-        </View>
-      ) : null}
-      <View style={styles.statsCard}>
-        {stats.map((s, i) => (
-          <View key={s.label} style={[styles.stat, i > 0 && styles.statDivider]}>
-            <View style={styles.statTop}>
-              <Icon name={s.icon} size={14} color={s.tint} />
-              <Text style={styles.statValue}>{s.value}</Text>
+    );
+
+  const renderHero = () => (
+    <View onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}>
+      <Animated.View
+        style={[styles.banner, { height: bannerHeight, transform: [{ translateY: bannerShift }, { scale: bannerScale }] }]}
+      >
+        {cover ? (
+          <Image source={{ uri: cover }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : (
+          <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill}>
+            <View style={styles.bannerArt}>
+              <Icon name="storefront" size={170} color="rgba(255,255,255,0.08)" />
             </View>
-            <Text style={styles.statLabel}>{s.label}</Text>
+            <Text style={[styles.bannerWatermark, { top: insets.top + 56 }]} numberOfLines={1}>
+              {shop.name}
+            </Text>
+          </LinearGradient>
+        )}
+        <LinearGradient
+          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.3)']}
+          locations={[0, 0.5, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <Shimmer duration={2600} pause={2600} color="rgba(255,255,255,0.12)" />
+      </Animated.View>
+
+      <Reanimated.View entering={FadeInDown.delay(60).springify().damping(16)} style={styles.identityCard}>
+        <View style={styles.identityTop}>
+          <Reanimated.View entering={ZoomIn.delay(200).springify().damping(11)} style={styles.appIconWrap}>
+            <View style={styles.appIcon}>
+              {logo ? (
+                <Image source={{ uri: logo }} style={styles.fillImage} />
+              ) : (
+                <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.appIconFallback}>
+                  <Text style={styles.appIconInitials}>{initials(shop.name)}</Text>
+                </LinearGradient>
+              )}
+            </View>
+            {shop.isVerified ? (
+              <View style={styles.verifiedBadge}>
+                <Icon name="checkmark" size={12} color="#FFFFFF" />
+              </View>
+            ) : null}
+          </Reanimated.View>
+          <View style={styles.identityCopy}>
+            <Text style={styles.name} numberOfLines={2}>
+              {shop.name}
+            </Text>
+            <Text style={styles.subline} numberOfLines={1}>
+              {shop.category || 'Local store'}
+              {shop.isVerified ? ' · Verified' : ''}
+            </Text>
+            <View style={styles.pillRow}>
+              <View style={[styles.pill, styles.pillStore]}>
+                <Icon name="storefront" size={10} color="#FFFFFF" />
+                <Text style={[styles.pillText, styles.pillStoreText]}>STORE</Text>
+              </View>
+              {renderOpenPill()}
+            </View>
           </View>
+        </View>
+
+        {shop.tagline ? (
+          <Text style={styles.tagline} numberOfLines={3}>
+            {shop.tagline}
+          </Text>
+        ) : null}
+
+        <View style={styles.statsRow}>
+          {stats.map((s, i) => (
+            <View key={s.key} style={[styles.stat, i > 0 && styles.statDivider]}>
+              <View style={styles.statTop}>
+                <Icon name={s.icon} size={14} color={s.key === 'rating' ? colors.warning : colors.primary} />
+                <Text style={styles.statValue} numberOfLines={1}>
+                  {s.value}
+                </Text>
+              </View>
+              <Text style={styles.statLabel} numberOfLines={1}>
+                {s.label}
+              </Text>
+            </View>
+          ))}
+        </View>
+
+        {placeText ? (
+          <Pressable onPress={openDirections} style={styles.addressRow}>
+            <View style={styles.addressIcon}>
+              <Icon name="location" size={14} color="#FFFFFF" />
+            </View>
+            <Text style={styles.addressText} numberOfLines={1}>
+              {placeText}
+            </Text>
+            {distanceLabel ? <Text style={styles.addressDistance}>{distanceLabel}</Text> : null}
+            <Icon name="chevron-forward" size={14} color={colors.textMuted} />
+          </Pressable>
+        ) : null}
+      </Reanimated.View>
+
+      <View style={styles.quickRow}>
+        {quickActions.map((action, i) => (
+          <PressableScale
+            key={action.key}
+            entering={enterCard(i, 60)}
+            style={styles.quickItem}
+            contentStyle={styles.quickInner}
+            onPress={action.onPress}
+          >
+            <View style={styles.quickIcon}>
+              <Icon name={action.icon} size={20} color="#FFFFFF" />
+            </View>
+            <Text style={styles.quickLabel} numberOfLines={1}>
+              {action.label}
+            </Text>
+          </PressableScale>
         ))}
       </View>
+
+      {highlights.length ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlightRow}>
+          {highlights.map((h, i) => (
+            <Reanimated.View key={h.text} entering={enterCard(i, 50)} style={styles.highlight}>
+              <View style={styles.highlightIcon}>
+                <Icon name={h.icon} size={12} color="#FFFFFF" />
+              </View>
+              <Text style={styles.highlightText} numberOfLines={1}>
+                {h.text}
+              </Text>
+            </Reanimated.View>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+
+  const renderTabs = () => (
+    <Animated.View style={[styles.tabWrap, { transform: [{ translateY: tabShift }] }]}>
+      <View style={styles.tabBar}>
+        <Animated.View style={[styles.tabIndicator, { width: tabWidth, transform: [{ translateX: tabSlide }] }]} />
+        {TABS.map((t) => {
+          const active = tab === t.key;
+          const count = t.key === 'products' ? listings.length : t.key === 'reviews' ? reviewCount : 0;
+          return (
+            <Pressable key={t.key} style={[styles.tabBtn, { width: tabWidth }]} onPress={() => setTab(t.key)}>
+              <Icon name={active ? t.activeIcon : t.icon} size={15} color={active ? '#FFFFFF' : colors.textMuted} />
+              <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={1}>
+                {t.label}
+              </Text>
+              {count ? (
+                <View style={[styles.tabCount, active && styles.tabCountActive]}>
+                  <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>{count}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
+    </Animated.View>
+  );
+
+  const renderProducts = () => (
+    <View>
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Icon name="search" size={16} color={colors.textMuted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder={`Search in ${shop.name}`}
+            placeholderTextColor={colors.textMuted}
+            style={styles.searchInput}
+            returnKeyType="search"
+          />
+          {query ? (
+            <Pressable onPress={() => setQuery('')} hitSlop={8}>
+              <Icon name="close-circle" size={16} color={colors.textMuted} />
+            </Pressable>
+          ) : null}
+          <VoiceSearchToggle size={28} />
+        </View>
+      </View>
+
+      {categoryChips.length > 2 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
+          {categoryChips.map((cat) => {
+            const active = cat.label === category;
+            return (
+              <Pressable
+                key={cat.label}
+                onPress={() => setCategory(cat.label)}
+                style={[styles.catChip, active && styles.catChipActive]}
+              >
+                <View style={[styles.catIcon, active && styles.catIconActive]}>
+                  {cat.imageUrl ? (
+                    <Image source={{ uri: cat.imageUrl }} style={styles.fillImage} />
+                  ) : (
+                    <Icon name={cat.icon} size={14} color={active ? colors.primary : '#FFFFFF'} />
+                  )}
+                </View>
+                <Text style={[styles.catLabel, active && styles.catLabelActive]} numberOfLines={1}>
+                  {cat.label}
+                </Text>
+                <Text style={[styles.catCount, active && styles.catCountActive]}>{cat.count}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
+      <View style={styles.sortBar}>
+        <Text style={styles.resultText}>
+          {visibleListings.length} {visibleListings.length === 1 ? 'item' : 'items'}
+        </Text>
+        <View style={styles.sortChips}>
+          {SORTS.map((option) => {
+            const active = sortKey === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                style={[styles.sortChip, active && styles.sortChipActive]}
+                onPress={() => setSortKey(option.key)}
+              >
+                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{option.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {visibleListings.length === 0 ? (
+        <View style={[styles.emptyBox, styles.emptyBoxInset]}>
+          <View style={styles.emptyIcon}>
+            <Icon name="cube-outline" size={22} color="#FFFFFF" />
+          </View>
+          <Text style={styles.emptyTitle}>{listings.length ? 'No products match' : 'No products yet'}</Text>
+          <Text style={styles.emptyBody}>
+            {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.productGrid}>
+          {visibleListings.map((listing, index) => {
+            const id = listing._id || listing.id;
+            const card = toCardItem({ ...listing, id });
+            if (!card) return null;
+            return (
+              <Reanimated.View key={String(id)} entering={enterCard(index)}>
+                <ProductCard
+                  {...card}
+                  condition={listing.condition}
+                  postedAt={listing.createdAt}
+                  compact
+                  width={cardWidth}
+                  onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+                />
+              </Reanimated.View>
+            );
+          })}
+        </View>
+      )}
+      {loadingMore ? (
+        <View style={styles.loadMoreRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const renderReviews = () => (
+    <View style={styles.section}>
+      <View style={styles.ratingCard}>
+        <View style={styles.ratingBig}>
+          <Text style={styles.ratingBigValue}>{reviewCount ? rating.toFixed(1) : '–'}</Text>
+          <View style={styles.starsRow}>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Icon key={i} name={i <= Math.round(rating) ? 'star' : 'star-outline'} size={13} color={colors.warning} />
+            ))}
+          </View>
+          <Text style={styles.ratingBigLabel}>{reviewCount} reviews</Text>
+        </View>
+        <View style={styles.bars}>
+          {[5, 4, 3, 2, 1].map((star) => {
+            const count = ratingBars[star - 1];
+            const pct = reviews.length ? count / reviews.length : 0;
+            return (
+              <View key={star} style={styles.barRow}>
+                <Text style={styles.barLabel}>{star}</Text>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${pct * 100}%` }]} />
+                </View>
+                <Text style={styles.barCount}>{count}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {reviews.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <View style={styles.emptyIcon}>
+            <Icon name="star-outline" size={22} color="#FFFFFF" />
+          </View>
+          <Text style={styles.emptyTitle}>No reviews yet</Text>
+          <Text style={styles.emptyBody}>Reviews from buyers will appear here.</Text>
+        </View>
+      ) : (
+        reviews.map((review, index) => (
+          <Reanimated.View key={review._id} entering={enterCard(index)} style={styles.reviewCard}>
+            <View style={styles.reviewHeader}>
+              <View style={styles.reviewAvatar}>
+                {review.reviewer?.avatarUrl ? (
+                  <Image source={{ uri: resolveMediaUrl(review.reviewer.avatarUrl) }} style={styles.fillImage} />
+                ) : (
+                  <Text style={styles.reviewInitials}>{initials(review.reviewer?.name || 'Buyer')}</Text>
+                )}
+              </View>
+              <View style={styles.flex1}>
+                <Text style={styles.reviewName} numberOfLines={1}>
+                  {review.reviewer?.name || 'Buyer'}
+                </Text>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Icon key={i} name={i <= review.rating ? 'star' : 'star-outline'} size={11} color={colors.warning} />
+                  ))}
+                </View>
+              </View>
+              <Text style={styles.reviewDate}>{timeAgo(review.createdAt)}</Text>
+            </View>
+            {review.review ? <Text style={styles.reviewText}>{review.review}</Text> : null}
+            {review.listing?.title ? (
+              <View style={styles.reviewItemRow}>
+                <Icon name="bag-check-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.reviewItem} numberOfLines={1}>
+                  Bought: {review.listing.title}
+                </Text>
+              </View>
+            ) : null}
+          </Reanimated.View>
+        ))
+      )}
+    </View>
+  );
+
+  const renderCardHead = (icon, title, right = null) => (
+    <View style={styles.cardHead}>
+      <View style={styles.cardHeadIcon}>
+        <Icon name={icon} size={14} color="#FFFFFF" />
+      </View>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {right}
     </View>
   );
 
   const renderAbout = () => (
     <View style={styles.section}>
-      {renderStoreSummary()}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>About</Text>
+      <Reanimated.View entering={enterCard(0)} style={styles.card}>
+        {renderCardHead('storefront', 'About the store')}
         <Text style={styles.aboutText}>{shop.description?.trim() || 'No description provided.'}</Text>
         {SOCIAL_LINKS.some((s) => social[s.key]) ? (
           <View style={styles.socialRow}>
@@ -687,8 +902,26 @@ export default function ShopProfileScreen({ route, navigation }) {
             ))}
           </View>
         ) : null}
-      </View>
-      <View style={styles.card}>
+      </Reanimated.View>
+
+      <Reanimated.View entering={enterCard(1)} style={styles.card}>
+        {renderCardHead('time', 'Opening hours', renderOpenPill())}
+        <Text style={styles.hoursText}>{shop.openingHours || 'Hours not set'}</Text>
+        <View style={styles.weekRow}>
+          {WEEK_DAYS.map((day, i) => {
+            const open = !shop.openDays?.length || shop.openDays.includes(day);
+            const today = i === todayIndex;
+            return (
+              <View key={day} style={[styles.dayChip, open && styles.dayChipOpen, today && styles.dayChipToday]}>
+                <Text style={[styles.dayText, open && styles.dayTextOpen]}>{day.slice(0, 2)}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </Reanimated.View>
+
+      <Reanimated.View entering={enterCard(2)} style={styles.card}>
+        {renderCardHead('information-circle', 'Store details')}
         {infoRows.map((row, index) => (
           <Pressable
             key={row.label}
@@ -697,194 +930,107 @@ export default function ShopProfileScreen({ route, navigation }) {
             disabled={!row.onPress}
           >
             <View style={styles.infoIcon}>
-              <Icon name={row.icon} size={15} color={colors.primary} />
+              <Icon name={row.icon} size={15} color="#FFFFFF" />
             </View>
             <View style={styles.flex1}>
               <Text style={styles.infoLabel}>{row.label}</Text>
               <Text style={[styles.infoValue, row.valueColor && { color: row.valueColor }]}>{row.value}</Text>
             </View>
-            {row.extra ? (
-              <Text style={[styles.infoExtra, { color: row.extraColor }]}>{row.extra}</Text>
-            ) : null}
             {row.onPress ? <Icon name="chevron-forward" size={15} color={colors.textMuted} /> : null}
           </Pressable>
         ))}
-      </View>
+      </Reanimated.View>
     </View>
   );
 
+  const btnStyle = solidBar ? styles.solidBtn : styles.glassBtn;
+  const btnIcon = solidBar ? colors.text : '#FFFFFF';
+
   return (
     <View style={styles.root}>
-      <ThemeStatusBar variant="header" />
-      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <View style={styles.topBar}>
-          <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.topBtn}>
-            <Icon name="chevron-back" size={22} color={colors.text} />
-          </Pressable>
-          <View style={styles.topBarSpacer} />
-          <Pressable onPress={shareShop} hitSlop={10} style={styles.topBtn}>
-            <Icon name="share-social-outline" size={18} color={colors.text} />
-          </Pressable>
-          {!isOwner ? (
-            <Pressable
-              onPress={() => requireLogin('report', () => navigation.navigate(ROUTES.REPORT_BLOCK, { userId: ownerId }))}
-              hitSlop={10}
-              style={styles.topBtn}
-            >
-              <Icon name="ellipsis-horizontal" size={18} color={colors.text} />
-            </Pressable>
-          ) : null}
-        </View>
-        <View style={styles.identityRow}>
-          <View style={styles.logo}>
-            {shop.logo ? (
-              <Image source={{ uri: resolveMediaUrl(shop.logo) }} style={styles.fillImage} />
+      <StatusBar style={solidBar ? (isDarkMode ? 'light' : 'dark') : 'light'} />
+      <Animated.ScrollView
+        style={styles.flex1}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        stickyHeaderIndices={[1]}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      >
+        {renderHero()}
+        {renderTabs()}
+        <View>{tab === 'products' ? renderProducts() : tab === 'reviews' ? renderReviews() : renderAbout()}</View>
+      </Animated.ScrollView>
+
+      <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight, paddingTop: insets.top }]}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.topBarBg, { opacity: barOpacity }]} />
+        <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={btnStyle}>
+          <Icon name="chevron-back" size={22} color={btnIcon} />
+        </Pressable>
+        <Animated.View pointerEvents="none" style={[styles.topTitle, { opacity: barOpacity }]}>
+          <View style={styles.topLogo}>
+            {logo ? (
+              <Image source={{ uri: logo }} style={styles.fillImage} />
             ) : (
-              <Icon name="storefront" size={22} color={colors.primary} />
+              <Text style={styles.topLogoText}>{initials(shop.name)}</Text>
             )}
           </View>
-          <View style={styles.headerCopy}>
-            <View style={styles.nameRow}>
-              <Text style={styles.name} numberOfLines={1}>{shop.name}</Text>
-              {shop.isVerified ? <Icon name="shield-checkmark" size={16} color={colors.primary} /> : null}
-            </View>
-            <View style={styles.detailRow}>
-              <Icon name="star" size={13} color={colors.warning} />
-              <Text style={styles.detailStrong}>{reviewCount ? rating.toFixed(1) : 'New'}</Text>
-              {shop.category ? (
-                <Text style={styles.detailMuted} numberOfLines={1}>· {shop.category}</Text>
-              ) : <View style={styles.flex1} />}
-              {isOpen != null ? (
-                <View style={[styles.openPill, { backgroundColor: isOpen ? colors.pastelGreen : colors.pastelRed }]}>
-                  <View style={[styles.openDot, { backgroundColor: isOpen ? colors.success : colors.danger }]} />
-                  <Text style={[styles.openText, { color: isOpen ? colors.success : colors.danger }]}>
-                    {isOpen ? 'Open' : 'Closed'}
-                  </Text>
-                </View>
-              ) : null}
-            </View>
-            {placeText || distanceLabel ? (
-              <View style={styles.locationRow}>
-                <Icon name="location-outline" size={14} color={colors.textMuted} />
-                {placeText ? (
-                  <Text style={styles.locationText} numberOfLines={1}>{placeText}</Text>
-                ) : null}
-                {distanceLabel ? (
-            <Text style={styles.distanceText}>{placeText ? `· ${distanceLabel}` : distanceLabel}</Text>
-          ) : null}
-              </View>
-            ) : null}
-          </View>
-        </View>
-        <View style={styles.contactRow}>
-          {(() => {
-            const rowItems = [
-              {
-                key: 'products',
-                icon: 'grid-outline',
-                label: 'Items',
-                onPress: () => setTab('products'),
-              },
-              ...actions
-                .filter((action) => action.key !== 'share')
-                .map((action) => ({
-                  ...action,
-                  label: action.key === 'edit' ? 'Edit' : action.label,
-                })),
-              {
-                key: 'reviews',
-                icon: 'star-outline',
-                label: 'Reviews',
-                onPress: () => setTab('reviews'),
-              },
-              {
-                key: 'about',
-                icon: 'information-circle-outline',
-                label: 'About',
-                onPress: () => setTab('about'),
-              },
-            ];
-            const rowGap = 6;
-            const rowWidth = width - 24;
-            const buttonWidth = Math.floor((rowWidth - rowGap * (rowItems.length - 1)) / rowItems.length);
-            return rowItems.map((action) => {
-            const isCall = action.key === 'call';
-            const selected = action.key === tab;
-            const filled = (action.primary || isCall) && !selected;
-            const iconName = selected && action.key === 'reviews'
-              ? 'star'
-              : selected && action.key === 'products'
-                ? 'grid'
-                : action.icon;
-            return (
-              <Pressable
-                key={action.key}
-                accessibilityLabel={action.label}
-                style={[
-                  styles.contactBtn,
-                  { width: buttonWidth, height: Math.min(buttonWidth, 40) },
-                  filled && action.primary && styles.contactBtnPrimary,
-                  filled && isCall && styles.contactBtnCall,
-                  selected && styles.contactBtnSelected,
-                ]}
-                onPress={action.onPress}
-              >
-                <Icon
-                  name={iconName}
-                  size={18}
-                  color={filled ? '#fff' : selected ? colors.primary : colors.text}
-                />
-              </Pressable>
-            );
-            });
-          })()}
-        </View>
+          <Text style={styles.topName} numberOfLines={1}>
+            {shop.name}
+          </Text>
+        </Animated.View>
+        <Pressable onPress={shareShop} hitSlop={10} style={btnStyle}>
+          <Icon name="share-social-outline" size={18} color={btnIcon} />
+        </Pressable>
+        {!isOwner ? (
+          <Pressable onPress={reportShop} hitSlop={10} style={btnStyle}>
+            <Icon name="ellipsis-horizontal" size={18} color={btnIcon} />
+          </Pressable>
+        ) : null}
       </View>
 
-        {tab === 'products' ? (
-          renderProducts()
-        ) : (
-          <ScrollView
-            style={styles.mainContent}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-            refreshControl={refreshControl(colors, refreshing, onRefresh)}
+      <Reanimated.View
+        entering={FadeInDown.delay(350).springify().damping(16)}
+        style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}
+      >
+        {isOwner ? (
+          <PressableScale
+            style={styles.flex1}
+            contentStyle={styles.ctaBtn}
+            onPress={() => navigation.navigate(ROUTES.SHOP_POST_LISTING)}
           >
-            {tab === 'reviews' ? renderReviews() : renderAbout()}
-          </ScrollView>
+            <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+            <Shimmer duration={2000} pause={2200} />
+            <Icon name="add-circle" size={20} color="#FFFFFF" />
+            <Text style={styles.ctaText}>Add product</Text>
+          </PressableScale>
+        ) : (
+          <>
+            {shop.phone ? (
+              <PressableScale contentStyle={styles.ctaIconBtn} onPress={callShop}>
+                <Icon name="call" size={20} color={colors.primary} />
+              </PressableScale>
+            ) : null}
+            <PressableScale style={styles.flex1} contentStyle={styles.ctaBtn} onPress={startChat} disabled={chatBusy}>
+              <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+              <Shimmer duration={2000} pause={2200} />
+              {chatBusy ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Icon name="chatbubble-ellipses" size={19} color="#FFFFFF" />
+              )}
+              <Text style={styles.ctaText}>{chatBusy ? 'Opening chat…' : 'Chat with store'}</Text>
+            </PressableScale>
+          </>
         )}
+      </Reanimated.View>
     </View>
   );
 }
 
 const createStyles = (colors) => ({
-  skeletonWrap: {
-    paddingHorizontal: 14,
-    gap: 14,
-  },
-  skeletonBack: {
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-  },
-  skeletonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  skeletonText: {
-    flex: 1,
-    gap: 8,
-  },
-  skeletonGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  loadMoreRow: {
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
   root: {
     flex: 1,
     backgroundColor: colors.background,
@@ -896,239 +1042,249 @@ const createStyles = (colors) => ({
     width: '100%',
     height: '100%',
   },
-  header: {
-    paddingHorizontal: 12,
-    paddingBottom: 14,
-    gap: 12,
+  skeletonWrap: {
+    paddingHorizontal: GRID_PADDING,
+    gap: 16,
+    marginTop: -44,
+  },
+  skeletonBack: {
+    position: 'absolute',
+    left: 12,
+  },
+  skeletonCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 14,
+    borderRadius: 24,
     backgroundColor: colors.surface,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
+  skeletonText: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: GRID_GUTTER,
+  },
+  loadMoreRow: {
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+
   topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    paddingHorizontal: 12,
   },
-  topBarSpacer: {
-    flex: 1,
+  topBarBg: {
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  identityRow: {
-    flexDirection: 'row',
+  glassBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
-    gap: 12,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15,23,42,0.38)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
-  headerCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: 3,
-  },
-  nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  detailStrong: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  detailMuted: {
-    flex: 1,
-    minWidth: 0,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  topBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  solidBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  contactRow: {
+  topTitle: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-  },
-  contactBtn: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  contactBtnPrimary: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  contactBtnCall: {
-    borderColor: '#059669',
-    backgroundColor: '#059669',
-  },
-  contactText: {
-    width: '100%',
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.text,
-    textAlign: 'center',
-  },
-  contactTextFilled: {
-    color: '#fff',
-  },
-  contactBtnSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  contactTextSelected: {
-    color: colors.primary,
-  },
-  socialRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 10,
-  },
-  socialBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summary: {
     gap: 8,
+    minWidth: 0,
   },
-  logo: {
-    width: LOGO_SIZE,
-    height: LOGO_SIZE,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.pastelGreen,
+  topLogo: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.primary,
   },
-  openPill: {
-    flexShrink: 0,
+  topLogoText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  topName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+
+  banner: {
+    width: '100%',
+    overflow: 'hidden',
+    backgroundColor: '#065F46',
+  },
+  bannerArt: {
+    position: 'absolute',
+    right: -24,
+    bottom: -30,
+    transform: [{ rotate: '-12deg' }],
+  },
+  bannerWatermark: {
+    position: 'absolute',
+    left: 18,
+    right: 18,
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    color: 'rgba(255,255,255,0.16)',
+  },
+
+  identityCard: {
+    marginTop: -64,
+    marginHorizontal: GRID_PADDING,
+    padding: 14,
+    gap: 12,
+    borderRadius: 26,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000000',
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  identityTop: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 14,
+  },
+  appIconWrap: {
+    width: APP_ICON,
+    height: APP_ICON,
+  },
+  appIcon: {
+    width: APP_ICON,
+    height: APP_ICON,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 3,
+    borderColor: colors.surface,
+    backgroundColor: colors.background,
+    shadowColor: '#000000',
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  appIconFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appIconInitials: {
+    fontSize: 30,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.5,
+  },
+  verifiedBadge: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderWidth: 2.5,
+    borderColor: colors.surface,
+  },
+  identityCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  },
+  name: {
+    fontSize: 21,
+    lineHeight: 25,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    color: colors.text,
+  },
+  subline: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 999,
   },
-  openDot: {
+  pillDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  openText: {
-    fontSize: 12,
+  pillText: {
+    fontSize: 11.5,
     fontWeight: '800',
   },
-  name: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.text,
-    minWidth: 0,
+  pillStore: {
+    backgroundColor: colors.primary,
+  },
+  pillStoreText: {
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
   },
   tagline: {
     fontSize: 14,
     lineHeight: 20,
-    color: colors.textSecondary,
-  },
-  deliveryTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: colors.pastelBlue,
-  },
-  deliveryTagText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.menuBlue,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginTop: 2,
-  },
-  storeTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    backgroundColor: colors.primary,
-  },
-  storeTagText: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.3,
-    color: colors.onPrimary,
-  },
-  metaText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  verifiedText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  locationText: {
-    flexShrink: 1,
-    fontSize: 13,
     fontWeight: '500',
-    color: colors.textMuted,
+    fontStyle: 'italic',
+    color: colors.textSecondary,
   },
-  distanceText: {
-    flexShrink: 0,
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  statsCard: {
+  statsRow: {
     flexDirection: 'row',
-    marginTop: 0,
     paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderRadius: 16,
+    backgroundColor: colors.background,
   },
   stat: {
     flex: 1,
     alignItems: 'center',
-    gap: 0,
+    gap: 2,
+    paddingHorizontal: 4,
   },
   statDivider: {
     borderLeftWidth: 1,
@@ -1137,170 +1293,177 @@ const createStyles = (colors) => ({
   statTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
   },
   statValue: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 17,
+    fontWeight: '900',
     color: colors.text,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11.5,
+    fontWeight: '600',
     color: colors.textMuted,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 5,
-    marginTop: 0,
-  },
-  actionBtn: {
-    flex: 1,
-    height: 32,
+  addressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    gap: 8,
   },
-  actionBtnPrimary: {
-    flex: 1.4,
-    borderColor: colors.primary,
+  addressIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.primary,
   },
-  actionText: {
-    fontSize: 10,
+  addressText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  addressDistance: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+
+  quickRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: GRID_PADDING,
+    marginTop: 14,
+  },
+  quickItem: {
+    flex: 1,
+  },
+  quickInner: {
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  quickLabel: {
+    fontSize: 12,
     fontWeight: '700',
     color: colors.text,
-    minWidth: 0,
   },
-  actionTextPrimary: {
-    color: colors.onPrimary,
-    minWidth: 0,
+  highlightRow: {
+    gap: 8,
+    paddingHorizontal: GRID_PADDING,
+    paddingTop: 12,
+    paddingBottom: 2,
   },
-  tabsTrack: {
+  highlight: {
     flexDirection: 'row',
-    marginHorizontal: 12,
-    marginTop: 10,
-    marginBottom: 8,
-    padding: 3,
-    borderRadius: 18,
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 5,
+    paddingRight: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.iconBackground,
   },
-  tabBtn: {
-    flex: 1,
-    height: 34,
-    borderRadius: 15,
+  highlightIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tabBtnActive: {
     backgroundColor: colors.primary,
+  },
+  highlightText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+
+  tabWrap: {
+    paddingTop: 12,
+    paddingBottom: 8,
+    paddingHorizontal: 12,
+    backgroundColor: colors.background,
+  },
+  tabBar: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tabIndicator: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    left: 4,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+  },
+  tabBtn: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
   },
   tabText: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.textMuted,
+    flexShrink: 1,
   },
   tabTextActive: {
-    color: colors.onPrimary,
-    minWidth: 0,
-  },
-  catalog: {
-    flex: 1,
-    flexDirection: 'row',
-    marginTop: 10,
-  },
-  sidebar: {
-    width: SIDEBAR_WIDTH,
-    alignSelf: 'stretch',
-    backgroundColor: colors.surface,
-    borderTopRightRadius: 22,
-    borderRightWidth: 1,
-    borderTopWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  sidebarList: {
-    flex: 1,
-  },
-  sidebarContent: {
-    paddingTop: 4,
-    paddingBottom: 8,
-  },
-  sideItem: {
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    gap: 3,
-    borderRadius: 14,
-    marginHorizontal: 3,
-  },
-  sideItemActive: {
-    backgroundColor: colors.background,
-    borderRadius: 14,
-  },
-  sideIndicator: {
-    position: 'absolute',
-    left: 0,
-    top: 6,
-    bottom: 6,
-    width: 3,
-    borderTopRightRadius: 3,
-    borderBottomRightRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  sideIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  sideIconActive: {
-    shadowOpacity: 0.28,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  sideIconImage: {
-    width: '100%',
-    height: '100%',
-  },
-  sideLabel: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 11,
-  },
-  sideLabelActive: {
-    color: colors.text,
+    color: '#FFFFFF',
     fontWeight: '800',
   },
-  mainContent: {
-    flex: 1,
+  tabCount: {
+    minWidth: 20,
+    paddingHorizontal: 5,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.background,
   },
+  tabCountActive: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  tabCountText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: colors.textMuted,
+  },
+  tabCountTextActive: {
+    color: '#FFFFFF',
+  },
+
   searchRow: {
-    flexDirection: 'row',
-    gap: 5,
     paddingHorizontal: GRID_PADDING,
-    paddingTop: 0,
+    paddingTop: 4,
   },
   searchBox: {
-    flex: 1,
-    height: 40,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    borderRadius: 20,
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -1312,19 +1475,76 @@ const createStyles = (colors) => ({
     color: colors.text,
     minWidth: 0,
   },
-  sortScroll: {
-    flexGrow: 0,
-  },
-  sortRow: {
+  catRow: {
+    gap: 8,
     paddingHorizontal: GRID_PADDING,
-    paddingVertical: 8,
-    gap: 6,
+    paddingTop: 12,
+  },
+  catChip: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 7,
+    paddingLeft: 5,
+    paddingRight: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  catChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  catIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  catIconActive: {
+    backgroundColor: '#FFFFFF',
+  },
+  catLabel: {
+    maxWidth: 130,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  catLabelActive: {
+    color: '#FFFFFF',
+  },
+  catCount: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.textMuted,
+  },
+  catCountActive: {
+    color: 'rgba(255,255,255,0.85)',
+  },
+  sortBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: GRID_PADDING,
+    paddingVertical: 12,
+  },
+  resultText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  sortChips: {
+    flexDirection: 'row',
+    gap: 6,
   },
   sortChip: {
     paddingHorizontal: 11,
-    height: 34,
-    borderRadius: 17,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
@@ -1332,16 +1552,16 @@ const createStyles = (colors) => ({
     borderColor: colors.border,
   },
   sortChipActive: {
-    backgroundColor: '#059669',
-    borderColor: '#059669',
+    backgroundColor: colors.text,
+    borderColor: colors.text,
   },
   sortChipText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.text,
   },
   sortChipTextActive: {
-    color: '#fff',
+    color: colors.background,
   },
   productGrid: {
     flexDirection: 'row',
@@ -1349,35 +1569,35 @@ const createStyles = (colors) => ({
     paddingHorizontal: GRID_PADDING,
     gap: GRID_GUTTER,
   },
+
   section: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    gap: 8,
+    paddingHorizontal: GRID_PADDING,
+    paddingTop: 4,
+    gap: 10,
   },
   ratingCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
-    padding: 12,
-    borderRadius: 12,
+    gap: 16,
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   ratingBig: {
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
   },
   ratingBigValue: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 36,
+    fontWeight: '900',
     color: colors.text,
-    minWidth: 0,
   },
   ratingBigLabel: {
     fontSize: 12,
+    fontWeight: '600',
     color: colors.textMuted,
-    minWidth: 0,
   },
   starsRow: {
     flexDirection: 'row',
@@ -1385,158 +1605,270 @@ const createStyles = (colors) => ({
   },
   bars: {
     flex: 1,
-    gap: 3,
+    gap: 5,
   },
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 6,
   },
   barLabel: {
     width: 12,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.textSecondary,
-    minWidth: 0,
   },
   barTrack: {
     flex: 1,
-    height: 5,
-    borderRadius: 2.5,
+    height: 7,
+    borderRadius: 4,
     overflow: 'hidden',
-    backgroundColor: colors.iconBackground,
+    backgroundColor: colors.background,
   },
   barFill: {
     height: '100%',
-    borderRadius: 2.5,
+    borderRadius: 4,
     backgroundColor: colors.warning,
   },
   barCount: {
-    width: 16,
+    width: 18,
     textAlign: 'right',
     fontSize: 12,
+    fontWeight: '600',
     color: colors.textMuted,
   },
   reviewCard: {
-    padding: 10,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    gap: 5,
+    gap: 8,
   },
   reviewHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   reviewAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.iconBackground,
+    backgroundColor: colors.primary,
+  },
+  reviewInitials: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
   },
   reviewName: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
-    minWidth: 0,
   },
   reviewDate: {
     fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
   reviewText: {
     fontSize: 14,
-    lineHeight: 17,
+    lineHeight: 20,
     color: colors.text,
-    minWidth: 0,
+  },
+  reviewItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
   reviewItem: {
+    flex: 1,
     fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
+
   card: {
-    padding: 10,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
+  cardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  cardHeadIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
   cardTitle: {
-    fontSize: 15,
+    flex: 1,
+    fontSize: 15.5,
     fontWeight: '800',
     color: colors.text,
-    marginBottom: 5,
-    minWidth: 0,
   },
   aboutText: {
     fontSize: 14,
-    lineHeight: 17,
+    lineHeight: 21,
     color: colors.textSecondary,
-    minWidth: 0,
+  },
+  socialRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  socialBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hoursText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  weekRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+  dayChip: {
+    flex: 1,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  dayChipOpen: {
+    backgroundColor: colors.primary,
+  },
+  dayChipToday: {
+    borderColor: colors.warning,
+  },
+  dayText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textMuted,
+  },
+  dayTextOpen: {
+    color: '#FFFFFF',
   },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 5,
+    gap: 10,
+    paddingVertical: 9,
   },
   infoRowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
   infoIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.pastelGreen,
+    backgroundColor: colors.primary,
   },
   infoLabel: {
     fontSize: 12,
     color: colors.textMuted,
-    minWidth: 0,
   },
   infoValue: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
-    minWidth: 0,
-  },
-  infoExtra: {
-    fontSize: 12,
-    fontWeight: '800',
-    minWidth: 0,
   },
   emptyBox: {
     alignItems: 'center',
-    gap: 3,
-    paddingVertical: 18,
-    borderRadius: 12,
+    gap: 6,
+    paddingVertical: 26,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
   emptyBoxInset: {
-    marginHorizontal: 14,
-    marginTop: 10,
+    marginHorizontal: GRID_PADDING,
+  },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    backgroundColor: colors.primary,
   },
   emptyTitle: {
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     color: colors.text,
-    minWidth: 0,
   },
   emptyBody: {
     fontSize: 13,
     color: colors.textMuted,
-    minWidth: 0,
+    textAlign: 'center',
+  },
+
+  bottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: GRID_PADDING,
+    paddingTop: 10,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    shadowColor: '#000000',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  ctaIconBtn: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.background,
+  },
+  ctaBtn: {
+    height: 52,
+    borderRadius: 18,
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  ctaText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
   },
 });

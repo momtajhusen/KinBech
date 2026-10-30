@@ -39,6 +39,7 @@ import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useCategories, mergeSidebarCategories, refreshCategories } from '../utils/categories';
 import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
+import { useExploreVoiceTurns, useVoiceScreen } from '../components/VoiceHost';
 import EmptyState from '../components/EmptyState';
 import ProductCard from '../components/ProductCard';
 import pinnedStoresUtils from '../utils/pinnedStores';
@@ -56,7 +57,7 @@ import {
 } from '../components/Motion';
 import ExploreFilterSheet, { DEFAULT_EXPLORE_FILTERS, countActiveFilters } from '../components/ExploreFilterSheet';
 
-const SIDEBAR_WIDTH = 62;
+const SIDEBAR_WIDTH = 76;
 const GRID_GUTTER = 8;
 const GRID_PADDING = 10;
 const ALL_TINT = '#047857';
@@ -110,6 +111,45 @@ function productPasses(item, filters) {
   }
   if (filters.verified && !item.verified) return false;
   return true;
+}
+
+/** Price and condition also go to the server so a filtered search is not cut from the top 40. */
+function serverSearchFilters(filters) {
+  const params = {};
+  if (filters?.priceMin != null) params.minPrice = filters.priceMin;
+  if (filters?.priceMax != null) params.maxPrice = filters.priceMax;
+  if (filters?.condition) params.condition = filters.condition;
+  return params;
+}
+
+function searchKeyFor(q, filters) {
+  const params = serverSearchFilters(filters);
+  return `${q}#${params.minPrice ?? ''}|${params.maxPrice ?? ''}|${params.condition ?? ''}`;
+}
+
+const VOICE_SORTS = {
+  relevance: DEFAULT_SORT,
+  'price-low': 'priceLow',
+  'price-high': 'priceHigh',
+  nearby: 'nearby',
+  newest: 'newest',
+  popular: 'topRated',
+};
+
+// Spoken words that ask the app to do something rather than name an item; no instant search for these.
+const VOICE_COMMAND_RE = /(^|\s)(khol\w*|open|kholo|seller\w*|shops?|pasal\w*|band|stop|bye|home|profile|setting\w*|saved|wishlist|chats?|notification\w*|clear|hatao|hata|pahil\w*|pehl\w*|first|second|dosr\w*|dusr\w*|teesr\w*|last|thank\w*|dhanyabad|namaste|hello|hi|hey|kaise|kasto|what|who|why|how|खोल\S*|सेलर\S*|पसल\S*|बन्द|बंद|पहिलो|पहला|दोस्रो|दूसरा|धन्यवाद|नमस्ते|सेटिङ\S*|प्रोफाइल)(?=\s|$)/i;
+
+// Request words, price and condition words dropped from the spoken text for the instant search.
+const VOICE_FILLER_RE = /(^|\s)(mujhe|malai|hamlai|hamein|please|plz|show|me|find|search|look|for|i|want|need|a|an|the|some|koi|kuch|ek|euta|dikhao|dikha|dikhaiye|dikhado|dekhau|dekhaunus|dekhaideu|chahiye|chaiye|chahiyo|chaincha|chahincha|khojo|khoja|khojdeu|wala|wali|vala|ko|ka|ki|ke|ma|me|mai|hai|ho|cha|chha|sasta|sasti|sasto|mahanga|naya|nayi|naaya|purana|purani|purano|second hand|used|new|near|nearby|najik|najikai|paas|under|below|above|less|than|se|kam|tak|bhanda|rupees|rs|rupaiya|मुझे|मलाई|दिखाओ|दिखाइए|दिखा|देखाउनुस्|देखाउनुहोस्|देखाऊ|देखाउ|चाहिए|चाहियो|चाहिन्छ|खोज|खोज्नुस्|खोजो|कोई|कुछ|एक|एउटा|वाला|वाली|को|का|की|के|मा|में|है|छ|सस्ता|सस्ती|सस्तो|नया|नयाँ|पुराना|पुरानो|नजिक|पास|तक|भन्दा|रुपैयाँ)(?=\s|$)/gi;
+
+/** A rough item query from the raw words, searched at once while the AI works out the real one. */
+function quickVoiceQuery(text) {
+  const spoken = String(text || '').toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!spoken || VOICE_COMMAND_RE.test(spoken)) return '';
+  let rest = spoken.replace(/\d+(\.\d+)?\s*(k|hazar|hajar|हजार|lakh|lac|लाख|thousand)?/gi, ' ');
+  // Run twice: the lookahead shares the space between neighbouring fillers.
+  rest = rest.replace(VOICE_FILLER_RE, ' ').replace(VOICE_FILLER_RE, ' ').replace(/\s+/g, ' ').trim();
+  return rest.length >= MIN_SEARCH_CHARS ? rest.slice(0, 40) : '';
 }
 
 function sellerPasses(seller, filters) {
@@ -278,10 +318,10 @@ const createStyles = (colors) => ({
   sideItem: {
     alignItems: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     gap: 3,
     borderRadius: 14,
-    marginHorizontal: 3,
+    marginHorizontal: 2,
   },
   sideItemActive: {
     backgroundColor: colors.background,
@@ -316,11 +356,11 @@ const createStyles = (colors) => ({
     height: '100%',
   },
   sideLabel: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.text,
     textAlign: 'center',
-    lineHeight: 11,
+    lineHeight: 12,
   },
   sideLabelActive: {
     color: colors.text,
@@ -600,6 +640,8 @@ export default function ExploreScreen({ navigation, route }) {
     });
   }, []);
   const [searchText, setSearchText] = useState('');
+  // What the voice chat wrote into the box; it is searched by the voice flow, not the typing debounce.
+  const [voiceText, setVoiceText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -608,6 +650,10 @@ export default function ExploreScreen({ navigation, route }) {
   const searchAbortRef = useRef(null);
   const searchQueryRef = useRef('');
   searchQueryRef.current = searchQuery;
+  const voiceStateRef = useRef({});
+  // Other spellings/languages the voice helper gave for its query ("kursi,कुर्सी" for "chair").
+  const voiceAltsRef = useRef(null);
+  const voicePickRef = useRef({ items: [], sellers: [] });
 
   const hasLoadedRef = useRef(seededProducts.length > 0);
   const productsFpRef = useRef(catalogFingerprint(seededProducts));
@@ -885,7 +931,7 @@ export default function ExploreScreen({ navigation, route }) {
   }, [activeCategory, userCoords, mergeProducts]);
 
   const cleanSearch = searchText.replace(/\s+/g, ' ').trim();
-  const searchPending = cleanSearch.length >= MIN_SEARCH_CHARS && cleanSearch !== searchQuery;
+  const searchPending = cleanSearch.length >= MIN_SEARCH_CHARS && cleanSearch !== searchQuery && cleanSearch !== voiceText;
   const searchActive = Boolean(searchQuery);
   const searchBusy = searching || searchPending;
 
@@ -898,13 +944,13 @@ export default function ExploreScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    if (cleanSearch === searchQuery) return undefined;
+    if (cleanSearch === searchQuery || (voiceText && cleanSearch === voiceText)) return undefined;
     if (cleanSearch.length > 0 && cleanSearch.length < MIN_SEARCH_CHARS) return undefined;
     const timer = setTimeout(() => applySearch(cleanSearch), cleanSearch ? SEARCH_PAUSE_MS : 0);
     return () => clearTimeout(timer);
-  }, [cleanSearch, searchQuery, applySearch]);
+  }, [cleanSearch, searchQuery, voiceText, applySearch]);
 
-  const runSearch = useCallback(async (q) => {
+  const runSearch = useCallback(async (q, filters = DEFAULT_EXPLORE_FILTERS) => {
     searchAbortRef.current?.abort();
     if (!q) {
       setSearchProducts([]);
@@ -918,13 +964,14 @@ export default function ExploreScreen({ navigation, route }) {
 
     const coords = userCoordsRef.current;
     const params = { q, sort: 'relevance', page: 1, limit: 40 };
+    if (voiceAltsRef.current?.q === q) params.alt = voiceAltsRef.current.alt;
     if (coords?.lat != null && coords?.lng != null) {
       params.lat = coords.lat;
       params.lng = coords.lng;
     }
     const options = { signal: controller.signal };
     const [listingRes, sellerRes] = await Promise.all([
-      api.searchListings(params, options),
+      api.searchListings({ ...params, ...serverSearchFilters(filters) }, options),
       api.searchSellers({ ...params, nearby: params.lat != null ? 'true' : undefined }, options),
     ]);
     if (controller.signal.aborted || listingRes?.aborted || sellerRes?.aborted) return;
@@ -936,9 +983,13 @@ export default function ExploreScreen({ navigation, route }) {
     setSearching(false);
   }, []);
 
+  const selectedFiltersRef = useRef(selectedFilters);
+  selectedFiltersRef.current = selectedFilters;
+  const serverFilterKey = searchKeyFor('', selectedFilters);
+
   useEffect(() => {
-    runSearch(searchQuery);
-  }, [searchQuery, runSearch]);
+    runSearch(searchQuery, selectedFiltersRef.current);
+  }, [searchQuery, serverFilterKey, runSearch]);
 
   useEffect(() => () => searchAbortRef.current?.abort(), []);
 
@@ -948,7 +999,7 @@ export default function ExploreScreen({ navigation, route }) {
   }, [applySearch]);
 
   const { refreshing, onRefresh } = usePullRefresh(() => {
-    if (searchQueryRef.current) return runSearch(searchQueryRef.current);
+    if (searchQueryRef.current) return runSearch(searchQueryRef.current, selectedFiltersRef.current);
     setSellerReloadTick((tick) => tick + 1);
     return Promise.all([fetchSellers({ silent: true, force: true }), loadLiveCounts()]);
   });
@@ -1243,6 +1294,109 @@ export default function ExploreScreen({ navigation, route }) {
     setSelectedFilters(filters);
   }, []);
 
+  /** Snapshot sent with each voice turn; the numbered lists are kept so "open the 2nd one" maps back. */
+  const getVoiceState = useCallback(() => {
+    const state = voiceStateRef.current;
+    voicePickRef.current = { items: state.items || [], sellers: state.sellers || [] };
+    return {
+      current: state.current,
+      screen: {
+        tab: state.tab,
+        category: state.category,
+        shopCategories: state.shopCategories,
+        items: (state.items || []).map((item) => ({
+          title: item.title || item.listing?.title,
+          price: listingPrice(item),
+          km: item.distanceKm,
+          condition: item.condition || item.listing?.condition,
+        })),
+        sellers: (state.sellers || []).map((seller) => ({
+          name: seller.name,
+          category: seller.category,
+          shop: seller.sellerType === 'shop' || Boolean(seller.shopId),
+          km: seller.distance,
+        })),
+      },
+    };
+  }, []);
+
+  /**
+   * Does what the AI chose on Explore (also searches said on other screens). Returns undefined for
+   * turns the app handles everywhere (other screens, stop, chat).
+   */
+  const handleVoiceTurn = useCallback((turn) => {
+    setVoiceText('');
+    setSearchText(searchQueryRef.current);
+    const action = turn?.action;
+    if (action === 'open_item' || action === 'open_seller') {
+      const list = action === 'open_item' ? voicePickRef.current.items : voicePickRef.current.sellers;
+      const picked = list[(turn.pick || 0) - 1];
+      if (!picked) return null;
+      return {
+        act: () => (action === 'open_item' ? handleProductPress(picked) : handleSellerPress(picked)),
+      };
+    }
+    if (action !== 'search' && action !== 'browse' && action !== 'clear') return undefined;
+    if (action === 'browse') {
+      const tab = turn.view?.tab === 'sellers' ? 'sellers' : 'products';
+      skipEnter.current = true;
+      setSearchText('');
+      applySearch('');
+      setTargetTab(tab);
+      setActiveTab(tab);
+      if (tab === 'sellers') setSortBy((prev) => (PRICE_SORTS.includes(prev) ? DEFAULT_SORT : prev));
+      setActiveCategory(turn.view?.category || 'All');
+      return null;
+    }
+    if (action === 'clear') {
+      setSortBy(DEFAULT_SORT);
+      setSelectedFilters(DEFAULT_EXPLORE_FILTERS);
+      setSearchText('');
+      applySearch('');
+      return null;
+    }
+    const search = turn?.search || {};
+    const filters = {
+      ...selectedFiltersRef.current,
+      priceMin: search.minPrice ?? null,
+      priceMax: search.maxPrice ?? null,
+      condition: search.condition || '',
+      nearby: Boolean(search.nearby),
+    };
+    const q = String(search.query || search.category || '').replace(/\s+/g, ' ').trim();
+    const alts = search.query && Array.isArray(search.alts) ? search.alts.filter(Boolean) : [];
+    voiceAltsRef.current = alts.length ? { q, alt: alts.join(',') } : null;
+
+    skipEnter.current = true;
+    setTargetTab('products');
+    setActiveTab('products');
+    setSelectedFilters(filters);
+    setSortBy(VOICE_SORTS[search.sort] || DEFAULT_SORT);
+    setSearchText(q);
+    if (q === searchQueryRef.current && alts.length) runSearch(q, filters);
+    else applySearch(q);
+    return null;
+  }, [applySearch, handleProductPress, handleSellerPress, runSearch]);
+
+  /** Live words go into the search box; when the buyer stops, a rough search starts before the AI answers. */
+  const handleVoiceHeard = useCallback((text, done) => {
+    const clean = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    setVoiceText(clean);
+    setSearchText(clean);
+    if (!done) return;
+    const quick = quickVoiceQuery(clean);
+    if (!quick) return;
+    voiceAltsRef.current = null;
+    skipEnter.current = true;
+    setTargetTab('products');
+    setActiveTab('products');
+    applySearch(quick);
+  }, [applySearch]);
+
+  useVoiceScreen({ getCurrent: getVoiceState, onHeard: handleVoiceHeard, onTurn: handleVoiceTurn });
+  useExploreVoiceTurns(handleVoiceTurn, handleVoiceHeard);
+
   const activeMeta = categories.find((c) => c.label === activeCategory) || categories[0];
   const activeTint = activeMeta?.tint || activeMeta?.color || ALL_TINT;
   const isAll = !activeCategory || activeCategory === 'All';
@@ -1269,6 +1423,13 @@ export default function ExploreScreen({ navigation, route }) {
   const productCardWidth = Math.floor((mainWidth - GRID_PADDING * 2 - GRID_GUTTER) / 2);
 
   const pressSideItem = (cat, itemAnim) => {
+    // Picking a category by hand shows everything in it, not just the earlier search's matches.
+    if (searchQueryRef.current || searchText) {
+      voiceAltsRef.current = null;
+      setVoiceText('');
+      setSearchText('');
+      setSearchQuery('');
+    }
     handleCategoryChange(cat.label);
     Animated.sequence([
       Animated.timing(itemAnim, { toValue: 0.92, duration: 40, useNativeDriver: true }),
@@ -1367,6 +1528,30 @@ export default function ExploreScreen({ navigation, route }) {
     },
   ].filter((block) => block && block.list && block.list.length > 0);
 
+  const voiceSellers = [];
+  const seenVoiceSellers = new Set();
+  sellerBlocks.forEach((block) => block.list.forEach((seller) => {
+    const id = String(seller._id || seller.id);
+    if (seenVoiceSellers.has(id) || voiceSellers.length >= 8) return;
+    seenVoiceSellers.add(id);
+    voiceSellers.push(seller);
+  }));
+  voiceStateRef.current = {
+    current: {
+      query: searchQuery,
+      minPrice: selectedFilters.priceMin,
+      maxPrice: selectedFilters.priceMax,
+      condition: selectedFilters.condition || null,
+      nearby: Boolean(selectedFilters.nearby),
+      sort: Object.keys(VOICE_SORTS).find((key) => key !== 'relevance' && VOICE_SORTS[key] === sortBy) || 'relevance',
+    },
+    tab: activeTab,
+    category: activeCategory || 'All',
+    shopCategories: shopCategories.map((c) => c.label).filter(Boolean),
+    items: activeTab === 'products' ? filteredProducts.slice(0, 8) : [],
+    sellers: activeTab === 'sellers' ? voiceSellers : [],
+  };
+
   return (
     <>
       <View style={styles.container}>
@@ -1404,10 +1589,6 @@ export default function ExploreScreen({ navigation, route }) {
             onBlur={() => setSearchFocused(false)}
             focused={searchFocused}
             loading={searchBusy}
-            onVoiceResult={(text, isFinal) => {
-              setSearchText(text);
-              if (isFinal) applySearch(text);
-            }}
           />
         </View>
 
@@ -1446,7 +1627,7 @@ export default function ExploreScreen({ navigation, route }) {
               >
                 {categories.map((cat, index) => {
                   const isActive = cat.label === (catPending ? pendingCategory : activeCategory);
-                  const tint = cat.tint || cat.color || colors.primary;
+                  const tint = colors.primary;
                   const itemAnim = getSidebarItemAnim(cat.label);
                   return (
                     <Animated.View key={cat.label} style={{ transform: [{ scale: itemAnim }] }}>
@@ -1459,14 +1640,14 @@ export default function ExploreScreen({ navigation, route }) {
                           index={index}
                           style={[
                             styles.sideIcon,
-                            { backgroundColor: isActive ? tint : `${tint}22` },
+                            { backgroundColor: tint },
                             isActive && [styles.sideIconActive, { shadowColor: tint }],
                           ]}
                         >
                           {cat.imageUrl ? (
                             <Image source={{ uri: cat.imageUrl }} style={styles.sideIconImage} />
                           ) : (
-                            <Icon name={cat.icon} size={16} color={isActive ? '#FFFFFF' : tint} />
+                            <Icon name={cat.icon} size={17} color="#FFFFFF" />
                           )}
                         </SoftPop>
                         <Text numberOfLines={2} style={[styles.sideLabel, isActive && styles.sideLabelActive]}>
@@ -1550,7 +1731,7 @@ export default function ExploreScreen({ navigation, route }) {
                     <View style={styles.searchingRow}>
                       <ActivityIndicator size="small" color={colors.primary} />
                       <Text style={styles.searchingText} numberOfLines={1}>
-                        Searching “{cleanSearch || searchQuery}”...
+                        Searching “{searchQuery || cleanSearch}”...
                       </Text>
                     </View>
                     <View style={styles.productGrid}>

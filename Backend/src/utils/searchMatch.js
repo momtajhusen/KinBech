@@ -4,6 +4,7 @@ const STOP_WORDS = new Set([
 ]);
 
 const MAX_TOKENS = 6;
+const MAX_PHRASES = 6;
 
 function escapeRegex(value) {
   return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -21,7 +22,7 @@ function stem(word) {
 /** Lowercased, de-duplicated query words; plural "s" is dropped so "phones" finds "phone". */
 function searchTokens(q) {
   const words = normalize(q)
-    .split(/[^\p{L}\p{N}]+/u)
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
     .map((word) => word.trim())
     .filter((word) => word.length >= 2 || /\d/.test(word));
   const meaningful = words.filter((word) => !STOP_WORDS.has(word));
@@ -51,8 +52,32 @@ function queryFilter(q, fields, mode = 'all') {
   return { $and: tokens.map((token) => tokenClause(token, fields)) };
 }
 
+/**
+ * The query plus other ways to say it (`alt`: comma list or array, e.g. "kursi,कुर्सी" for "chair").
+ * A listing matches when any one phrase matches.
+ */
+function searchPhrases(q, alt) {
+  const alts = Array.isArray(alt) ? alt : String(alt || '').split(',');
+  const seen = new Set();
+  return [q, ...alts]
+    .map((phrase) => String(phrase || '').replace(/\s+/g, ' ').trim().slice(0, 60))
+    .filter((phrase) => {
+      const key = normalize(phrase);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, MAX_PHRASES);
+}
+
+function phrasesFilter(phrases, fields, mode = 'all') {
+  const parts = phrases.map((phrase) => queryFilter(phrase, fields, mode)).filter((part) => Object.keys(part).length);
+  if (parts.length <= 1) return parts[0] || {};
+  return { $or: parts };
+}
+
 function wordStarts(text, token) {
-  return new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegex(token)}`, 'u').test(text);
+  return new RegExp(`(^|[^\\p{L}\\p{M}\\p{N}])${escapeRegex(token)}`, 'u').test(text);
 }
 
 /** How well a name/title matches the query (0 = no match). */
@@ -155,6 +180,8 @@ module.exports = {
   normalize,
   searchTokens,
   queryFilter,
+  searchPhrases,
+  phrasesFilter,
   scoreName,
   scoreListing,
   scoreSeller,

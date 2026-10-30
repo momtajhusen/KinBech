@@ -32,6 +32,7 @@ async function suggestAndLink(shop, key) {
     name: String(shop.name || '').trim().slice(0, 80),
     description: String(shop.description || '').trim().slice(0, 300),
     existing: existing.slice(0, 60),
+    userId: shop.owner ? String(shop.owner._id || shop.owner) : '',
   });
   const ids = [];
   for (const name of categories || []) {

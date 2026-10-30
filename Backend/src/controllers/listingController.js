@@ -43,7 +43,7 @@ const {
   topInterestCategories,
 } = require('../utils/userInterest');
 const {
-  normalize, searchTokens, queryFilter, scoreName, scoreListing, hasWordMatch,
+  normalize, searchTokens, queryFilter, searchPhrases, phrasesFilter, scoreName, scoreListing, hasWordMatch,
 } = require('../utils/searchMatch');
 
 const SELLER_POPULATE = 'name phone avatarUrl soldCount boughtCount location bio preferences coordinates rankBoost trustTier replyMinutes dealsCompleted ratingAverage reviewCount lastActiveAt createdAt';
@@ -253,8 +253,9 @@ function buildBaseFilter(req, { matchMode = 'all' } = {}) {
     if (minPrice) filter.price.$gte = Number(minPrice);
     if (maxPrice) filter.price.$lte = Number(maxPrice);
   }
-  if (q && String(q).trim()) {
-    Object.assign(filter, queryFilter(q, LISTING_TEXT_FIELDS, matchMode));
+  const phrases = q && String(q).trim() ? searchPhrases(q, req.query.alt) : [];
+  if (phrases.length) {
+    filter.$and = [...(filter.$and || []), phrasesFilter(phrases, LISTING_TEXT_FIELDS, matchMode)];
   }
   return filter;
 }
@@ -274,6 +275,24 @@ async function withPlatformWindow(filter, req) {
     ];
   }
   return filter;
+}
+
+/** How many listings a search finds and the cheapest price, with the same matching as `/listings/search`. */
+async function searchSummary(query) {
+  const req = { query: { ...query, status: 'active' } };
+  let filter = await withPlatformWindow(buildBaseFilter(req), req);
+  let count = await Listing.countDocuments(filter);
+  const multiWord = searchPhrases(query.q, query.alt).some((phrase) => searchTokens(phrase).length > 1);
+  if (!count && multiWord) {
+    filter = await withPlatformWindow(buildBaseFilter(req, { matchMode: 'any' }), req);
+    count = await Listing.countDocuments(filter);
+  }
+  if (!count) return { count: 0, cheapest: null };
+  const cheapest = await Listing.findOne({ ...filter, price: { ...(filter.price || {}), $gt: 0 } })
+    .sort({ price: 1 })
+    .select('price')
+    .lean();
+  return { count, cheapest: cheapest?.price || null };
 }
 
 function parseListingKind(value) {
@@ -604,7 +623,9 @@ async function searchListings(req, res, next) {
       .limit(250)
       .lean();
 
-    const tokens = searchTokens(queryText);
+    const phrases = queryText ? searchPhrases(queryText, req.query.alt).map((phrase) => [phrase, searchTokens(phrase)]) : [];
+    const tokens = [...new Set(phrases.flatMap(([, words]) => words))];
+    const relevanceOf = (doc) => Math.max(0, ...phrases.map(([phrase, words]) => scoreListing(doc, phrase, words)));
     const rankDocs = (docs) => docs.map((doc) => {
       const point = listingPoint(doc);
       let distance = null;
@@ -613,7 +634,7 @@ async function searchListings(req, res, next) {
       }
       const trust = listingTrustBoost(doc);
       const personal = profile ? interestScore(doc, profile) * 20 : 0;
-      const relevance = queryText ? scoreListing(doc, queryText, tokens) + trust + personal : trust;
+      const relevance = queryText ? relevanceOf(doc) + trust + personal : trust;
       return { doc, distance, relevance, trust };
     }).filter(({ distance }) => {
       if (!radiusKm) return true;
@@ -623,7 +644,7 @@ async function searchListings(req, res, next) {
 
     let matchMode = 'all';
     let sorted = rankDocs(await fetchDocs(filter));
-    if (!sorted.length && tokens.length > 1) {
+    if (!sorted.length && phrases.some(([, words]) => words.length > 1)) {
       matchMode = 'partial';
       const looseDocs = await fetchDocs(await withPlatformWindow(buildBaseFilter(req, { matchMode: 'any' }), req));
       sorted = rankDocs(looseDocs.filter((doc) => hasWordMatch(doc, tokens)));
@@ -1689,7 +1710,7 @@ function relatedTokenWeight(token) {
 function titleMatchTokens(title) {
   const words = String(title || '')
     .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
+    .split(/[^\p{L}\p{M}\p{N}]+/u)
     .map((word) => word.trim())
     .filter((word) => word.length >= 2 && !RELATED_TITLE_STOP.has(word));
   return [...new Set(words)].slice(0, 16);
@@ -1765,6 +1786,7 @@ async function getRelatedListings(req, res, next) {
 module.exports = {
   getListings,
   searchListings,
+  searchSummary,
   getSearchSuggestions,
   getRelatedListings,
   getCategoryCounts,
