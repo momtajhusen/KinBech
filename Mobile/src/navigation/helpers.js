@@ -13,6 +13,7 @@ export const ROUTES = {
   MY_LISTINGS: 'MyListings',
   MY_PURCHASES: 'MyPurchases',
   RECENTLY_VIEWED: 'RecentlyViewed',
+  SIMILAR_PRODUCTS: 'SimilarProducts',
   LISTING_SUCCESS: 'ListingSuccess',
   CHAT: 'Chat',
   CALL: 'Call',

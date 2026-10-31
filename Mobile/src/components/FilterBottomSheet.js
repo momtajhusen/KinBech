@@ -335,7 +335,9 @@ function RangeSlider({ min, max, valueMin, valueMax, onChange }) {
           0,
           Math.min(widthRef.current, dragStartPixel.current + gesture.dx)
         );
-        const newValue = Math.round(valueFromPos(rawPos) / 500) * 500;
+        const span = max - min;
+        const step = span <= 5000 ? 50 : span <= 20000 ? 100 : 500;
+        const newValue = Math.round(valueFromPos(rawPos) / step) * step;
 
         if (isMin) {
           const clamped = Math.min(newValue, valueMaxRef.current - 1000);
@@ -472,45 +474,61 @@ function SingleSlider({ min, max, step = 1, value, onChange }) {
   );
 }
 
-export default function FilterBottomSheet({ visible, onClose, onApply, initial }) {
+/**
+ * `priceBounds`, `categoryChoices` and `sortOptions` let a screen fit the sheet to its own results;
+ * left out, the sheet shows the full catalog ranges.
+ */
+export default function FilterBottomSheet({
+  visible,
+  onClose,
+  onApply,
+  initial,
+  priceBounds,
+  categoryChoices,
+  sortOptions = SORT_OPTIONS,
+  showCondition = true,
+}) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
   const productCategories = useCategories('product');
+  const PRICE_LO = priceBounds?.[0] ?? PRICE_MIN;
+  const PRICE_HI = priceBounds?.[1] ?? PRICE_MAX;
+  const defaultSort = sortOptions[0].label;
   const categoryOptions = [
     { label: 'All', icon: 'apps-outline' },
-    ...productCategories,
+    ...(categoryChoices || productCategories),
   ];
-  const [priceMin, setPriceMin] = useState(initial?.priceMin ?? PRICE_MIN);
-  const [priceMax, setPriceMax] = useState(initial?.priceMax ?? PRICE_MAX);
+  const [priceMin, setPriceMin] = useState(initial?.priceMin ?? PRICE_LO);
+  const [priceMax, setPriceMax] = useState(initial?.priceMax ?? PRICE_HI);
   const [category, setCategory] = useState(initial?.category ?? 'All');
   const [condition, setCondition] = useState(initial?.condition ?? 'All');
   const [radiusKm, setRadiusKm] = useState(initial?.radiusKm ?? null);
-  const [sortBy, setSortBy] = useState(initial?.sortBy ?? 'Nearest First');
+  const [sortBy, setSortBy] = useState(initial?.sortBy ?? defaultSort);
   const distanceValue = radiusKm == null ? DISTANCE_MAX : radiusKm;
   const distanceLabel = radiusKm == null ? 'Any distance' : `Within ${radiusKm} km`;
 
   useEffect(() => {
     if (!visible) return;
-    setPriceMin(initial?.priceMin ?? PRICE_MIN);
-    setPriceMax(initial?.priceMax ?? PRICE_MAX);
+    setPriceMin(initial?.priceMin ?? PRICE_LO);
+    setPriceMax(initial?.priceMax ?? PRICE_HI);
     setCategory(initial?.category && initial.category !== 'More' ? initial.category : 'All');
     setCondition(initial?.condition && initial.condition !== 'All' ? initial.condition : 'All');
     setRadiusKm(initial?.radiusKm == null ? null : Number(initial.radiusKm));
-    setSortBy(initial?.sortBy ?? 'Nearest First');
+    setSortBy(initial?.sortBy ?? defaultSort);
   }, [visible]);
 
   const reset = () => {
-    setPriceMin(PRICE_MIN);
-    setPriceMax(PRICE_MAX);
+    setPriceMin(PRICE_LO);
+    setPriceMax(PRICE_HI);
     setCategory('All');
     setCondition('All');
     setRadiusKm(null);
-    setSortBy('Nearest First');
+    setSortBy(defaultSort);
   };
 
   const apply = () => {
-    const sortItem = SORT_OPTIONS.find((s) => s.label === sortBy) || SORT_OPTIONS[0];
+    const sortItem = sortOptions.find((s) => s.label === sortBy) || sortOptions[0];
     const km = radiusKm == null || radiusKm >= DISTANCE_MAX ? null : radiusKm;
     const filters = {
       priceMin,
@@ -554,8 +572,8 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
             </View>
 
             <RangeSlider
-              min={PRICE_MIN}
-              max={PRICE_MAX}
+              min={PRICE_LO}
+              max={PRICE_HI}
               valueMin={priceMin}
               valueMax={priceMax}
               onChange={(lo, hi) => {
@@ -564,8 +582,8 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
               }}
             />
             <View style={styles.priceLabelsRow}>
-              <Text style={styles.priceLabel}>{formatPrice(PRICE_MIN)}</Text>
-              <Text style={styles.priceLabel}>{formatPrice(PRICE_MAX)}</Text>
+              <Text style={styles.priceLabel}>{formatPrice(PRICE_LO)}</Text>
+              <Text style={styles.priceLabel}>{formatPrice(PRICE_HI)}</Text>
             </View>
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Category</Text>
@@ -598,7 +616,8 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
               })}
             </View>
 
-            <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Condition</Text>
+            {showCondition ? <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Condition</Text> : null}
+            {showCondition ? (
             <View style={styles.conditionRow}>
               {(CONDITIONS || []).map((item) => {
                 const active = condition === item;
@@ -617,6 +636,7 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
                 );
               })}
             </View>
+            ) : null}
 
             <View style={[styles.sectionHeaderRow, styles.sectionSpacing]}>
               <Text style={styles.sectionTitle}>Distance</Text>
@@ -660,7 +680,7 @@ export default function FilterBottomSheet({ visible, onClose, onApply, initial }
 
             <Text style={[styles.sectionTitle, styles.sectionSpacing]}>Sort By</Text>
             <View style={styles.categoryGrid}>
-              {SORT_OPTIONS.map((item) => {
+              {sortOptions.map((item) => {
                 const active = sortBy === item.label;
                 return (
                   <Pressable

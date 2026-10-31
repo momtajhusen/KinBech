@@ -176,7 +176,7 @@ function buildPrompt(categories, shop) {
     'that helps you identify the exact model.',
     '',
     'Reply with JSON only, in exactly this shape:',
-    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
+    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "person": {"visible": boolean, "note": string, "revealing": boolean, "revealingNote": string}, "focus": {"isProduct": boolean, "reason": string}, "searchWords": string[]}',
     '',
     'Safety rules (check first):',
     '- KinBech is a family marketplace. Set safety.allowed to false when the photo shows nudity,',
@@ -185,6 +185,25 @@ function buildPrompt(categories, shop) {
     '- safety.issue: exactly one of "none", "nudity", "violence", "weapon", "drugs", "other".',
     '- safety.reason: one short plain English sentence saying what is wrong. Empty when allowed.',
     '- When safety.allowed is false, leave title, description and searchWords empty.',
+    '- person.visible: true only when the face of a real, live human (man, woman, boy, girl or',
+    '  child) is visible: a selfie, someone posing, holding or wearing the item. When in doubt, false.',
+    '  Always false for anything not a living human: cartoons, anime, comics, illustrations,',
+    '  drawings, paintings, 3D or AI art, dolls, Barbie, action figures, plastic or rubber toys,',
+    '  mannequins and dummy heads, masks, statues and idols, faces printed on packaging, posters,',
+    '  book covers, T-shirts or screens, and photos where only hands or fingers show.',
+    '- person.note: a few plain words on who is visible, e.g. "Young woman wearing the kurta".',
+    '  Empty when person.visible is false.',
+    '- person.revealing: true when a real person\'s breasts, cleavage, buttocks, crotch or groin',
+    '  are highlighted: the photo zooms in on or centres them, or the person wears lingerie,',
+    '  innerwear, swimwear, see-through or very tight or low-cut clothing that puts them on show,',
+    '  or poses to draw attention to them. False for clothes alone on a hanger, flat, folded or on',
+    '  a mannequin, and for ordinary photos of someone wearing normal clothes.',
+    '- person.revealingNote: a few plain words on what is highlighted. Empty when not revealing.',
+    '- focus.isProduct: false when the photo is not really about an item for sale: glamour,',
+    '  boudoir, sexy or posing shots and selfies where the person is the subject, memes, random',
+    '  scenery or screenshots with no product. True when a buyer can clearly see what is sold,',
+    '  including clothes or jewellery modelled by a person in a normal catalogue style photo.',
+    '- focus.reason: one short plain sentence on why it is not a product photo. Empty when true.',
     '',
     'Price rules:',
     '- priceNpr: a realistic selling price in Nepal, in Nepali rupees (NPR), for this exact item',
@@ -313,6 +332,16 @@ function parseSuggestion(rawText) {
     newPriceNpr: Number.isFinite(newPriceNpr) && newPriceNpr > 0 ? newPriceNpr : null,
     searchWords,
     safety,
+    person: {
+      visible: parsed.person?.visible === true,
+      note: String(parsed.person?.note || '').trim().slice(0, 120),
+      revealing: parsed.person?.revealing === true,
+      revealingNote: String(parsed.person?.revealingNote || '').trim().slice(0, 120),
+    },
+    focus: {
+      isProduct: parsed.focus?.isProduct !== false,
+      reason: String(parsed.focus?.reason || '').trim().slice(0, 160),
+    },
   };
 }
 
@@ -777,6 +806,86 @@ async function understandRelatedProduct({ title, description = '', category = ''
     { purpose: 'related', preferBulk: true, quick: true, deadlineMs }
   );
   return result;
+}
+
+const SIMILAR_MIN_SCORE = 60;
+
+function parseSimilarProducts(rawText, count) {
+  const match = String(rawText || '').match(/\{[\s\S]*\}/);
+  let data = null;
+  try {
+    data = JSON.parse(match ? match[0] : '');
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(data?.matches)) return null;
+  const text = (value, max) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const flag = (value) => (value === true ? true : value === false ? false : null);
+  const matches = new Map();
+  data.matches.forEach((row) => {
+    const item = Number(row?.item);
+    if (!Number.isInteger(item) || item < 1 || item > count || matches.has(item)) return;
+    matches.set(item, {
+      score: Math.max(0, Math.min(100, Math.round(Number(row.score) || 0))),
+      product: flag(row.product),
+      brand: flag(row.brand),
+      model: flag(row.model),
+      color: flag(row.color),
+      note: text(row.note, 80),
+    });
+  });
+  const source = data.source || {};
+  return {
+    source: {
+      product: text(source.product, 40),
+      brand: text(source.brand, 30),
+      model: text(source.model, 40),
+      color: text(source.color, 24),
+      details: (Array.isArray(source.details) ? source.details : []).map((d) => text(d, 30)).filter(Boolean).slice(0, 4),
+    },
+    matches,
+  };
+}
+
+/**
+ * Compares a seller's cover photo with the cover photos of listings already on KinBech and
+ * scores each one 0-100 for being the same product (type, brand, model, colour).
+ * `candidates` are `{ data, mimeType, title }`; the answer keys matches by 1-based position.
+ */
+async function compareProductPhotos({ source, candidates, userId = '' }) {
+  const parts = [
+    { text: `Photo 0 is the item a seller is about to post. Seller's title: "${String(source.title || '').slice(0, 120)}". Category: "${String(source.category || '').slice(0, 40)}".` },
+    { inlineData: { mimeType: source.mimeType || 'image/jpeg', data: source.data } },
+  ];
+  candidates.forEach((item, index) => {
+    parts.push({ text: `Item ${index + 1}, listed as: "${String(item.title || '').slice(0, 100)}"` });
+    parts.push({ inlineData: { mimeType: item.mimeType || 'image/jpeg', data: item.data } });
+  });
+  parts.push({
+    text: [
+      'KinBech is a Nepali local buy-and-sell marketplace. The seller wants to know what the same product sells for.',
+      'Read photo 0 first: what product it is, the brand and model when a logo, label or shape shows it, and the colour.',
+      'Then compare every item with photo 0. Look at the photos first; titles can be wrong or stuffed with extra words.',
+      'Reply with JSON only, in exactly this shape:',
+      '{"source":{"product":string,"brand":string,"model":string,"color":string,"details":string[]},"matches":[{"item":number,"score":number,"product":boolean,"brand":boolean|null,"model":boolean|null,"color":boolean|null,"note":string}]}',
+      '- source.product: the generic product name in English, 1 to 3 words, e.g. "wireless mouse". brand and model: "" when you cannot see them. details: up to 4 short things you can see, e.g. "RGB lights".',
+      '- One entry per item number, every item exactly once.',
+      '- score: 90-100 same product, same brand and model, same colour. 75-89 same product and brand or model, but another colour or small variant. 60-74 the same kind of product with another or unknown brand. Below 60: a different product, even when it shares the category, material, colour or a word.',
+      '- product: true when it is the same kind of product. brand, model, color: true when the same, false when clearly different, null when you cannot tell.',
+      '- note: at most 8 words on why, e.g. "Same Logitech M185, grey not black".',
+      '- Be strict. An accessory, part, box or different product is never above 40.',
+    ].join('\n'),
+  });
+  const { result, model } = await runGemini(
+    (generationConfig) => ({
+      systemInstruction: { parts: [{ text: 'You compare product photos for a classifieds marketplace and reply with valid JSON only.' }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: { ...generationConfig, temperature: 0.1, maxOutputTokens: 3072 },
+    }),
+    (raw) => parseSimilarProducts(raw, candidates.length),
+    { purpose: 'similar', userId, preferBulk: true, deadlineMs: 30000 }
+  );
+  return { ...result, model };
 }
 
 /** Product category names a store of this type would sell. */
@@ -1704,6 +1813,8 @@ module.exports = {
   classifyFailure,
   listAvailableModels,
   suggestListingFromImage,
+  compareProductPhotos,
+  SIMILAR_MIN_SCORE,
   suggestShopCategories,
   suggestListingCategory,
   testModel,

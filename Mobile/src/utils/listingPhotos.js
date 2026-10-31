@@ -100,7 +100,7 @@ const SPECS = {
 };
 
 export async function pickListingPhoto(slotType = 'main') {
-  const source = await requestPhotoSource();
+  const source = await requestPhotoSource({ slot: slotType });
   if (!source) return null;
 
   if (source === 'camera') {

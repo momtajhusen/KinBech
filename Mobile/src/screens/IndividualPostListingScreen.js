@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormScroll, revealFocusedInput, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
-import { ROUTES } from '../navigation/helpers';
+import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar, formFieldStyles, FORM_ERROR_COLOR } from '../theme';
@@ -35,12 +35,13 @@ import ListingLiveModal from '../components/ListingLiveModal';
 import PublishConfirmModal from '../components/PublishConfirmModal';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import SearchWordsField from '../components/SearchWordsField';
-import { priceWarning, useListingAiFill, USED_PRICE_SHARE } from '../hooks/useListingAiFill';
+import { analysedPhotoKey, priceWarning, useListingAiFill, USED_PRICE_SHARE } from '../hooks/useListingAiFill';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import PostQuotaBanner from '../components/PostQuotaBanner';
 import TesterModeButton from '../components/TesterModeButton';
 import PostLimitModal from '../components/PostLimitModal';
 import { usePostQuota } from '../hooks/usePostQuota';
+import useOwnDuplicateCheck from '../hooks/useOwnDuplicateCheck';
 import {
   EXTRA_PHOTO_SLOTS,
   hydrateMediaSlotsFromUris,
@@ -212,9 +213,19 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const [negotiable, setNegotiable] = useState(true);
   const [meetup, setMeetup] = useState(editListing?.meetupOption || 'Public place');
   const [markSold, setMarkSold] = useState(editListing?.status === 'sold');
-  const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota } = usePostQuota('individual', { enabled: !isEdit });
+  const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota, minPrice } = usePostQuota('individual', { enabled: !isEdit });
   const [limitModal, setLimitModal] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const reopenConfirmRef = useRef(false);
+  useEffect(
+    () =>
+      navigation.addListener('focus', () => {
+        if (!reopenConfirmRef.current) return;
+        reopenConfirmRef.current = false;
+        setConfirmOpen(true);
+      }),
+    [navigation]
+  );
 
   /** True when today's posts are used up; opens the limit modal instead of the picker. */
   const checkPostLimit = useCallback(async () => {
@@ -441,7 +452,10 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     });
   };
 
+  const repeatCheck = useOwnDuplicateCheck();
+  const uploadedRef = useRef(null);
   const ai = useListingAiFill({
+    minPrice,
     categories,
     conditions: CONDITIONS,
     fields: {
@@ -465,6 +479,10 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     },
     setAlertConfig,
   });
+  const { keepOnlyPhoto } = ai;
+  useEffect(() => {
+    keepOnlyPhoto(mainPhoto);
+  }, [mainPhoto, keepOnlyPhoto]);
   const priceNotice = priceWarning(price, ai.aiPrice);
   const imageFlag =
     ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
@@ -503,6 +521,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     if (!mainPhoto) next.photo = 'Add a cover photo';
     if (!title.trim()) next.title = 'Enter a title';
     if (!price.trim()) next.price = 'Enter a price';
+    else if (minPrice > 0 && Number(String(price).replace(/[^\d]/g, '')) < minPrice) next.price = `Minimum price is NPR ${minPrice}`;
     if (!location.trim()) next.location = 'Enter a location';
     setFieldErrors(next);
     if (next.photo) {
@@ -524,7 +543,10 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     }
     Keyboard.dismiss();
     if (isEdit) submitListing();
-    else setConfirmOpen(true);
+    else {
+      repeatCheck.check({ title: title.trim(), category, price, photoUri: mainPhoto });
+      setConfirmOpen(true);
+    }
   };
 
   const submitListing = async () => {
@@ -532,7 +554,11 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     setSubmitting(true);
 
     const localPhotos = photos.filter((item) => item?.uri).map((item) => item.uri);
-    const uploaded = await uploadMediaUris(localPhotos, 'listings');
+    const uploadKey = localPhotos.join('|');
+    const uploaded = uploadedRef.current?.key === uploadKey
+      ? uploadedRef.current.result
+      : await uploadMediaUris(localPhotos, 'listings');
+    if (!uploaded.error) uploadedRef.current = { key: uploadKey, result: uploaded };
     if (uploaded.error) {
       setSubmitting(false);
       setAlertConfig(
@@ -565,11 +591,14 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       meetupOption: meetup,
       ...(ai.aiPrice ? { priceEstimate: ai.aiPrice } : {}),
       ...(imageFlag ? { imageFlag } : {}),
+      aiPhotoKeys: ai.sessionPhotoKeys(),
+      ...(repeatCheck.duplicate && !isEdit ? { confirmDuplicate: true } : {}),
     };
 
     if (isEdit) {
       const { data: saved, error } = await api.updateListing(listingId, { ...payload, markSold });
       setSubmitting(false);
+      if (!error) ai.endSession({ remote: false });
       if (error) {
         setAlertConfig(
           showErrorAlert({
@@ -593,6 +622,12 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     const { data, error } = await api.createListing({ ...payload, sellerType: 'individual' });
 
     setSubmitting(false);
+    if (!error && data?.listing) ai.endSession({ remote: false });
+    if (data?.code === 'POSSIBLE_DUPLICATE' && data.existing) {
+      repeatCheck.show(data.existing);
+      setConfirmOpen(true);
+      return;
+    }
     if (data?.code === 'DAILY_LISTING_LIMIT') {
       if (data.quota) setQuota(data.quota);
       Keyboard.dismiss();
@@ -870,7 +905,9 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
           ) : ai.aiPrice && price.trim() === String(ai.aiPrice) ? (
             <Text style={styles.aiHint}>
               {ai.aiNewPrice && USED_PRICE_SHARE[condition]
-                ? `AI: ${USED_PRICE_SHARE[condition] * 100}% of new price NPR ${ai.aiNewPrice.toLocaleString('en-IN')}, editable`
+                ? `AI: ${USED_PRICE_SHARE[condition] * 100}% of new price NPR ${ai.aiNewPrice.toLocaleString('en-IN')}${
+                    ai.aiPrice === minPrice && ai.aiNewPrice * USED_PRICE_SHARE[condition] < minPrice ? `, raised to the NPR ${minPrice} minimum` : ''
+                  }, editable`
                 : 'AI suggested, editable'}
             </Text>
           ) : null}
@@ -1082,6 +1119,29 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
         ]}
         onEdit={() => setConfirmOpen(false)}
         onConfirm={submitListing}
+        duplicate={repeatCheck.duplicate}
+        photoFlag={imageFlag}
+        checking={repeatCheck.checking}
+        onOpenDuplicate={() => {
+          const existing = repeatCheck.duplicate;
+          if (!existing) return;
+          reopenConfirmRef.current = true;
+          setConfirmOpen(false);
+          openItemDetail(navigation, { listingId: existing.id || existing._id, item: existing });
+        }}
+        onSimilar={() => {
+          reopenConfirmRef.current = true;
+          setConfirmOpen(false);
+          navigation.navigate(ROUTES.SIMILAR_PRODUCTS, {
+            photoUri: mainPhoto,
+            photoKey: analysedPhotoKey(mainPhoto),
+            excludeId: isEdit ? listingId : undefined,
+            title: title.trim(),
+            category,
+            description: description.trim(),
+            price,
+          });
+        }}
       />
       <PostLimitModal
         visible={limitModal}

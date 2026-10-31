@@ -20,9 +20,12 @@ const {
   confirmListingAvailable,
   updateListingStock,
   confirmAllStock,
+  getSimilarProducts,
+  checkOwnDuplicate,
 } = require('../controllers/listingController');
 const { requireAuth, requireScope, optionalAuth } = require('../middleware/auth');
 const { auditRoute } = require('../utils/audit');
+const { aiLimiter } = require('../middleware/security');
 
 const router = Router();
 
@@ -32,6 +35,8 @@ router.get('/search', optionalAuth, searchListings);
 router.get('/suggestions', getSearchSuggestions);
 router.get('/category-counts', optionalAuth, getCategoryCounts);
 router.get('/related', optionalAuth, getRelatedListings);
+router.post('/similar', requireAuth, aiLimiter, getSimilarProducts);
+router.post('/duplicate-check', requireAuth, aiLimiter, checkOwnDuplicate);
 
 // Named routes MUST be registered before /:id
 router.get('/mine/categories', requireAuth, getMyCategoryUsage);

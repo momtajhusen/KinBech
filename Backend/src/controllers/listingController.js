@@ -39,6 +39,10 @@ const { onListingMarkedSold } = require('../utils/deals');
 const { confirmAvailable } = require('../utils/listingTrust');
 const { MODE_PAUSE_REASON, modeAllowsListing } = require('../utils/sellerMode');
 const { duplicatePhotoReason } = require('../utils/imageHash');
+const { readUploadBuffer } = require('../utils/serveUploads');
+const { forgetAiPhotos, readAiPhoto } = require('../utils/aiPhotoCache');
+const { findOwnDuplicate, ownDuplicateAtPublish } = require('../utils/ownDuplicate');
+const { compareProductPhotos, SIMILAR_MIN_SCORE } = require('../utils/aiSuggest');
 const {
   interestScore,
   loadInterestProfile,
@@ -60,6 +64,9 @@ const PHOTO_ISSUE_LABELS = {
   violence: 'violence',
   weapon: 'a weapon',
   drugs: 'drugs',
+  person: "a real person's face",
+  revealing: 'private body areas highlighted',
+  off_topic: 'no clear item for sale',
   other: 'content that breaks KinBech rules',
 };
 
@@ -1152,6 +1159,17 @@ async function createListing(req, res, next) {
       });
     }
 
+    const confirmDuplicate = req.body.confirmDuplicate === true;
+    const repeat = await ownDuplicateAtPublish({ userId: req.user._id, title, category, price: parsedPrice });
+    if (repeat && !confirmDuplicate) {
+      await Listing.populate(repeat.doc, [{ path: 'seller', select: SELLER_POPULATE }, { path: 'shopId', select: SHOP_POPULATE }]);
+      return res.status(409).json({
+        code: 'POSSIBLE_DUPLICATE',
+        message: 'You already posted this item. Edit the existing listing instead of posting it again.',
+        existing: listingPayload(repeat.doc),
+      });
+    }
+
     const prohibited = await prohibitedListingBody({
       title,
       description,
@@ -1225,6 +1243,9 @@ async function createListing(req, res, next) {
     if (req.user.trustTier === 'restricted') {
       reasons.push('New listings from this account are checked by our team first.');
     }
+    if (repeat && confirmDuplicate) {
+      reasons.push(`Looks like a repeat of your listing "${repeat.doc.title}".`);
+    }
     if (reasons.length) {
       moderation.status = 'pending';
       moderation.reason = `${reasons.join(' ')} ${HELD_NOTE}`;
@@ -1248,6 +1269,7 @@ async function createListing(req, res, next) {
     }
 
     listingQueryCache.invalidateAll();
+    if (req.body.aiPhotoKeys) forgetAiPhotos({ userId: req.user._id, keys: req.body.aiPhotoKeys }).catch(() => {});
     res.status(201).json({
       listing: listingPayload(listing),
       moderation: {
@@ -1476,6 +1498,7 @@ async function updateListing(req, res, next) {
     }
     await listing.populate('seller', 'name phone avatarUrl rating soldCount boughtCount location bio preferences');
     listingQueryCache.invalidateAll();
+    if (req.body.aiPhotoKeys) forgetAiPhotos({ userId: req.user._id, keys: req.body.aiPhotoKeys }).catch(() => {});
     res.json({
       listing: listingPayload(listing),
       moderation: {
@@ -1764,7 +1787,175 @@ async function getRelatedListings(req, res, next) {
   }
 }
 
+const SIMILAR_CANDIDATES = 16;
+const SIMILAR_CACHE_MS = 30 * 60 * 1000;
+const similarCache = new Map();
+
+/** A small copy of a listing's cover photo for the AI, or null when it cannot be read. */
+async function coverForAi(url) {
+  const buffer = await readUploadBuffer(url).catch(() => null);
+  if (!buffer) return null;
+  const sharp = require('sharp');
+  const small = await sharp(buffer)
+    .rotate()
+    .resize({ width: 320, height: 320, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 70 })
+    .toBuffer()
+    .catch(() => null);
+  return small ? small.toString('base64') : null;
+}
+
+function priceSummary(prices) {
+  const sorted = prices.filter((p) => p > 0).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  return {
+    count: sorted.length,
+    low: sorted[0],
+    high: sorted[sorted.length - 1],
+    median,
+    average: Math.round(sorted.reduce((sum, p) => sum + p, 0) / sorted.length),
+  };
+}
+
+/**
+ * POST /listings/similar { photoKey | photoUrl | image, mimeType, title, category, description, excludeId }
+ * `photoKey` is the cover the AI already read in the post form (POST /ai/listing-suggest).
+ * Before posting: listings of the same product as the seller's cover photo, each with an AI
+ * match score, plus the price range other sellers sell at. The seller's own come back as `own`.
+ */
+async function getSimilarProducts(req, res, next) {
+  try {
+    let data = String(req.body?.image || '');
+    let mimeType = String(req.body?.mimeType || 'image/jpeg').toLowerCase();
+    const dataUrl = data.match(/^data:([^;]+);base64,(.+)$/i);
+    if (dataUrl) {
+      mimeType = dataUrl[1].toLowerCase();
+      data = dataUrl[2];
+    }
+    data = data.replace(/\s/g, '');
+    const photoKey = String(req.body?.photoKey || '');
+    if (!data && photoKey) {
+      const analysed = await readAiPhoto({ userId: req.user._id, key: photoKey });
+      if (!analysed) return res.status(410).json({ code: 'PHOTO_EXPIRED', message: 'Photo expired, send it again' });
+      ({ data, mimeType } = analysed);
+    }
+    if (!data && req.body?.photoUrl) {
+      const stored = await readUploadBuffer(String(req.body.photoUrl)).catch(() => null);
+      if (stored) {
+        data = stored.toString('base64');
+        mimeType = /\.png$/i.test(String(req.body.photoUrl)) ? 'image/png' : /\.webp$/i.test(String(req.body.photoUrl)) ? 'image/webp' : 'image/jpeg';
+      }
+    }
+    const title = String(req.body?.title || '').trim().slice(0, 120);
+    const category = String(req.body?.category || '').trim().slice(0, 60);
+    const description = String(req.body?.description || '').trim().slice(0, 600);
+    const excludeId = mongoose.isValidObjectId(req.body?.excludeId) ? String(req.body.excludeId) : '';
+    if (!data) return res.status(400).json({ message: 'Add a cover photo first' });
+    if (!title && !category) return res.status(400).json({ message: 'Add a title first' });
+
+    const photoHash = require('crypto').createHash('md5').update(data).digest('hex');
+    const cacheKey = `${req.user._id}|${photoHash}|${title}|${category}|${excludeId}`;
+    const hit = similarCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < SIMILAR_CACHE_MS) return res.json(hit.body);
+
+    const { listings: related } = await findRelatedListings({ title, description, category }, { limit: 40, excludeId });
+    const pool = related.filter((doc) => doc.photos?.length).slice(0, SIMILAR_CANDIDATES);
+    // The text match can miss (slow AI, vague title); the photo comparison below still drops
+    // anything that is not the same product, so same-category listings only widen the net.
+    if (pool.length < SIMILAR_CANDIDATES && category) {
+      const more = await Listing.find({
+        status: 'active',
+        category,
+        _id: { $nin: [...pool.map((doc) => doc._id), ...(excludeId ? [excludeId] : [])] },
+        'photos.0': { $exists: true },
+      })
+        .sort({ createdAt: -1 })
+        .limit(SIMILAR_CANDIDATES - pool.length)
+        .lean();
+      pool.push(...more);
+    }
+    const withPhotos = (
+      await Promise.all(pool.map(async (doc) => {
+        const cover = await coverForAi(doc.photos[0]);
+        return cover ? { doc, data: cover } : null;
+      }))
+    ).filter(Boolean);
+
+    let body = { source: null, listings: [], market: null, compared: withPhotos.length };
+    if (withPhotos.length) {
+      let result;
+      try {
+        result = await compareProductPhotos({
+          source: { data, mimeType, title, category },
+          candidates: withPhotos.map((row) => ({ data: row.data, title: row.doc.title })),
+          userId: String(req.user._id),
+        });
+      } catch (error) {
+        console.warn('[similar] AI compare failed:', error.message);
+        return res.status(error.status || 503).json({
+          message: error.status === 429 ? error.message : 'AI could not compare photos right now. Please try again in a minute.',
+        });
+      }
+      const matched = withPhotos
+        .map((row, index) => ({
+          ...row,
+          match: result.matches.get(index + 1),
+          own: String(row.doc.seller) === String(req.user._id),
+        }))
+        .filter((row) => row.match && row.match.product !== false && row.match.score >= SIMILAR_MIN_SCORE)
+        .sort((a, b) => b.match.score - a.match.score);
+      const docs = matched.map((row) => row.doc);
+      await Listing.populate(docs, [
+        { path: 'seller', select: SELLER_POPULATE },
+        { path: 'shopId', select: SHOP_POPULATE },
+      ]);
+      body = {
+        source: result.source,
+        listings: matched.map((row) => ({ ...listingPayload(row.doc), match: row.match, own: row.own })),
+        // The seller's own listings are shown but are not the market.
+        market: priceSummary(matched.filter((row) => !row.own).map((row) => Number(row.doc.price) || 0)),
+        compared: withPhotos.length,
+      };
+    }
+    similarCache.set(cacheKey, { at: Date.now(), body });
+    if (similarCache.size > 200) similarCache.delete(similarCache.keys().next().value);
+    return res.json(body);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ message: error.message });
+    return next(error);
+  }
+}
+
+/**
+ * POST /listings/duplicate-check { title, category, price, photoKey | photoUrl }
+ * Before the publish confirm: the seller's own recent listing this post would repeat, if any.
+ */
+async function checkOwnDuplicate(req, res, next) {
+  try {
+    const title = String(req.body?.title || '').trim().slice(0, 120);
+    const category = String(req.body?.category || '').trim().slice(0, 60);
+    const price = parsePrice(req.body?.price);
+    if (!title || Number.isNaN(price)) return res.json({ duplicate: null });
+    let photo = null;
+    if (req.body?.photoKey) photo = await readAiPhoto({ userId: req.user._id, key: String(req.body.photoKey) });
+    if (!photo && req.body?.photoUrl) {
+      const stored = await readUploadBuffer(String(req.body.photoUrl)).catch(() => null);
+      if (stored) photo = { data: stored.toString('base64'), mimeType: 'image/jpeg' };
+    }
+    const repeat = await findOwnDuplicate({ userId: req.user._id, title, category, price, photo });
+    if (!repeat) return res.json({ duplicate: null });
+    await Listing.populate(repeat.doc, [{ path: 'seller', select: SELLER_POPULATE }, { path: 'shopId', select: SHOP_POPULATE }]);
+    return res.json({ duplicate: { ...listingPayload(repeat.doc), matchScore: repeat.score } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
+  checkOwnDuplicate,
+  getSimilarProducts,
   getListings,
   searchListings,
   searchSummary,

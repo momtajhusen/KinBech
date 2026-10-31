@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { api } from '../services/api';
 import { showErrorAlert } from '../components/AlertModal';
@@ -12,7 +12,16 @@ export const AI_LIMIT_MESSAGE = "Today's AI limit is used up. Please fill the de
 const AI_PHOTO_EDGE = 1024;
 const AI_PHOTO_QUALITY = 0.8;
 
-async function photoForAi(uri) {
+// Photo URI -> server key of the copy the AI already read, so later steps reuse it.
+// Lives only for the sell session of the form that created it (see useListingAiFill).
+const analysedPhotos = new Map();
+
+/** Key of this photo on the server if the AI fill already sent it, else null. */
+export function analysedPhotoKey(uri) {
+  return (uri && analysedPhotos.get(uri)) || null;
+}
+
+export async function photoForAi(uri) {
   const original = await ImageManipulator.manipulateAsync(uri, []);
   const longest = Math.max(original.width || 0, original.height || 0);
   const resize =
@@ -55,6 +64,7 @@ export function useListingAiFill({
   conditions,
   fields,
   forShop = false,
+  minPrice = 0,
   onTitleFilled,
   onRemoveFlaggedPhoto,
   setAlertConfig,
@@ -66,6 +76,44 @@ export function useListingAiFill({
   const [aiCondition, setAiCondition] = useState(null);
   const [aiNewPrice, setAiNewPrice] = useState(null);
   const [imageFlag, setImageFlag] = useState(null);
+  const atLeastMin = (value) => (minPrice > 0 && value > 0 && value < minPrice ? minPrice : value);
+  const sessionUris = useRef(new Set());
+  const mounted = useRef(true);
+
+  const discardPhotos = useCallback((uris, { remote = true } = {}) => {
+    uris.forEach((uri) => {
+      const key = analysedPhotos.get(uri);
+      analysedPhotos.delete(uri);
+      sessionUris.current.delete(uri);
+      if (key && remote) api.discardAiPhoto(key);
+    });
+  }, []);
+
+  /** Drops the server copy of every analysed photo except the current cover. */
+  const keepOnlyPhoto = useCallback(
+    (uri) => discardPhotos([...sessionUris.current].filter((item) => item !== uri)),
+    [discardPhotos]
+  );
+
+  /** Keys to send with the listing: the server deletes those copies once it is saved. */
+  const sessionPhotoKeys = useCallback(
+    () => [...sessionUris.current].map((uri) => analysedPhotos.get(uri)).filter(Boolean),
+    []
+  );
+
+  /** The sell session is over: `remote: false` when the server already deleted the copies. */
+  const endSession = useCallback(
+    ({ remote = true } = {}) => discardPhotos([...sessionUris.current], { remote }),
+    [discardPhotos]
+  );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      endSession();
+    };
+  }, [endSession]);
 
   const showAlert = (title, message) =>
     setAlertConfig(
@@ -93,6 +141,14 @@ export function useListingAiFill({
       });
       const suggestion = data?.suggestion;
       if (apiError || !suggestion) throw new Error(apiError || 'AI could not read that photo');
+      if (data.photoKey) {
+        if (mounted.current) {
+          analysedPhotos.set(photoUri, data.photoKey);
+          sessionUris.current.add(photoUri);
+        } else {
+          api.discardAiPhoto(data.photoKey);
+        }
+      }
 
       if (suggestion.imageBlocked) {
         setAiPrice(null);
@@ -117,7 +173,16 @@ export function useListingAiFill({
         });
         return 'blocked';
       }
-      setImageFlag((current) => (current?.uri === photoUri ? null : current));
+      // A real person in the photo is allowed, but our team looks at it before it goes live.
+      if (suggestion.revealingDetected) {
+        setImageFlag({ uri: photoUri, issue: 'revealing', reason: suggestion.revealingNote || 'Private body areas are highlighted' });
+      } else if (suggestion.offTopic) {
+        setImageFlag({ uri: photoUri, issue: 'off_topic', reason: suggestion.offTopicNote || 'No clear item for sale in the photo' });
+      } else if (suggestion.faceDetected) {
+        setImageFlag({ uri: photoUri, issue: 'person', reason: suggestion.faceNote || 'A real person is visible in the photo' });
+      } else {
+        setImageFlag((current) => (current?.uri === photoUri ? null : current));
+      }
 
       // An automatic fill must not overwrite what the user already typed.
       const put = (setter, text) => {
@@ -148,7 +213,7 @@ export function useListingAiFill({
       }
       const newPrice = Number(suggestion.newPrice);
       setAiNewPrice(!forShop && suggestion.priceSource === 'new_price' && newPrice > 0 ? newPrice : null);
-      const price = Number(suggestion.price);
+      const price = atLeastMin(Number(suggestion.price));
       if (Number.isFinite(price) && price > 0) {
         setAiPrice(price);
         put(fields.setPrice, String(price));
@@ -176,12 +241,25 @@ export function useListingAiFill({
   const reprice = (condition) => {
     const share = USED_PRICE_SHARE[condition];
     if (!aiNewPrice || !share) return null;
-    const next = roundPrice(aiNewPrice * share);
+    const next = atLeastMin(roundPrice(aiNewPrice * share));
     setAiPrice(next);
     return next;
   };
 
-  return { fill, filling, error, limitReached, aiPrice, aiCondition, aiNewPrice, reprice, imageFlag };
+  return {
+    fill,
+    filling,
+    error,
+    limitReached,
+    aiPrice,
+    aiCondition,
+    aiNewPrice,
+    reprice,
+    imageFlag,
+    keepOnlyPhoto,
+    sessionPhotoKeys,
+    endSession,
+  };
 }
 
 /** Short English warning when a price is 0 or far from the AI/market estimate. */

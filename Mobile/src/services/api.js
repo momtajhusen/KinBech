@@ -480,13 +480,12 @@ async function request(path, options = {}) {
             continue;
           }
 
-          // Don't retry for 404 errors (endpoint not found)
-          if (result.status === 404) {
-            return { data: result.data, error: result.error || 'Not found', status: 404 };
-          }
-
-          lastNonNetworkError = result.error;
-          break;
+          // The server answered: its message is the result, another address would only hide it.
+          return {
+            data: result.data,
+            error: result.error || (result.status === 404 ? 'Not found' : 'Request failed'),
+            status: result.status,
+          };
         } catch (rawErr) {
           if (rawErr?.name === 'AbortError') {
             return { data: null, error: null, aborted: true };
@@ -620,6 +619,10 @@ export const api = {
     request(`/listings${toQuery(withListingPagination(params))}`),
   getRelatedListings: (params = {}) =>
     request(`/listings/related${toQuery(params)}`),
+  findSimilarProducts: (payload) =>
+    request('/listings/similar', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 45000 }),
+  checkOwnDuplicate: (payload) =>
+    request('/listings/duplicate-check', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 25000 }),
   searchListings: (params = {}, options = {}) =>
     request(`/listings/search${toQuery(withListingPagination(params))}`, options),
   getSearchSuggestions: (q) => request(`/listings/suggestions${toQuery({ q })}`),
@@ -654,6 +657,8 @@ export const api = {
       body: JSON.stringify(payload),
       timeoutMs: 60000,
     }),
+  discardAiPhoto: (key) =>
+    request(`/ai/listing-photo/${encodeURIComponent(key)}`, { method: 'DELETE', timeoutMs: 6000 }),
   voiceQuery: (payload, options = {}) =>
     request('/ai/voice-query', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 15000, ...options }),
   updateListing: (id, payload) =>

@@ -59,6 +59,7 @@ const AUTH_BODY_PATHS = ['/auth/login', '/auth/signup', '/auth/otp', '/auth/admi
 app.use(withV1(AUTH_BODY_PATHS), express.json({ limit: '16kb' }));
 app.use(withV1(['/media/upload-base64']), express.json({ limit: '40mb' }));
 app.use(withV1(['/ai/listing-suggest']), express.json({ limit: '15mb' }));
+app.use(withV1(['/listings/similar']), express.json({ limit: '6mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(sanitizeInput);
 app.use(audienceMiddleware);

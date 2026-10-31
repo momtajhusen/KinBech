@@ -17,11 +17,13 @@ export function timeUntil(value) {
 /** Daily post allowance for the Sell screens, refreshed every time the screen comes into view. */
 export function usePostQuota(sellerType, { shopId, enabled = true } = {}) {
   const [quota, setQuota] = useState(null);
+  const [minPrice, setMinPrice] = useState(0);
 
   const reload = useCallback(async () => {
     if (!enabled) return null;
     const { data } = await api.getPostQuota(sellerType, shopId);
     if (data?.quota) setQuota(data.quota);
+    if (data?.minPrice != null) setMinPrice(Number(data.minPrice) || 0);
     return data?.quota || null;
   }, [enabled, sellerType, shopId]);
 
@@ -32,5 +34,5 @@ export function usePostQuota(sellerType, { shopId, enabled = true } = {}) {
   );
 
   const blocked = Boolean(quota && !quota.unlimited && quota.remaining <= 0);
-  return { quota, blocked, reload, setQuota };
+  return { quota, blocked, reload, setQuota, minPrice };
 }

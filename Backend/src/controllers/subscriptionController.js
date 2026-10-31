@@ -6,7 +6,7 @@ const Notification = require('../models/Notification');
 const Shop = require('../models/Shop');
 const User = require('../models/User');
 const { postQuota, activeSubscription } = require('../utils/listingSpamGuard');
-const { MAX_DAILY_LISTINGS } = require('../utils/platformSettings');
+const { MAX_DAILY_LISTINGS, getPlatformSettings } = require('../utils/platformSettings');
 const { sendUserPush } = require('../utils/callPush');
 const { recordAudit } = require('../utils/audit');
 const { isAdminRole } = require('../utils/adminScopes');
@@ -304,7 +304,8 @@ async function getQuota(req, res, next) {
   try {
     const sellerType = req.query.sellerType === 'shop' ? 'shop' : 'individual';
     const shop = sellerType === 'shop' ? await ownShop(req.user._id, req.query.shopId) : null;
-    res.json({ quota: await postQuota(req.user, { sellerType, shop }) });
+    const [quota, settings] = await Promise.all([postQuota(req.user, { sellerType, shop }), getPlatformSettings()]);
+    res.json({ quota, minPrice: Number(settings.minListingPrice) || 0 });
   } catch (error) {
     next(error);
   }

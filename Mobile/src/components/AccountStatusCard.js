@@ -245,7 +245,7 @@ const createStyles = (colors) => ({
     alignItems: 'center',
     gap: 10,
     marginHorizontal: 16,
-    marginTop: 10,
+    marginBottom: 10,
     padding: 10,
     borderRadius: 16,
     backgroundColor: colors.surface,

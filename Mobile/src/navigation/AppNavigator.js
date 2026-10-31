@@ -81,6 +81,7 @@ const loadLanguageSelectScreen = () => require('../screens/LanguageSelectScreen'
 const loadMyListingsScreen = () => require('../screens/MyListingsScreen').default;
 const loadMyPurchasesScreen = () => require('../screens/MyPurchasesScreen').default;
 const loadRecentlyViewedScreen = () => require('../screens/RecentlyViewedScreen').default;
+const loadSimilarProductsScreen = () => require('../screens/SimilarProductsScreen').default;
 const loadNotificationsScreen = () => require('../screens/NotificationsScreen').default;
 const loadPrivacyPolicyScreen = () => require('../screens/PrivacyPolicyScreen').default;
 const loadPrivacyScreen = () => require('../screens/PrivacyScreen').default;
@@ -653,6 +654,7 @@ export default function AppNavigator() {
         <Stack.Screen name="MyListings" getComponent={loadMyListingsScreen} />
         <Stack.Screen name="MyPurchases" getComponent={loadMyPurchasesScreen} />
         <Stack.Screen name="RecentlyViewed" getComponent={loadRecentlyViewedScreen} />
+        <Stack.Screen name="SimilarProducts" getComponent={loadSimilarProductsScreen} />
         <Stack.Screen name="ListingSuccess" getComponent={loadListingSuccessScreen} />
         <Stack.Screen name="Chat" getComponent={loadChatScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ freezeOnBlur: false }} />

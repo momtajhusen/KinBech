@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormScroll, revealFocusedInput, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
 import SearchWordsField from '../components/SearchWordsField';
-import { ROUTES } from '../navigation/helpers';
+import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
 import { useTheme, useThemedStyles, ThemeStatusBar, formFieldStyles, formInputStyle, formLabelStyle, FORM_ERROR_COLOR } from '../theme';
@@ -33,11 +33,12 @@ import ListingLiveModal from '../components/ListingLiveModal';
 import PublishConfirmModal from '../components/PublishConfirmModal';
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
-import { useListingAiFill } from '../hooks/useListingAiFill';
+import { analysedPhotoKey, useListingAiFill } from '../hooks/useListingAiFill';
 import PostQuotaBanner from '../components/PostQuotaBanner';
 import TesterModeButton from '../components/TesterModeButton';
 import PostLimitModal from '../components/PostLimitModal';
 import { usePostQuota } from '../hooks/usePostQuota';
+import useOwnDuplicateCheck from '../hooks/useOwnDuplicateCheck';
 import {
   EXTRA_PHOTO_SLOTS,
   hydrateMediaSlotsFromUris,
@@ -196,12 +197,22 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const [variantOptions, setVariantOptions] = useState(editListing?.variantOptions || []);
   const [variants, setVariants] = useState(() => variantsFromListing(editListing));
   const [markSold, setMarkSold] = useState(editListing?.status === 'sold');
-  const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota } = usePostQuota('shop', {
+  const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota, minPrice } = usePostQuota('shop', {
     shopId: selectedShopId,
     enabled: !isEdit && !loadingShop && Boolean(selectedShopId),
   });
   const [limitModal, setLimitModal] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const reopenConfirmRef = useRef(false);
+  useEffect(
+    () =>
+      navigation.addListener('focus', () => {
+        if (!reopenConfirmRef.current) return;
+        reopenConfirmRef.current = false;
+        setConfirmOpen(true);
+      }),
+    [navigation]
+  );
 
   /** True when today's posts are used up; opens the limit modal instead of the picker. */
   const checkPostLimit = useCallback(async () => {
@@ -290,7 +301,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const mainPhoto = photos[0]?.uri ?? null;
   const extraPhotos = photos.slice(1);
 
+  const repeatCheck = useOwnDuplicateCheck();
+  const uploadedRef = useRef(null);
   const ai = useListingAiFill({
+    minPrice,
     categories,
     conditions: CONDITIONS,
     forShop: true,
@@ -318,6 +332,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     },
     setAlertConfig,
   });
+  const { keepOnlyPhoto } = ai;
+  useEffect(() => {
+    keepOnlyPhoto(mainPhoto);
+  }, [mainPhoto, keepOnlyPhoto]);
   const imageFlag =
     ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
       ? { issue: ai.imageFlag.issue, reason: ai.imageFlag.reason }
@@ -438,6 +456,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     const next = {};
     if (!title.trim()) next.title = 'Enter a title';
     if (!price.trim()) next.price = 'Enter a price';
+    else if (minPrice > 0 && Number(String(price).replace(/[^\d]/g, '')) < minPrice) next.price = `Minimum price is NPR ${minPrice}`;
     if (hasVariants) {
       const totalStock = variants.reduce((sum, variant) => sum + (Number(variant.stock) || 0), 0);
       if (!variants.length || totalStock < 1) next.variants = 'Add variant stock';
@@ -464,7 +483,10 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     }
     Keyboard.dismiss();
     if (isEdit) submitListing();
-    else setConfirmOpen(true);
+    else {
+      repeatCheck.check({ title: title.trim(), category, price, photoUri: mainPhoto });
+      setConfirmOpen(true);
+    }
   };
 
   const submitListing = async () => {
@@ -472,7 +494,11 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     setSubmitting(true);
 
     const localPhotos = photos.map((photo) => photo?.uri).filter(Boolean);
-    const uploaded = await uploadMediaUris(localPhotos, 'listings');
+    const uploadKey = localPhotos.join('|');
+    const uploaded = uploadedRef.current?.key === uploadKey
+      ? uploadedRef.current.result
+      : await uploadMediaUris(localPhotos, 'listings');
+    if (!uploaded.error) uploadedRef.current = { key: uploadKey, result: uploaded };
     if (uploaded.error) {
       setSubmitting(false);
       setAlertConfig(
@@ -508,6 +534,8 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       isOnSale,
       hasVariants,
       ...(imageFlag ? { imageFlag } : {}),
+      aiPhotoKeys: ai.sessionPhotoKeys(),
+      ...(repeatCheck.duplicate && !isEdit ? { confirmDuplicate: true } : {}),
     };
 
     if (hasVariants) {
@@ -520,6 +548,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     if (isEdit) {
       const { data: saved, error } = await api.updateListing(listingId, payload);
       setSubmitting(false);
+      if (!error) ai.endSession({ remote: false });
       if (error) {
         setAlertConfig(
           showErrorAlert({
@@ -543,6 +572,12 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     const { data, error } = await api.createListing(payload);
 
     setSubmitting(false);
+    if (!error && data?.listing) ai.endSession({ remote: false });
+    if (data?.code === 'POSSIBLE_DUPLICATE' && data.existing) {
+      repeatCheck.show(data.existing);
+      setConfirmOpen(true);
+      return;
+    }
     if (data?.code === 'DAILY_LISTING_LIMIT') {
       if (data.quota) setQuota(data.quota);
       Keyboard.dismiss();
@@ -1051,6 +1086,29 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         ]}
         onEdit={() => setConfirmOpen(false)}
         onConfirm={submitListing}
+        duplicate={repeatCheck.duplicate}
+        photoFlag={imageFlag}
+        checking={repeatCheck.checking}
+        onOpenDuplicate={() => {
+          const existing = repeatCheck.duplicate;
+          if (!existing) return;
+          reopenConfirmRef.current = true;
+          setConfirmOpen(false);
+          openItemDetail(navigation, { listingId: existing.id || existing._id, item: existing });
+        }}
+        onSimilar={() => {
+          reopenConfirmRef.current = true;
+          setConfirmOpen(false);
+          navigation.navigate(ROUTES.SIMILAR_PRODUCTS, {
+            photoUri: mainPhoto,
+            photoKey: analysedPhotoKey(mainPhoto),
+            excludeId: isEdit ? listingId : undefined,
+            title: title.trim(),
+            category,
+            description: description.trim(),
+            price,
+          });
+        }}
       />
       <PostLimitModal
         visible={limitModal}

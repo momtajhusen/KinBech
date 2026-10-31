@@ -59,6 +59,7 @@ const AiCallLog = require('../models/AiCallLog');
 const { evaluateListingModeration } = require('../utils/listingModeration');
 const { nepalDay, reserveAiCall, refundAiCall, usedToday } = require('../utils/aiQuota');
 const { blendEstimate, marketPriceFor, roundPrice } = require('../utils/priceCheck');
+const { forgetAiPhotos, rememberAiPhoto } = require('../utils/aiPhotoCache');
 
 const router = express.Router();
 
@@ -115,6 +116,7 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
       return res.status(quota.status).json(quota.body);
     }
     const aiUsage = { used: quota.used, limit: quota.limit };
+    const photoSaved = rememberAiPhoto({ userId: req.user._id, data, mimeType });
 
     const { suggestion, model } = await suggestListingFromImage({
       data,
@@ -133,6 +135,7 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
         },
         model,
         aiUsage,
+        photoKey: await photoSaved,
       });
     }
     const resolved = await resolveProductCategory({
@@ -198,7 +201,21 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
     delete suggestion.priceNpr;
     delete suggestion.newPriceNpr;
     delete suggestion.safety;
-    return res.json({ suggestion, model, aiUsage });
+    if (suggestion.person?.visible) {
+      suggestion.faceDetected = true;
+      suggestion.faceNote = suggestion.person.note;
+    }
+    if (suggestion.person?.revealing) {
+      suggestion.revealingDetected = true;
+      suggestion.revealingNote = suggestion.person.revealingNote || suggestion.person.note;
+    }
+    if (suggestion.focus && !suggestion.focus.isProduct) {
+      suggestion.offTopic = true;
+      suggestion.offTopicNote = suggestion.focus.reason;
+    }
+    delete suggestion.person;
+    delete suggestion.focus;
+    return res.json({ suggestion, model, aiUsage, photoKey: await photoSaved });
   } catch (error) {
     if (quota?.ok) refundAiCall(req.user._id, quota.day);
     const status = error.status === 429 || error.status === 503 ? error.status : 502;
@@ -241,6 +258,12 @@ router.get('/voice-audio/:id', (req, res) => {
  * looks, for the search `area`, and what to say) or "searching" (once the buyer has spoken); older app
  * builds' voice chat also asks for "greeting", "nudge" and "goodbye" (in `lang`, with the buyer's name).
  */
+/** The seller left or changed the post form: drop the photo copy kept for that sell session. */
+router.delete('/listing-photo/:key', requireAuth, async (req, res) => {
+  await forgetAiPhotos({ userId: req.user._id, keys: [req.params.key] });
+  res.json({ ok: true });
+});
+
 router.post('/voice-greeting', requireAuth, async (req, res) => {
   const userId = String(req.user._id);
   const kind = ['nudge', 'goodbye', 'ask', 'searching'].includes(req.body?.kind) ? req.body.kind : 'greeting';
