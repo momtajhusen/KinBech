@@ -72,6 +72,7 @@ export function openItemDetail(navigationOrId, params) {
       listingId,
       item: params?.item,
       sharedId: params?.sharedId || listingId,
+      searchQuery: params?.searchQuery || '',
     });
     return;
   }

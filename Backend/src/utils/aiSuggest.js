@@ -193,6 +193,11 @@ function buildPrompt(categories, shop) {
     '- newPriceNpr: the current retail price in Nepal, in NPR, of this exact item bought brand new',
     '  today (same brand and model; nearest current model if it is discontinued). Whole number only.',
     '  Use 0 only if unknown.',
+    '- Price what a Nepali shop near the seller charges, not online, imported or premium prices.',
+    '  With no brand visible, price the common local version. When unsure, choose the lower price.',
+    '- Everyday items are cheap; never round them up. Typical new prices in Nepal: ball pen 10 to 20,',
+    '  pencil 5 to 10, notebook 50 to 150, plastic bucket 150 to 400, plastic dustbin 300 to 700,',
+    '  plastic chair 800 to 1500, steel plate 100 to 300, basic phone charger 300 to 800.',
     '',
     'Title rules (most important):',
     '- Choose the single best search title a buyer would type into a search box.',
@@ -712,6 +717,64 @@ async function suggestListingCategory({ title, searchWords = [], existing = [] }
     }),
     parseListingCategory,
     { purpose: 'category-fix', preferBulk: true }
+  );
+  return result;
+}
+
+function relatedTerms(list, max) {
+  const terms = (Array.isArray(list) ? list : [])
+    .map((term) => String(term || '').toLowerCase().replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ').trim())
+    .filter((term) => term.length >= 2 && term.length <= 40);
+  return [...new Set(terms)].slice(0, max);
+}
+
+function parseRelatedProduct(rawText) {
+  const match = String(rawText || '').match(/\{[\s\S]*\}/);
+  try {
+    const data = JSON.parse(match ? match[0] : '');
+    const type = relatedTerms([data?.type], 1)[0] || '';
+    const same = relatedTerms([type, ...(data?.same || [])], 16);
+    if (!same.length) return null;
+    return {
+      type,
+      same,
+      close: relatedTerms(data?.close, 10).filter((term) => !same.includes(term)),
+      prefer: relatedTerms(data?.prefer, 4),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What an opened listing actually is, read from its title, description and the search the
+ * buyer used to find it, as the product words other listings must share to count as related.
+ */
+async function understandRelatedProduct({ title, description = '', category = '', keyword = '', deadlineMs = 8000 }) {
+  const lines = [
+    'KinBech is a Nepali local buy-and-sell marketplace.',
+    `Opened listing title: "${String(title || '').slice(0, 120)}"`,
+    `Category: "${String(category || '').slice(0, 40)}"`,
+    `Description: "${String(description || '').replace(/\s+/g, ' ').slice(0, 400)}"`,
+    keyword ? `The buyer found it by searching: "${String(keyword).slice(0, 80)}"` : 'The buyer opened it without a search.',
+    '',
+    'Read the title, description and search together, work out what this product actually is, and name the products a buyer would accept as related.',
+    'Reply with JSON only, in exactly this shape: {"type": string, "same": string[], "close": string[], "prefer": string[]}',
+    '- type: the generic product noun in English, singular, lowercase, 1 to 3 words. No brand, model, colour, material, size or condition. E.g. "chair", "ceiling fan", "phone".',
+    '- same: up to 12 English words or short phrases sellers put in titles for this same kind of product: the plain product noun, synonyms, sub-types written as one word, and common romanised Nepali or Hindi names. E.g. for a chair: "chair", "armchair", "plastic chair", "office chair", "gaming chair", "kursi"; for a ceiling fan: "fan", "ceiling fan". Every word must name this product itself.',
+    '- close: up to 8 other product types a buyer of this would also consider, for the same room or the same use. E.g. for a chair: "sofa", "stool", "bench", "table". Empty when nothing is close.',
+    '- prefer: up to 4 words from the search only that make one listing of this type a better match, e.g. "plastic", "stackable". Empty when there is no search or it adds nothing.',
+    '- When the search names something other than this product, trust the title and description.',
+    '- Never include accessories, parts, or things that only share a material, colour, brand or a word. A chair is not related to a pen, mouse pad, gaming mouse, dustbin or pet.',
+  ];
+  const { result } = await runGemini(
+    (generationConfig) => ({
+      systemInstruction: { parts: [{ text: SHOP_CATEGORY_INSTRUCTION }] },
+      contents: [{ role: 'user', parts: [{ text: lines.join('\n') }] }],
+      generationConfig: { ...generationConfig, temperature: 0.1, maxOutputTokens: 512 },
+    }),
+    parseRelatedProduct,
+    { purpose: 'related', preferBulk: true, quick: true, deadlineMs }
   );
   return result;
 }
@@ -1644,6 +1707,7 @@ module.exports = {
   suggestShopCategories,
   suggestListingCategory,
   testModel,
+  understandRelatedProduct,
   VOICE_SEARCHING_TEXT,
   voiceAskText,
   voiceGreetingText,

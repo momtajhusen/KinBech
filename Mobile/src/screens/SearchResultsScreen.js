@@ -20,7 +20,8 @@ import EmptyState from '../components/EmptyState';
 import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import FilterBottomSheet from '../components/FilterBottomSheet';
 import HighlightText from '../components/HighlightText';
-import ProductCard from '../components/ProductCard';
+import ProductCard, { compactCardLayout } from '../components/ProductCard';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { INDIVIDUAL_GRADIENT } from '../components/SellerProfileCard';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
@@ -32,6 +33,7 @@ import {
   formatDistanceLabel,
   formatPrice,
   resolveMediaUrl,
+  thumbUrl,
   toCardItem,
 } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
@@ -102,6 +104,7 @@ function priceLabel(min, max) {
 }
 
 export default function SearchResultsScreen({ navigation, route }) {
+  const lazyScroll = useLazyScroll();
   useDisplayCurrency();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -130,6 +133,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const [searchText, setSearchText] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery);
   const [browseAll] = useState(Boolean(params.browse));
+  const [featuredOnly] = useState(Boolean(params.featured));
   const [inputFocused, setInputFocused] = useState(false);
   const [sortKey, setSortKey] = useState(params.sort || (initialQuery ? 'relevance' : 'distance'));
   const [layout, setLayout] = useState('grid');
@@ -239,8 +243,9 @@ export default function SearchResultsScreen({ navigation, route }) {
     if (filters.priceMin != null) next.minPrice = Number(filters.priceMin);
     if (filters.priceMax != null) next.maxPrice = Number(filters.priceMax);
     if (distanceActive) next.radius = Number(filters.radiusKm);
+    if (featuredOnly && !query) next.featured = 1;
     return next;
-  }, [query, voiceAlt, filters, sortKey, categoryActive, conditionActive, distanceActive]);
+  }, [query, voiceAlt, filters, sortKey, categoryActive, conditionActive, distanceActive, featuredOnly]);
 
   const loadResults = useCallback(async ({ silent = false, pageToLoad = 1, append = false } = {}) => {
     let controller = null;
@@ -471,7 +476,7 @@ export default function SearchResultsScreen({ navigation, route }) {
   const toggleFavorite = (id) => toggle(id);
 
   const openProduct = (item) =>
-    openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id });
+    openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id, searchQuery: query });
 
   const openSeller = (seller) => {
     if (seller.sellerType === 'shop' || seller.shopId) {
@@ -519,7 +524,6 @@ export default function SearchResultsScreen({ navigation, route }) {
   const renderSellerCard = (seller, { carousel = false } = {}) => {
     const isShop = seller.sellerType === 'shop' || Boolean(seller.shopId);
     const avatar = resolveMediaUrl(seller.avatarUrl || '');
-    const cover = isShop && seller.coverImage ? resolveMediaUrl(seller.coverImage) : '';
     const distance = formatDistanceLabel(seller.distance);
     const about = seller.tagline || seller.description || '';
     const rating = Number(seller.rating) || 0;
@@ -539,22 +543,12 @@ export default function SearchResultsScreen({ navigation, route }) {
         onPress={() => openSeller(seller)}
       >
         <View style={styles.storeBanner}>
-          {cover ? (
-            <>
-              <Image source={{ uri: cover }} style={styles.fill} resizeMode="cover" />
-              <LinearGradient
-                colors={['rgba(0,0,0,0.05)', 'rgba(0,0,0,0.45)']}
-                style={styles.bannerShade}
-              />
-            </>
-          ) : (
-            <LinearGradient
-              colors={isShop ? colors.gradient : INDIVIDUAL_GRADIENT}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.fill}
-            />
-          )}
+          <LinearGradient
+            colors={isShop ? colors.gradient : INDIVIDUAL_GRADIENT}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.fill}
+          />
           <View style={styles.bannerTags}>
             {distance ? (
               <View style={styles.bannerPill}>
@@ -572,7 +566,7 @@ export default function SearchResultsScreen({ navigation, route }) {
         <View style={styles.storeHead}>
           <View style={[styles.storeLogo, !isShop && styles.storeLogoRound]}>
             {avatar ? (
-              <Image source={{ uri: avatar }} style={styles.fill} resizeMode="cover" />
+              <Image source={{ uri: thumbUrl(avatar, 200) }} resizeMethod="resize" style={styles.fill} resizeMode="cover" />
             ) : (
               <Text style={[styles.storeInitial, { color: accent }]}>
                 {String(seller.name || '?').charAt(0).toUpperCase()}
@@ -634,7 +628,7 @@ export default function SearchResultsScreen({ navigation, route }) {
             <View style={styles.storeGallery}>
               {gallery.map((photo, index) => (
                 <View key={`${photo}-${index}`} style={styles.galleryThumb}>
-                  <Image source={{ uri: photo }} style={styles.fill} resizeMode="cover" />
+                  <Image source={{ uri: thumbUrl(photo, 200) }} resizeMethod="resize" style={styles.fill} resizeMode="cover" />
                   {index === gallery.length - 1 && (seller.listingCount || 0) > gallery.length ? (
                     <View style={styles.galleryMore}>
                       <Text style={styles.galleryMoreText}>+{seller.listingCount - gallery.length}</Text>
@@ -674,7 +668,7 @@ export default function SearchResultsScreen({ navigation, route }) {
       >
         <View style={styles.thumb}>
           {item.photo ? (
-            <Image source={{ uri: item.photo }} style={styles.thumbImg} />
+            <Image source={{ uri: thumbUrl(item.photo, 200) }} resizeMethod="resize" style={styles.thumbImg} />
           ) : (
             <Icon name={item.icon || 'cube-outline'} size={28} color={colors.textTertiary} />
           )}
@@ -735,11 +729,15 @@ export default function SearchResultsScreen({ navigation, route }) {
 
   const renderProducts = () => {
     if (layout === 'list') {
-      return <View style={styles.list}>{cards.map(renderProductRow)}</View>;
+      return <LazyList data={cards} gap={10} estimatedRowHeight={110} renderItem={renderProductRow} />;
     }
     return (
-      <View style={styles.grid}>
-        {cards.map((item) => (
+      <LazyList
+        data={cards}
+        columns={2}
+        gap={GRID_GUTTER}
+        estimatedRowHeight={compactCardLayout(cardWidth).height}
+        renderItem={(item) => (
           <ProductCard
             key={`product-${item.id}`}
             {...item}
@@ -749,8 +747,8 @@ export default function SearchResultsScreen({ navigation, route }) {
             onPress={() => openProduct(item)}
             onToggleSave={() => toggleFavorite(item.id)}
           />
-        ))}
-      </View>
+        )}
+      />
     );
   };
 
@@ -852,7 +850,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                 <Text style={styles.trendRank}>{index + 1}</Text>
                 <View style={styles.trendThumb}>
                   {item.photo ? (
-                    <Image source={{ uri: item.photo }} style={styles.thumbImg} />
+                    <Image source={{ uri: thumbUrl(item.photo, 200) }} resizeMethod="resize" style={styles.thumbImg} />
                   ) : (
                     <Icon name={item.icon || 'cube-outline'} size={18} color={colors.textTertiary} />
                   )}
@@ -995,15 +993,19 @@ export default function SearchResultsScreen({ navigation, route }) {
           </ScrollView>
         </View>
 
+        <LazyScrollProvider value={lazyScroll.value}>
         <ScrollView
+          ref={lazyScroll.scrollRef}
           style={styles.flex}
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="none"
           refreshControl={refreshControl(colors, refreshing, onRefresh, !inputFocused)}
-          scrollEventThrottle={100}
+          scrollEventThrottle={50}
+          onContentSizeChange={lazyScroll.onContentSizeChange}
           onScroll={(event) => {
+            lazyScroll.onScroll(event);
             if (showProducts && hasMore && isNearEnd(event, 900)) loadMore();
           }}
         >
@@ -1078,6 +1080,7 @@ export default function SearchResultsScreen({ navigation, route }) {
             </>
           )}
         </ScrollView>
+        </LazyScrollProvider>
       </View>
     );
   };
@@ -1842,9 +1845,6 @@ const createStyles = (colors) => ({
   storeBanner: {
     height: 92,
     backgroundColor: colors.iconBackground,
-  },
-  bannerShade: {
-    ...StyleSheet.absoluteFillObject,
   },
   bannerTags: {
     position: 'absolute',

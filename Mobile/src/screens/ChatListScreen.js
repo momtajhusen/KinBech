@@ -7,10 +7,11 @@ import EmptyState from '../components/EmptyState';
 import CallMinutesPill from '../components/CallMinutesPill';
 import { ChatItemSkeleton } from '../components/SkeletonLoader';
 import { PressableScale, enterUp } from '../components/Motion';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { requireCallSetup } from '../services/callReadiness';
-import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import { formatPrice, resolveMediaUrl, thumbUrl } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
@@ -116,18 +117,18 @@ function ChatAvatar({ uri, name, thumb, styles }) {
   return (
     <View style={styles.avatarWrap}>
       {uri ? (
-        <Image source={{ uri }} style={styles.avatar} />
+        <Image source={{ uri: thumbUrl(uri, 200) }} resizeMethod="resize" style={styles.avatar} />
       ) : (
         <View style={[styles.avatar, styles.avatarFallback]}>
           <Text style={styles.avatarInitial}>{initial}</Text>
         </View>
       )}
-      {thumb && thumb !== uri ? <Image source={{ uri: thumb }} style={styles.avatarThumb} /> : null}
+      {thumb && thumb !== uri ? <Image source={{ uri: thumbUrl(thumb, 200) }} resizeMethod="resize" style={styles.avatarThumb} /> : null}
     </View>
   );
 }
 
-function ChatRow({ chat, index, styles, colors, onPress }) {
+function ChatRow({ chat, index, animate = true, styles, colors, onPress }) {
   const peerShop = chat.otherUser?.shop;
   const name = peerShop?.name || chat.otherUser?.name || 'Seller';
   const listingTitle = chat.listing?.title;
@@ -151,7 +152,7 @@ function ChatRow({ chat, index, styles, colors, onPress }) {
   return (
     <PressableScale
       scaleTo={0.985}
-      entering={enterUp(index, 30)}
+      entering={animate && index < 12 ? enterUp(index, 30) : undefined}
       contentStyle={styles.row}
       onPress={() => onPress({ chat, name, image: avatarUri || listingThumb })}
     >
@@ -216,6 +217,7 @@ function FilterChip({ label, count, active, onPress, styles }) {
 }
 
 export default function ChatListScreen({ navigation }) {
+  const lazyScroll = useLazyScroll();
   useDisplayCurrency();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -310,10 +312,15 @@ export default function ChatListScreen({ navigation }) {
         </View>
       ) : null}
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         contentContainerStyle={[styles.list, people.length === 0 && styles.listEmpty]}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        scrollEventThrottle={50}
+        onScroll={lazyScroll.onScroll}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
       >
         {people.length === 0 && loading ? (
           <View>
@@ -338,18 +345,26 @@ export default function ChatListScreen({ navigation }) {
             </Pressable>
           </View>
         ) : (
-          visible.map((chat, index) => (
-            <ChatRow
-              key={chatKey(chat)}
-              chat={chat}
-              index={index}
-              styles={styles}
-              colors={colors}
-              onPress={openChat}
-            />
-          ))
+          <LazyList
+            data={visible}
+            keyExtractor={chatKey}
+            estimatedRowHeight={80}
+            minRows={20}
+            renderItem={(chat, index, revisit) => (
+              <ChatRow
+                key={chatKey(chat)}
+                chat={chat}
+                index={index}
+                animate={!revisit}
+                styles={styles}
+                colors={colors}
+                onPress={openChat}
+              />
+            )}
+          />
         )}
       </ScrollView>
+      </LazyScrollProvider>
     </SafeAreaView>
   );
 }

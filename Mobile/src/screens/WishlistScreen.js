@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Icon from '../components/Icon';
 import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import { useFocusEffect } from '@react-navigation/native';
@@ -18,16 +18,15 @@ import EmptyState from '../components/EmptyState';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import { attachDistanceToCard, categoryIcon, formatPrice, resolveMediaUrl } from '../utils/listing';
+import { attachDistanceToCard, categoryIcon, formatPrice, resolveMediaUrl, thumbUrl } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
 import { getHomePlace } from '../utils/homeListingsCache';
-import { isNearEnd } from '../utils/scroll';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { useWishlist } from '../context/WishlistContext';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
 const GRID_GAP = 10;
-const RENDER_BATCH = 20;
 const GRID_IMAGE_RATIO = 0.82;
 
 const STATUS_FILTERS = [
@@ -185,10 +184,7 @@ export default function WishlistScreen({ navigation }) {
     return sortItems(list, sortBy);
   }, [items, matchesQuery, status, category, condition, sellerType, minPrice, maxPrice, sortBy]);
 
-  const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
-  useEffect(() => {
-    setVisibleCount(RENDER_BATCH);
-  }, [query, status, category, condition, sellerType, minPrice, maxPrice, sortBy, viewMode]);
+  const lazyScroll = useLazyScroll();
 
   const extraFilters =
     (sortBy !== 'recent' ? 1 : 0) +
@@ -224,7 +220,7 @@ export default function WishlistScreen({ navigation }) {
       >
         <View style={[styles.gridImageWrap, { height: Math.round(gridCardWidth * GRID_IMAGE_RATIO) }]}>
           {item.photo ? (
-            <Image source={{ uri: item.photo }} style={styles.fill} resizeMode="cover" />
+            <Image source={{ uri: thumbUrl(item.photo, 400) }} resizeMethod="resize" style={styles.fill} resizeMode="cover" />
           ) : (
             <View style={[styles.fill, styles.center]}>
               <Icon name={item.icon} size={34} color={colors.primary} />
@@ -270,7 +266,7 @@ export default function WishlistScreen({ navigation }) {
             <View style={styles.sellerRow}>
               <View style={[styles.sellerAvatar, item.isShop && styles.sellerAvatarShop]}>
                 {item.sellerImage ? (
-                  <Image source={{ uri: item.sellerImage }} style={styles.fill} />
+                  <Image source={{ uri: thumbUrl(item.sellerImage, 200) }} resizeMethod="resize" style={styles.fill} />
                 ) : (
                   <Icon name={item.isShop ? 'storefront' : 'person'} size={9} color={colors.textMuted} />
                 )}
@@ -294,7 +290,7 @@ export default function WishlistScreen({ navigation }) {
       >
         <View style={styles.listImageWrap}>
           {item.photo ? (
-            <Image source={{ uri: item.photo }} style={styles.fill} resizeMode="cover" />
+            <Image source={{ uri: thumbUrl(item.photo, 200) }} resizeMethod="resize" style={styles.fill} resizeMode="cover" />
           ) : (
             <View style={[styles.fill, styles.center]}>
               <Icon name={item.icon} size={28} color={colors.primary} />
@@ -479,19 +475,18 @@ export default function WishlistScreen({ navigation }) {
         </View>
       ) : null}
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         style={{ flex: 1 }}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        scrollEventThrottle={100}
-        onScroll={(event) => {
-          if (visibleCount < filtered.length && isNearEnd(event, 800)) {
-            setVisibleCount((count) => count + RENDER_BATCH);
-          }
-        }}
+        scrollEventThrottle={50}
+        onScroll={lazyScroll.onScroll}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
       >
         {items.length === 0 ? (
           loaded ? (
@@ -531,11 +526,12 @@ export default function WishlistScreen({ navigation }) {
             ) : null}
           </View>
         ) : viewMode === 'grid' ? (
-          <View style={styles.grid}>{filtered.slice(0, visibleCount).map(renderGridCard)}</View>
+          <LazyList data={filtered} columns={2} gap={GRID_GAP} estimatedRowHeight={Math.round(gridCardWidth * GRID_IMAGE_RATIO) + 110} renderItem={renderGridCard} />
         ) : (
-          <View style={styles.list}>{filtered.slice(0, visibleCount).map(renderListCard)}</View>
+          <LazyList data={filtered} gap={10} estimatedRowHeight={120} renderItem={renderListCard} />
         )}
       </ScrollView>
+      </LazyScrollProvider>
 
       <Modal
         visible={sheetOpen}

@@ -32,6 +32,7 @@ import { formatCityDistrict } from '../utils/locations';
 import { coordinatesForPlace, resolveMediaUrl } from '../utils/listing';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingLiveModal from '../components/ListingLiveModal';
+import PublishConfirmModal from '../components/PublishConfirmModal';
 import ListingMediaPreview from '../components/ListingMediaPreview';
 import SearchWordsField from '../components/SearchWordsField';
 import { priceWarning, useListingAiFill, USED_PRICE_SHARE } from '../hooks/useListingAiFill';
@@ -213,6 +214,7 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const [markSold, setMarkSold] = useState(editListing?.status === 'sold');
   const { quota, blocked: quotaBlocked, reload: reloadQuota, setQuota } = usePostQuota('individual', { enabled: !isEdit });
   const [limitModal, setLimitModal] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   /** True when today's posts are used up; opens the limit modal instead of the picker. */
   const checkPostLimit = useCallback(async () => {
@@ -520,6 +522,13 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       revealField(locationAnchorRef, locationRef);
       return;
     }
+    Keyboard.dismiss();
+    if (isEdit) submitListing();
+    else setConfirmOpen(true);
+  };
+
+  const submitListing = async () => {
+    setConfirmOpen(false);
     setSubmitting(true);
 
     const localPhotos = photos.filter((item) => item?.uri).map((item) => item.uri);
@@ -1058,6 +1067,22 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
         {...(alertConfig?.live ? {} : alertConfig || {})}
       />
       <ListingLiveModal visible={!!alertConfig?.live} {...(alertConfig?.live ? alertConfig : {})} />
+      <PublishConfirmModal
+        visible={confirmOpen}
+        photo={mainPhoto ? resolveMediaUrl(mainPhoto) : null}
+        photoCount={photos.filter((item) => item?.uri).length}
+        title={title.trim()}
+        price={price}
+        description={description.trim()}
+        details={[
+          { icon: 'pricetag-outline', label: 'Category', value: category },
+          { icon: 'sparkles-outline', label: 'Condition', value: condition },
+          { icon: 'location-outline', label: 'Location', value: location.trim() },
+          { icon: 'people-outline', label: 'Meetup', value: meetup },
+        ]}
+        onEdit={() => setConfirmOpen(false)}
+        onConfirm={submitListing}
+      />
       <PostLimitModal
         visible={limitModal}
         quota={quota}

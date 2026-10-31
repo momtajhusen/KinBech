@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Listing = require('../models/Listing');
 const Shop = require('../models/Shop');
 const Report = require('../models/Report');
@@ -29,6 +30,7 @@ const { getPlatformSettings } = require('../utils/platformSettings');
 const { resolveProductCategory } = require('../utils/productCategory');
 const { applyUnderstoodSearch, isRemembered, needsUnderstanding, understandSearch } = require('../utils/searchUnderstanding');
 const { buildSearchLogic, compareByOrder } = require('../utils/searchLogic');
+const { findRelatedListings } = require('../utils/relatedListings');
 const { emitActivity } = require('../utils/realtime');
 const { listingActivityEvent } = require('../utils/activityEvents');
 const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
@@ -229,6 +231,11 @@ function attachDistances(docs, userLat, userLng) {
 
 const LISTING_TEXT_FIELDS = ['title', 'searchWords', 'category', 'description', 'location'];
 
+function isFeaturedQuery(req) {
+  const value = String(req.query.featured || '').toLowerCase();
+  return value === '1' || value === 'true';
+}
+
 function buildBaseFilter(req, { matchMode = 'all' } = {}) {
   const {
     q,
@@ -250,6 +257,7 @@ function buildBaseFilter(req, { matchMode = 'all' } = {}) {
   if (sellerType && sellerType !== 'all') filter.sellerType = sellerType;
   if (seller) filter.seller = seller;
   if (req.query.shopId) filter.shopId = req.query.shopId;
+  if (isFeaturedQuery(req)) filter.featuredUntil = { $gt: new Date() };
   if (minPrice || maxPrice) {
     filter.price = {};
     if (minPrice) filter.price.$gte = Number(minPrice);
@@ -478,7 +486,9 @@ async function getListings(req, res, next) {
       page,
       limit,
     });
-    const cached = listingQueryCache.get(cacheKey);
+    // Boosts expire by the minute, so boosted-only lists skip the cache.
+    const useCache = !isFeaturedQuery(req);
+    const cached = useCache ? listingQueryCache.get(cacheKey) : null;
     if (cached) {
       return res.json(presentListings(cached, userLat, userLng));
     }
@@ -520,7 +530,7 @@ async function getListings(req, res, next) {
         });
       }
       const payload = buildListResponse(listings, page, limit, total, sortMode);
-      listingQueryCache.set(cacheKey, payload);
+      if (useCache) listingQueryCache.set(cacheKey, payload);
       return res.json(presentListings(payload, userLat, userLng));
     }
 
@@ -581,7 +591,7 @@ async function getListings(req, res, next) {
       hasMore: paged.hasMore,
       appliedSort: sortMode,
     };
-    listingQueryCache.set(cacheKey, payload);
+    if (useCache) listingQueryCache.set(cacheKey, payload);
     return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
@@ -643,7 +653,8 @@ async function searchListings(req, res, next) {
       page,
       limit,
     });
-    const cached = profile ? null : listingQueryCache.get(cacheKey);
+    const useCache = !profile && !isFeaturedQuery(req);
+    const cached = useCache ? listingQueryCache.get(cacheKey) : null;
     if (cached) {
       return res.json(presentListings(cached, userLat, userLng));
     }
@@ -771,7 +782,7 @@ async function searchListings(req, res, next) {
       matchMode,
       understood: req.searchUnderstood || null,
     };
-    if (!profile) listingQueryCache.set(cacheKey, payload);
+    if (useCache) listingQueryCache.set(cacheKey, payload);
     return res.json(presentListings(payload, userLat, userLng));
   } catch (error) {
     next(error);
@@ -1724,101 +1735,30 @@ async function featureListing(req, res, next) {
   }
 }
 
-const RELATED_TITLE_STOP = new Set([
-  'a', 'an', 'the', 'and', 'or', 'for', 'with', 'to', 'of', 'in', 'on', 'at', 'by',
-  'from', 'is', 'it', 'this', 'that', 'sale', 'item',
-]);
-
-// Colours and materials are shared by unrelated products (a blue chair and a
-// blue dustbin), so they only break ties between items of the same type.
-const RELATED_COLOR_WORDS = new Set([
-  'red', 'blue', 'green', 'black', 'white', 'yellow', 'pink', 'purple', 'orange',
-  'brown', 'grey', 'gray', 'silver', 'gold', 'golden', 'navy', 'maroon', 'beige',
-  'cream', 'dark', 'light', 'multicolor', 'multicolour', 'colour', 'color', 'midnight',
-]);
-const RELATED_DESCRIPTOR_WORDS = new Set([
-  'plastic', 'wooden', 'wood', 'metal', 'steel', 'iron', 'fabric', 'leather', 'glass',
-  'cotton', 'solid', 'material', 'new', 'used', 'old', 'small', 'big', 'large', 'mini',
-  'portable', 'single', 'double', 'set', 'pack', 'piece', 'pcs', 'with', 'without',
-]);
-
-function relatedTokenWeight(token) {
-  if (RELATED_COLOR_WORDS.has(token)) return 0.25;
-  if (RELATED_DESCRIPTOR_WORDS.has(token)) return 0.5;
-  return 3;
-}
-
-function titleMatchTokens(title) {
-  const words = String(title || '')
-    .toLowerCase()
-    .split(/[^\p{L}\p{M}\p{N}]+/u)
-    .map((word) => word.trim())
-    .filter((word) => word.length >= 2 && !RELATED_TITLE_STOP.has(word));
-  return [...new Set(words)].slice(0, 16);
-}
-
 async function getRelatedListings(req, res, next) {
   try {
-    const tokens = titleMatchTokens(req.query.title);
     const exclude = String(req.query.exclude || '');
-    const category = String(req.query.category || '');
     const limit = Math.min(12, Math.max(1, parseInt(req.query.limit, 10) || 8));
-    if (!tokens.length) {
+    let source = mongoose.isValidObjectId(exclude)
+      ? await Listing.findById(exclude).select('title description category relatedAi').lean()
+      : null;
+    if (!source) {
+      source = { title: String(req.query.title || ''), description: '', category: String(req.query.category || '') };
+    }
+    if (!String(source.title || '').trim()) {
       return res.json({ listings: [] });
     }
 
-    const or = tokens.flatMap((token) => {
-      const pattern = { $regex: token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' };
-      return relatedTokenWeight(token) >= 3
-        ? [{ title: pattern }, { searchWords: pattern }]
-        : [{ title: pattern }];
+    const { listings } = await findRelatedListings(source, {
+      keyword: req.query.q,
+      limit,
+      excludeId: mongoose.isValidObjectId(exclude) ? exclude : '',
     });
-    const docs = await Listing.find({ status: 'active', $or: or })
-      .populate('seller', SELLER_POPULATE)
-      .populate('shopId', SHOP_POPULATE)
-      .limit(150)
-      .lean();
-
-    const ranked = docs
-      .filter((doc) => String(doc._id) !== exclude)
-      .map((doc) => {
-        const title = String(doc.title || '').toLowerCase();
-        const titleWords = new Set(titleMatchTokens(doc.title));
-        const words = (doc.searchWords || []).map((word) => String(word || '').toLowerCase());
-        let score = 0;
-        let typeMatch = false;
-        tokens.forEach((token) => {
-          const weight = relatedTokenWeight(token);
-          const hit = weight >= 3 ? title.includes(token) : titleWords.has(token);
-          if (hit) {
-            score += weight;
-            if (weight >= 3) typeMatch = true;
-          } else if (weight >= 3 && words.some((word) => word.includes(token))) {
-            score += 1;
-            typeMatch = true;
-          }
-        });
-        return {
-          doc,
-          score,
-          typeMatch,
-          sameCategory: Boolean(category) && doc.category === category,
-        };
-      })
-      .filter((row) => row.score > 0)
-      .sort((a, b) => {
-        if (a.typeMatch !== b.typeMatch) return a.typeMatch ? -1 : 1;
-        if (b.score !== a.score) return b.score - a.score;
-        if (a.sameCategory !== b.sameCategory) return a.sameCategory ? -1 : 1;
-        const ta = new Date(a.doc.createdAt || 0).getTime();
-        const tb = new Date(b.doc.createdAt || 0).getTime();
-        return tb - ta;
-      })
-      .slice(0, limit);
-
-    return res.json({
-      listings: ranked.map(({ doc }) => listingPayload(doc)),
-    });
+    await Listing.populate(listings, [
+      { path: 'seller', select: SELLER_POPULATE },
+      { path: 'shopId', select: SHOP_POPULATE },
+    ]);
+    return res.json({ listings: listings.map((doc) => listingPayload(doc)) });
   } catch (error) {
     return next(error);
   }

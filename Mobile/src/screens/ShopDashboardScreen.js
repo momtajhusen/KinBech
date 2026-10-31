@@ -422,17 +422,6 @@ export default function ShopDashboardScreen({ navigation }) {
           end={{ x: 1, y: 1 }}
           style={[styles.hero, { paddingTop: insets.top + 6 }]}
         >
-          {shop?.coverImage ? (
-            <>
-              <Image source={{ uri: resolveMediaUrl(shop.coverImage) }} style={styles.cover} resizeMode="cover" />
-              <LinearGradient
-                colors={['rgba(0,0,0,0.6)', 'rgba(6,78,59,0.92)']}
-                style={styles.cover}
-                pointerEvents="none"
-              />
-            </>
-          ) : null}
-
           <View style={styles.headerRow}>
             <Pressable onPress={() => navigation.goBack()} hitSlop={12} style={styles.navBtn}>
               <Icon name="chevron-back" size={22} color={colors.onPrimary} />
@@ -791,13 +780,6 @@ const createStyles = (colors) => ({
     borderBottomRightRadius: 22,
     overflow: 'hidden',
     gap: 12,
-  },
-  cover: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
   },
   plainHeader: {
     flexDirection: 'row',

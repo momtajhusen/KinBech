@@ -533,12 +533,6 @@ function MemberProfile({ navigation }) {
             style={styles.headerCover}
             pointerEvents="none"
           />
-          {hasShop && myShop.coverImage ? (
-            <>
-              <Image source={{ uri: resolveMediaUrl(myShop.coverImage) }} style={styles.headerCover} resizeMode="cover" />
-              <LinearGradient colors={look.overlay} style={styles.headerCover} pointerEvents="none" />
-            </>
-          ) : null}
           <View style={styles.headerGlow} pointerEvents="none" />
           <View style={[styles.headerGlowSm, { backgroundColor: look.accentSoft }]} pointerEvents="none" />
           {isShopAccount ? <View style={styles.storeStripe} pointerEvents="none" /> : null}

@@ -8,6 +8,8 @@ const STOP_WORDS = new Set([
 const MIN_COMPARABLES = 3;
 const LOW_RATIO = 0.3;
 const HIGH_RATIO = 3;
+// NPR 10 against an estimate of NPR 3 is a fine price for a pen, not a 3x outlier.
+const SMALL_GAP_NPR = 100;
 
 function escapeRegex(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -21,11 +23,12 @@ function titleKeywords(title) {
   return [...new Set(words)].slice(0, 6);
 }
 
+// Fine steps for cheap items: a NPR 10 pen must not become NPR 50.
 function roundPrice(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
-  const step = n < 1000 ? 50 : n < 10000 ? 100 : n < 100000 ? 500 : 1000;
-  return Math.max(step, Math.round(n / step) * step);
+  const step = n < 20 ? 1 : n < 100 ? 5 : n < 500 ? 10 : n < 1000 ? 50 : n < 10000 ? 100 : n < 100000 ? 500 : 1000;
+  return Math.max(1, Math.round(n / step) * step);
 }
 
 function formatNpr(value) {
@@ -83,7 +86,7 @@ function priceReviewReason(price, estimate) {
       ? `Price is NPR 0. Similar items sell for about NPR ${formatNpr(estimate)}.`
       : 'Price is NPR 0.';
   }
-  if (!(estimate > 0)) return '';
+  if (!(estimate > 0) || Math.abs(value - estimate) < SMALL_GAP_NPR) return '';
   const ratio = value / estimate;
   if (ratio < LOW_RATIO) {
     return `Price is much lower than similar items (about NPR ${formatNpr(estimate)}).`;

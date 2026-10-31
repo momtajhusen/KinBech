@@ -10,7 +10,6 @@ import {
   Switch,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AlertModal, showErrorAlert, showSuccessAlert, showImageSafetyAlert } from '../components/AlertModal';
@@ -28,7 +27,6 @@ import { uploadMediaUri } from '../utils/mediaUpload';
 import { pickFromLibrary } from '../utils/pickImage';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
-const COVER_RATIO = 16 / 7;
 const LOGO = 88;
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const PAYMENTS = ['Cash', 'eSewa', 'Khalti', 'Fonepay', 'Bank transfer', 'Card'];
@@ -105,7 +103,6 @@ export default function EditShopScreen({ navigation }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
   const shopCategories = useCategories('shop');
   const { user, saveSession } = useAuth();
 
@@ -118,7 +115,6 @@ export default function EditShopScreen({ navigation }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [coords, setCoords] = useState(null);
   const [logoUri, setLogoUri] = useState('');
-  const [coverUri, setCoverUri] = useState('');
   const [errors, setErrors] = useState({});
 
   const closeAlert = () => setAlertConfig(null);
@@ -137,7 +133,6 @@ export default function EditShopScreen({ navigation }) {
     if (next) {
       setForm(formFromShop(next));
       setLogoUri(next.logo || '');
-      setCoverUri(next.coverImage || '');
       if (next.coordinates?.lat != null) setCoords({ lat: next.coordinates.lat, lng: next.coordinates.lng });
     }
     setLoading(false);
@@ -149,18 +144,13 @@ export default function EditShopScreen({ navigation }) {
 
   const pickImage = async (kind) => {
     try {
-      const picked = await pickFromLibrary({
-        aspect: kind === 'cover' ? [16, 7] : [1, 1],
-        quality: 0.85,
-        maxWidth: kind === 'cover' ? 1600 : 800,
-      });
+      const picked = await pickFromLibrary({ aspect: [1, 1], quality: 0.85, maxWidth: 800 });
       if (picked.error === 'permission') {
         fail('Permission Required', 'Allow photo access to update your store images.');
         return;
       }
       if (!picked.uri) return;
-      if (kind === 'cover') setCoverUri(picked.uri);
-      else setLogoUri(picked.uri);
+      setLogoUri(picked.uri);
     } catch {
       fail('Error', 'Could not open your photos. Please try again.');
     }
@@ -230,8 +220,6 @@ export default function EditShopScreen({ navigation }) {
     setSaving(true);
     const logo = await uploadImage(logoUri);
     if (!logo) return setSaving(false);
-    const cover = await uploadImage(coverUri);
-    if (!cover) return setSaving(false);
 
     const payload = {
       ...form,
@@ -241,7 +229,6 @@ export default function EditShopScreen({ navigation }) {
       establishedYear: form.establishedYear.trim() ? Number(form.establishedYear) : null,
       location: form.location.trim(),
       logo: logo.url,
-      coverImage: cover.url,
       coordinates: coords || coordsForPlaceName(form.location),
     };
     const { error } = await api.updateShop(shop._id || shop.id, payload);
@@ -293,10 +280,8 @@ export default function EditShopScreen({ navigation }) {
     );
   }
 
-  const coverHeight = Math.round(width / COVER_RATIO);
   const checks = [
     logoUri,
-    coverUri,
     form.tagline,
     form.description,
     form.phone,
@@ -315,21 +300,8 @@ export default function EditShopScreen({ navigation }) {
       <ThemeStatusBar variant="header" />
       <KeyboardForm>
         <FormScroll contentContainerStyle={{ paddingBottom: 24 }}>
-          <Pressable onPress={() => pickImage('cover')} style={{ height: coverHeight + insets.top }}>
-            {coverUri ? (
-              <Image source={{ uri: resolveMediaUrl(coverUri) || coverUri }} style={styles.fill} resizeMode="cover" />
-            ) : (
-              <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.coverEmpty}>
-                <Icon name="image-outline" size={30} color="rgba(255,255,255,0.85)" />
-                <Text style={styles.coverEmptyTitle}>Add a cover banner</Text>
-                <Text style={styles.coverEmptySub}>Recommended 1600 × 700 · shows on your store page</Text>
-              </LinearGradient>
-            )}
-            <LinearGradient
-              colors={['rgba(0,0,0,0.45)', 'transparent']}
-              style={[styles.coverShade, { height: insets.top + 56 }]}
-              pointerEvents="none"
-            />
+          <View style={{ height: insets.top + 120 }}>
+            <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.fill} />
             <View style={[styles.coverBar, { top: insets.top + 8 }]}>
               <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={styles.roundBtn}>
                 <Icon name="chevron-back" size={20} color="#fff" />
@@ -337,11 +309,7 @@ export default function EditShopScreen({ navigation }) {
               <Text style={styles.coverTitle}>Edit store</Text>
               <View style={styles.roundGhost} />
             </View>
-            <View style={styles.coverEdit}>
-              <Icon name="camera" size={13} color="#fff" />
-              <Text style={styles.coverEditText}>{coverUri ? 'Change cover' : 'Add cover'}</Text>
-            </View>
-          </Pressable>
+          </View>
 
           <View style={styles.identity}>
             <Pressable onPress={() => pickImage('logo')} style={styles.logoWrap}>
@@ -699,28 +667,6 @@ const createStyles = (colors) => ({
     width: '100%',
     height: '100%',
   },
-  coverEmpty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 30,
-    gap: 4,
-  },
-  coverEmptyTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#fff',
-  },
-  coverEmptySub: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  coverShade: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-  },
   coverBar: {
     position: 'absolute',
     left: 12,
@@ -743,23 +689,6 @@ const createStyles = (colors) => ({
   coverTitle: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#fff',
-  },
-  coverEdit: {
-    position: 'absolute',
-    right: 12,
-    bottom: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  coverEditText: {
-    fontSize: 11.5,
-    fontWeight: '700',
     color: '#fff',
   },
   identity: {

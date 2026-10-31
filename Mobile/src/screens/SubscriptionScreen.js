@@ -14,11 +14,20 @@ import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { timeUntil } from '../hooks/usePostQuota';
 
-const STEPS = [
-  { icon: 'pricetags-outline', title: 'Choose a plan', sub: 'Pick how many posts a day you need.' },
-  { icon: 'wallet-outline', title: 'Pay with eSewa', sub: 'The eSewa app opens. Confirm the amount with your MPIN.' },
-  { icon: 'rocket-outline', title: 'Start posting', sub: 'Your plan turns on right after the payment. You get a receipt in Plan bills.' },
-];
+const STEP_ICONS = ['hand-left-outline', 'wallet-outline', 'rocket-outline'];
+const SCREEN_DEFAULTS = {
+  headerSubtitle: 'Post more items every day',
+  freePlanName: 'Free plan',
+  sectionTitle: 'Choose a plan',
+  sectionNote: 'Pay one time. No auto cut from your eSewa.',
+  stepsTitle: 'How it works',
+  steps: [
+    { title: 'Pick a plan', sub: 'More posts every day.' },
+    { title: 'Pay in eSewa', sub: 'Type your eSewa MPIN.' },
+    { title: 'Post more', sub: 'Starts right away.' },
+  ],
+  helpText: 'Need help? Talk to us',
+};
 
 const npr = (value) => `Rs ${Number(value || 0).toLocaleString('en-IN')}`;
 const dateLabel = (value) => {
@@ -29,100 +38,112 @@ const dateLabel = (value) => {
   }
 };
 
-function limitText(value, kind) {
-  if (value == null) return null;
-  if (value === 0) return `Unlimited ${kind} posts`;
-  return `${value} ${kind} post${value === 1 ? '' : 's'} / day`;
+function planTiles(plan) {
+  const both = plan.shopDailyListings != null;
+  const tile = (key, icon, value, label) => ({ key, icon, value: value === 0 ? 'No limit' : String(value), label });
+  return [
+    both ? tile('shop', 'storefront-outline', plan.shopDailyListings, 'Shop posts / day') : null,
+    plan.individualDailyListings != null
+      ? tile('own', 'person-outline', plan.individualDailyListings, both ? 'Own posts / day' : 'Posts / day')
+      : null,
+    tile('days', 'calendar-outline', plan.durationDays, plan.durationDays === 1 ? 'Day' : 'Days'),
+  ].filter(Boolean);
 }
 
-function quotaLine(quota) {
-  if (!quota) return null;
-  if (quota.unlimited) return 'Unlimited';
-  if (quota.remaining <= 0) return `0 left · next in ${timeUntil(quota.resetsAt) || '24h'}`;
-  return `${quota.remaining} of ${quota.limit} left today`;
+function planSummary(plan) {
+  const days = `${plan.durationDays} day${plan.durationDays === 1 ? '' : 's'}`;
+  const count = (value, what) => (value === 0 ? `unlimited ${what}` : `up to ${value} ${what}`);
+  if (plan.shopDailyListings != null) {
+    const own = plan.individualDailyListings != null ? ` and ${count(plan.individualDailyListings, 'own items')}` : '';
+    return `Post ${count(plan.shopDailyListings, 'shop items')}${own} every day, for ${days}.`;
+  }
+  const n = plan.individualDailyListings;
+  return `Post ${count(n, n === 1 ? 'item' : 'items')} every day, for ${days}.`;
+}
+
+function planIcon(plan) {
+  if (plan.icon) return plan.icon;
+  if (plan.shopDailyListings != null) return 'storefront';
+  return plan.highlight ? 'rocket' : 'flash';
 }
 
 function PlanCard({ plan, current, disabled, onChoose, styles, colors }) {
-  const limits = [limitText(plan.individualDailyListings, 'individual'), limitText(plan.shopDailyListings, 'store')].filter(Boolean);
-  const perDay = plan.durationDays > 1 ? Math.round(plan.price / plan.durationDays) : null;
-  const body = (
+  const tiles = planTiles(plan);
+  const perDay = plan.durationDays > 1 ? Math.max(1, Math.round(plan.price / plan.durationDays)) : null;
+  return (
     <View style={[styles.planCard, plan.highlight && styles.planCardHighlight]}>
       {plan.highlight ? (
         <LinearGradient colors={['#F59E0B', '#EA580C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.ribbon}>
           <Icon name="star" size={11} color="#FFFFFF" />
-          <Text style={styles.ribbonText}>Most popular</Text>
+          <Text style={styles.ribbonText}>{plan.badge || 'Most popular'}</Text>
         </LinearGradient>
       ) : null}
-      <View style={styles.planTop}>
-        <View style={{ flex: 1 }}>
+
+      <View style={styles.planHead}>
+        <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.planIcon}>
+          <Icon name={planIcon(plan)} size={20} color="#FFFFFF" />
+        </LinearGradient>
+        <View style={styles.planHeadCopy}>
           <View style={styles.planNameRow}>
-            <Text style={styles.planName}>{plan.name}</Text>
+            <Text style={styles.planName} numberOfLines={1}>{plan.name}</Text>
             {current ? (
               <View style={styles.currentPill}>
                 <Icon name="checkmark-circle" size={12} color={colors.primary} />
-                <Text style={styles.currentPillText}>Current</Text>
+                <Text style={styles.currentPillText}>Your plan</Text>
               </View>
             ) : null}
           </View>
-          {plan.tagline ? <Text style={styles.planTagline}>{plan.tagline}</Text> : null}
-        </View>
-        <View style={styles.priceBox}>
-          <Text style={styles.price}>{npr(plan.price)}</Text>
-          <Text style={styles.priceSub}>
-            {plan.durationDays} day{plan.durationDays === 1 ? '' : 's'}
-            {perDay ? ` · ${npr(perDay)}/day` : ''}
-          </Text>
+          {plan.tagline ? <Text style={styles.planTagline} numberOfLines={2}>{plan.tagline}</Text> : null}
         </View>
       </View>
 
-      <View style={styles.limitRow}>
-        {limits.map((text) => (
-          <View key={text} style={styles.limitChip}>
-            <Icon name="flash" size={13} color={colors.primary} />
-            <Text style={styles.limitChipText}>{text}</Text>
+      <View style={styles.priceRow}>
+        <Text style={styles.price}>{npr(plan.price)}</Text>
+        <Text style={styles.priceFor}>/ {plan.durationDays} day{plan.durationDays === 1 ? '' : 's'}</Text>
+        {perDay ? (
+          <View style={styles.perDayPill}>
+            <Text style={styles.perDayText}>≈ {npr(perDay)}/day</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <View style={styles.statStrip}>
+        {tiles.map((t, index) => (
+          <View key={t.key} style={[styles.stat, index > 0 && styles.statDivider]}>
+            <Icon name={t.icon} size={15} color={colors.primary} />
+            <Text style={[styles.statValue, t.value.length > 4 && styles.statValueSmall]} numberOfLines={1}>
+              {t.value}
+            </Text>
+            <Text style={styles.statLabel} numberOfLines={1}>{t.label}</Text>
           </View>
         ))}
       </View>
 
-      {plan.features?.length ? (
-        <View style={styles.features}>
-          {plan.features.map((feature) => (
-            <View key={feature} style={styles.featureRow}>
-              <View style={styles.featureCheck}>
-                <Icon name="checkmark" size={12} color="#FFFFFF" />
-              </View>
-              <Text style={styles.featureText}>{feature}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
+      <View style={styles.summaryList}>
+        {[plan.description || planSummary(plan), ...(plan.features || [])].map((line, index) => (
+          <View key={`${index}-${line}`} style={styles.summaryRow}>
+            <Icon name="checkmark-circle" size={16} color={colors.success} />
+            <Text style={[styles.summaryText, index > 0 && styles.featureText]}>{line}</Text>
+          </View>
+        ))}
+      </View>
 
       <Pressable
         disabled={disabled}
         onPress={() => onChoose(plan)}
         style={({ pressed }) => [styles.chooseWrap, pressed && { opacity: 0.85 }, disabled && { opacity: 0.45 }]}
       >
-        {plan.highlight ? (
-          <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.choose}>
-            <Text style={styles.chooseText}>{current ? 'Renew plan' : `Choose ${plan.name}`}</Text>
-            <Icon name="arrow-forward" size={16} color="#FFFFFF" />
-          </LinearGradient>
-        ) : (
-          <View style={[styles.choose, styles.chooseOutline]}>
-            <Text style={[styles.chooseText, { color: colors.primary }]}>{current ? 'Renew plan' : `Choose ${plan.name}`}</Text>
-            <Icon name="arrow-forward" size={16} color={colors.primary} />
+        <LinearGradient colors={['#60BB46', '#3F8F2F']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.choose}>
+          <View style={styles.esewaMark}>
+            <Text style={styles.esewaMarkText}>e</Text>
           </View>
-        )}
+          <Text style={styles.chooseText}>
+            {current ? 'Renew' : 'Pay'} {npr(plan.price)} with eSewa
+          </Text>
+        </LinearGradient>
       </Pressable>
-      <View style={styles.payVia}>
-        <View style={styles.payViaLogo}>
-          <Text style={styles.payViaLogoText}>e</Text>
-        </View>
-        <Text style={styles.payViaText}>Pay {npr(plan.price)} securely with eSewa</Text>
-      </View>
     </View>
   );
-  return body;
 }
 
 export default function SubscriptionScreen({ navigation, route }) {
@@ -134,11 +155,11 @@ export default function SubscriptionScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [alertConfig, setAlertConfig] = useState(null);
   const [gateways, setGateways] = useState({});
+  const [screen, setScreen] = useState(SCREEN_DEFAULTS);
   const [checkout, setCheckout] = useState(null);
   const intentRef = useRef(null);
   const [confirming, setConfirming] = useState(false);
   const [bill, setBill] = useState(null);
-  const [accountType, setAccountType] = useState('individual');
   const fromLimit = route?.params?.reason === 'limit';
 
   const load = useCallback(async () => {
@@ -146,7 +167,7 @@ export default function SubscriptionScreen({ navigation, route }) {
     if (plansRes.data) {
       setPlans(plansRes.data.plans || []);
       setGateways(plansRes.data.gateways || {});
-      setAccountType(plansRes.data.accountType || 'individual');
+      if (plansRes.data.screen) setScreen({ ...SCREEN_DEFAULTS, ...plansRes.data.screen });
     }
     if (mineRes.data) setMine(mineRes.data);
     setLoading(false);
@@ -163,10 +184,11 @@ export default function SubscriptionScreen({ navigation, route }) {
   const pending = mine?.pending;
   const lastRejected = !pending && mine?.history?.[0]?.status === 'rejected' ? mine.history[0] : null;
   const recentBills = (mine?.history || []).slice(0, 3);
-  const quotaRows = useMemo(() => {
-    const rows = [{ key: 'individual', icon: 'person-outline', label: 'Individual', text: quotaLine(mine?.quota?.individual) }];
-    if (mine?.hasShop) rows.push({ key: 'shop', icon: 'storefront-outline', label: 'Store', text: quotaLine(mine?.quota?.shop) });
-    return rows.filter((row) => row.text);
+  const freeLimit = !sub && !mine?.quota?.individual?.unlimited ? mine?.quota?.individual?.limit : null;
+  const meters = useMemo(() => {
+    const rows = [{ key: 'individual', icon: 'person', label: 'Your posts today', quota: mine?.quota?.individual }];
+    if (mine?.hasShop) rows.push({ key: 'shop', icon: 'storefront', label: 'Shop posts today', quota: mine?.quota?.shop });
+    return rows.filter((row) => row.quota);
   }, [mine]);
 
   const payWithEsewa = async (plan) => {
@@ -340,7 +362,7 @@ export default function SubscriptionScreen({ navigation, route }) {
         </Pressable>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Plans & limits</Text>
-          <Text style={styles.headerSubtitle}>Post more items every day</Text>
+          <Text style={styles.headerSubtitle} numberOfLines={1}>{screen.headerSubtitle}</Text>
         </View>
         <Pressable onPress={() => navigation.navigate(ROUTES.PAYMENT_HISTORY)} hitSlop={10} style={styles.navBtn}>
           <Icon name="receipt-outline" size={19} color={colors.text} />
@@ -364,30 +386,64 @@ export default function SubscriptionScreen({ navigation, route }) {
           <View style={styles.heroCircleLg} pointerEvents="none" />
           <View style={styles.heroCircleSm} pointerEvents="none" />
           <View style={styles.heroTop}>
-            <View style={styles.heroBadge}>
-              <Icon name={sub ? 'rocket' : 'leaf-outline'} size={14} color={colors.gradientStart} />
+            <View style={styles.heroLabel}>
+              <Icon name="ribbon" size={12} color="#FFFFFF" />
+              <Text style={styles.heroLabelText}>CURRENT PLAN</Text>
             </View>
-            <Text style={styles.heroBrand}>{sub ? 'Your plan' : 'Free plan'}</Text>
+            <View style={styles.heroStatus}>
+              <View style={[styles.heroStatusDot, { backgroundColor: sub ? '#4ADE80' : '#FCD34D' }]} />
+              <Text style={styles.heroStatusText}>{sub ? 'Active' : 'Free'}</Text>
+            </View>
           </View>
-          <Text style={styles.heroTitle}>{sub ? sub.name : 'Free seller'}</Text>
-          <Text style={styles.heroSub}>
-            {sub
-              ? `${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left · until ${dateLabel(sub.endsAt)}`
-              : 'Upgrade to post more every day'}
-          </Text>
-          {quotaRows.length ? (
-            <View style={styles.heroQuota}>
-              {quotaRows.map((row, index) => (
-                <View key={row.key} style={[styles.heroQuotaItem, index > 0 && styles.heroQuotaDivider]}>
-                  <Icon name={row.icon} size={14} color="rgba(255,255,255,0.85)" />
-                  <View>
-                    <Text style={styles.heroQuotaLabel}>{row.label} posts</Text>
-                    <Text style={styles.heroQuotaValue}>{row.text}</Text>
-                  </View>
-                </View>
-              ))}
+
+          <View style={styles.heroNameRow}>
+            <View style={styles.heroIcon}>
+              <Icon name={sub ? 'rocket' : 'leaf'} size={22} color={colors.gradientStart} />
             </View>
-          ) : null}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroTitle} numberOfLines={1}>{sub ? sub.name : screen.freePlanName}</Text>
+              <Text style={styles.heroSub} numberOfLines={1}>
+                {sub
+                  ? `${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left · ends ${dateLabel(sub.endsAt)}`
+                  : `${freeLimit || 'A few'} free posts every day`}
+              </Text>
+            </View>
+          </View>
+
+          {meters.map(({ key, icon, label, quota }) => {
+            const limit = Number(quota.limit) || 0;
+            const left = Math.max(0, Number(quota.remaining) || 0);
+            const used = Math.max(0, limit - left);
+            const full = !quota.unlimited && left <= 0;
+            return (
+              <View key={key} style={styles.meter}>
+                <View style={styles.meterHead}>
+                  <View style={styles.meterLabelRow}>
+                    <Icon name={icon} size={13} color="rgba(255,255,255,0.85)" />
+                    <Text style={styles.meterLabel}>{label}</Text>
+                  </View>
+                  <Text style={styles.meterValue}>{quota.unlimited ? 'No limit' : `${left} left`}</Text>
+                </View>
+                {!quota.unlimited ? (
+                  <View style={styles.meterTrack}>
+                    <View
+                      style={[
+                        styles.meterFill,
+                        { width: `${limit ? Math.min(100, (used / limit) * 100) : 0}%`, backgroundColor: full ? '#FCD34D' : '#FFFFFF' },
+                      ]}
+                    />
+                  </View>
+                ) : null}
+                <Text style={styles.meterHint}>
+                  {quota.unlimited
+                    ? 'Post as much as you want'
+                    : full
+                      ? `Limit reached · more in ${timeUntil(quota.resetsAt) || '24h'}`
+                      : `${used} of ${limit} used`}
+                </Text>
+              </View>
+            );
+          })}
         </LinearGradient>
 
         {pending ? (
@@ -422,14 +478,10 @@ export default function SubscriptionScreen({ navigation, route }) {
         ) : null}
 
         <View>
-          <Text style={styles.sectionTitle}>Choose a plan</Text>
+          <Text style={styles.sectionTitle}>{screen.sectionTitle}</Text>
           <View style={styles.planFor}>
-            <Icon name={accountType === 'shop' ? 'storefront-outline' : 'person-outline'} size={13} color={colors.textMuted} />
-            <Text style={styles.planForText}>
-              {accountType === 'shop'
-                ? 'Plans for your store and personal posts'
-                : 'Plans for individual sellers. Store plans show once you open a store.'}
-            </Text>
+            <Icon name="information-circle-outline" size={14} color={colors.textMuted} />
+            <Text style={styles.planForText}>{screen.sectionNote}</Text>
           </View>
         </View>
         {!loading && !plans.length ? (
@@ -468,9 +520,9 @@ export default function SubscriptionScreen({ navigation, route }) {
         ) : null}
 
         <View style={styles.howCard}>
-          <Text style={styles.howTitle}>How it works</Text>
-          {STEPS.map((step, index) => (
-            <View key={step.title} style={styles.step}>
+          <Text style={styles.howTitle}>{screen.stepsTitle}</Text>
+          {(screen.steps || SCREEN_DEFAULTS.steps).map((step, index) => (
+            <View key={index} style={styles.step}>
               <View style={styles.stepNum}>
                 <Text style={styles.stepNumText}>{index + 1}</Text>
               </View>
@@ -478,12 +530,12 @@ export default function SubscriptionScreen({ navigation, route }) {
                 <Text style={styles.stepTitle}>{step.title}</Text>
                 <Text style={styles.stepSub}>{step.sub}</Text>
               </View>
-              <Icon name={step.icon} size={18} color={colors.primary} />
+              <Icon name={STEP_ICONS[index] || 'checkmark-circle-outline'} size={18} color={colors.primary} />
             </View>
           ))}
           <Pressable onPress={() => navigation.navigate(ROUTES.CONTACT_US)} style={styles.helpRow}>
             <Icon name="chatbubbles-outline" size={16} color={colors.primary} />
-            <Text style={styles.helpText}>Questions about plans? Contact support</Text>
+            <Text style={styles.helpText}>{screen.helpText}</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -527,16 +579,24 @@ const createStyles = (colors) => ({
   hero: { borderRadius: 24, padding: 18, overflow: 'hidden', elevation: 6 },
   heroCircleLg: { position: 'absolute', width: 220, height: 220, borderRadius: 110, top: -90, right: -60, backgroundColor: 'rgba(255,255,255,0.08)' },
   heroCircleSm: { position: 'absolute', width: 120, height: 120, borderRadius: 60, bottom: -50, left: -30, backgroundColor: 'rgba(255,255,255,0.06)' },
-  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  heroBadge: { width: 24, height: 24, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
-  heroBrand: { fontSize: 13, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 },
-  heroTitle: { marginTop: 14, fontSize: 28, fontWeight: '900', color: '#FFFFFF' },
-  heroSub: { marginTop: 2, fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.82)' },
-  heroQuota: { flexDirection: 'row', marginTop: 16, padding: 12, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.18)' },
-  heroQuotaItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  heroQuotaDivider: { borderLeftWidth: 1, borderLeftColor: 'rgba(255,255,255,0.18)', paddingLeft: 12 },
-  heroQuotaLabel: { fontSize: 10.5, fontWeight: '600', color: 'rgba(255,255,255,0.75)' },
-  heroQuotaValue: { fontSize: 13.5, fontWeight: '800', color: '#FFFFFF' },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  heroLabel: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.18)' },
+  heroLabelText: { fontSize: 11, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.8 },
+  heroStatus: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.2)' },
+  heroStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  heroStatusText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+  heroNameRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 16 },
+  heroIcon: { width: 46, height: 46, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  heroTitle: { fontSize: 24, fontWeight: '900', color: '#FFFFFF' },
+  heroSub: { marginTop: 1, fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.85)' },
+  meter: { marginTop: 14, padding: 12, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.2)', gap: 8 },
+  meterHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  meterLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  meterLabel: { fontSize: 12.5, fontWeight: '700', color: 'rgba(255,255,255,0.85)' },
+  meterValue: { fontSize: 18, fontWeight: '900', color: '#FFFFFF' },
+  meterTrack: { height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.2)', overflow: 'hidden' },
+  meterFill: { height: 8, borderRadius: 4 },
+  meterHint: { fontSize: 11.5, fontWeight: '600', color: 'rgba(255,255,255,0.75)' },
   statusCard: { flexDirection: 'row', gap: 12, padding: 14, borderRadius: 18, borderWidth: 1 },
   statusIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   statusTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
@@ -552,8 +612,13 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
-  planCardHighlight: { borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, paddingTop: 22 },
+  planCardHighlight: { borderWidth: 2, borderColor: colors.primary, backgroundColor: colors.surface, paddingTop: 24 },
   ribbon: {
     position: 'absolute',
     top: -1,
@@ -567,26 +632,34 @@ const createStyles = (colors) => ({
     borderBottomRightRadius: 10,
   },
   ribbonText: { fontSize: 10.5, fontWeight: '900', color: '#FFFFFF', letterSpacing: 0.4, textTransform: 'uppercase' },
-  planTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  planNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  planName: { fontSize: 20, fontWeight: '900', color: colors.text },
-  planTagline: { marginTop: 3, fontSize: 12.5, lineHeight: 18, color: colors.textMuted },
   currentPill: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: colors.glow },
   currentPillText: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
-  priceBox: { alignItems: 'flex-end' },
-  price: { fontSize: 22, fontWeight: '900', color: colors.price },
-  priceSub: { marginTop: 1, fontSize: 11, fontWeight: '600', color: colors.textMuted },
-  limitRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  limitChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 12, backgroundColor: colors.glow },
-  limitChipText: { fontSize: 12.5, fontWeight: '800', color: colors.text },
-  features: { gap: 8 },
-  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  featureCheck: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
-  featureText: { flex: 1, fontSize: 13.5, color: colors.textSecondary },
+  planHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  planIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  planHeadCopy: { flex: 1, minWidth: 0, gap: 2 },
+  planNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planName: { flexShrink: 1, fontSize: 18, fontWeight: '900', color: colors.text },
+  planTagline: { fontSize: 12.5, fontWeight: '600', color: colors.textMuted },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
+  price: { fontSize: 32, fontWeight: '900', color: colors.text, letterSpacing: -0.6 },
+  priceFor: { fontSize: 15, fontWeight: '700', color: colors.textMuted },
+  perDayPill: { marginLeft: 'auto', alignSelf: 'center', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: `${colors.primary}2E`, borderWidth: 1, borderColor: `${colors.primary}66` },
+  perDayText: { fontSize: 12, fontWeight: '800', color: colors.text },
+  statStrip: { flexDirection: 'row', paddingVertical: 12, borderRadius: 16, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border },
+  stat: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: 4 },
+  statDivider: { borderLeftWidth: 1, borderLeftColor: colors.border },
+  statValue: { fontSize: 22, fontWeight: '900', color: colors.text },
+  statValueSmall: { fontSize: 15, paddingVertical: 3 },
+  statLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
+  summaryList: { gap: 8 },
+  summaryRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  summaryText: { flex: 1, fontSize: 13.5, lineHeight: 19, fontWeight: '600', color: colors.textSecondary },
+  featureText: { fontWeight: '500', color: colors.textMuted },
+  esewaMark: { width: 24, height: 24, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  esewaMarkText: { fontSize: 16, fontWeight: '900', color: '#60BB46', marginTop: -3 },
   chooseWrap: { borderRadius: 14, overflow: 'hidden' },
-  choose: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: 14 },
-  chooseOutline: { borderWidth: 1.5, borderColor: colors.primary, backgroundColor: 'transparent' },
-  chooseText: { fontSize: 15, fontWeight: '800', color: '#FFFFFF' },
+  choose: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 15, borderRadius: 14 },
+  chooseText: { fontSize: 16, fontWeight: '900', color: '#FFFFFF' },
   hint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
   empty: { alignItems: 'center', gap: 6, padding: 24, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   emptyTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
@@ -604,8 +677,4 @@ const createStyles = (colors) => ({
   stepSub: { marginTop: 1, fontSize: 12, lineHeight: 17, color: colors.textMuted },
   helpRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
   helpText: { fontSize: 13, fontWeight: '700', color: colors.primary },
-  payVia: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: -6 },
-  payViaLogo: { width: 16, height: 16, borderRadius: 5, alignItems: 'center', justifyContent: 'center', backgroundColor: '#60BB46' },
-  payViaLogoText: { fontSize: 11, fontWeight: '900', color: '#FFFFFF', marginTop: -2 },
-  payViaText: { fontSize: 11.5, fontWeight: '700', color: colors.textMuted },
 });

@@ -17,7 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
-import ProductCard from '../components/ProductCard';
+import ProductCard, { compactCardLayout } from '../components/ProductCard';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { ProductCardSkeleton } from '../components/SkeletonLoader';
 import { isNearEnd } from '../utils/scroll';
 import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
@@ -59,6 +60,7 @@ function mergeById(prev, incoming) {
 }
 
 export default function SellerProfileScreen({ navigation, route }) {
+  const lazyScroll = useLazyScroll();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { colors } = useTheme();
@@ -312,13 +314,17 @@ export default function SellerProfileScreen({ navigation, route }) {
         </View>
       </View>
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         style={styles.flex1}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        scrollEventThrottle={100}
+        scrollEventThrottle={50}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
         onScroll={(event) => {
+          lazyScroll.onScroll(event);
           if (isNearEnd(event, 800)) loadMoreListings();
         }}
       >
@@ -383,8 +389,12 @@ export default function SellerProfileScreen({ navigation, route }) {
               <Text style={styles.emptyBody}>Try another tab.</Text>
             </View>
           ) : (
-            <View style={styles.grid}>
-              {visibleListings.map((listing) => {
+            <LazyList
+              data={visibleListings}
+              columns={2}
+              gap={8}
+              estimatedRowHeight={compactCardLayout(cardWidth).height}
+              renderItem={(listing) => {
                 const id = listing._id || listing.id;
                 const card = toCardItem({ ...listing, id });
                 if (!card) return null;
@@ -399,8 +409,8 @@ export default function SellerProfileScreen({ navigation, route }) {
                     onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
                   />
                 );
-              })}
-            </View>
+              }}
+            />
           )}
           {loadingMore ? (
             <View style={styles.loadMoreRow}>
@@ -409,6 +419,7 @@ export default function SellerProfileScreen({ navigation, route }) {
           ) : null}
         </View>
       </ScrollView>
+      </LazyScrollProvider>
     </View>
   );
 }

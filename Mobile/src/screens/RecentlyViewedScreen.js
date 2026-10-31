@@ -7,7 +7,8 @@ import { Alert, Pressable, ScrollView, Text, View, useWindowDimensions } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
-import ProductCard from '../components/ProductCard';
+import ProductCard, { compactCardLayout } from '../components/ProductCard';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import EmptyState from '../components/EmptyState';
 import { attachDistanceToCard } from '../utils/listing';
 import { clearRecentlyViewed, loadRecentlyViewed } from '../utils/recentlyViewed';
@@ -23,6 +24,7 @@ export default function RecentlyViewedScreen({ navigation }) {
   const { width } = useWindowDimensions();
   const cardWidth = Math.floor((width - GRID_PADDING * 2 - GRID_GUTTER) / 2);
   const [items, setItems] = useState([]);
+  const lazyScroll = useLazyScroll();
   const [userCoords, setUserCoords] = useState({ lat: null, lng: null });
 
   useFocusEffect(
@@ -96,24 +98,36 @@ export default function RecentlyViewedScreen({ navigation }) {
           onButtonPress={() => navigateToTab(navigation, TABS.EXPLORE)}
         />
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 24 }]}
-        >
-          {cards.map((item) => (
-            <ProductCard
-              key={item.id}
-              {...item}
-              compact
-              width={cardWidth}
-              sharedId={item.id}
-              onPress={() =>
-                openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id })
-              }
-              onToggleSave={() => api.toggleWishlist(item.id)}
+        <LazyScrollProvider value={lazyScroll.value}>
+          <ScrollView
+            ref={lazyScroll.scrollRef}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 24 }]}
+            scrollEventThrottle={50}
+            onScroll={lazyScroll.onScroll}
+            onContentSizeChange={lazyScroll.onContentSizeChange}
+          >
+            <LazyList
+              data={cards}
+              columns={2}
+              gap={GRID_GUTTER}
+              estimatedRowHeight={compactCardLayout(cardWidth).height}
+              renderItem={(item) => (
+                <ProductCard
+                  key={item.id}
+                  {...item}
+                  compact
+                  width={cardWidth}
+                  sharedId={item.id}
+                  onPress={() =>
+                    openItemDetail(navigation, { listingId: item.id, item: item.listing || item, sharedId: item.id })
+                  }
+                  onToggleSave={() => api.toggleWishlist(item.id)}
+                />
+              )}
             />
-          ))}
-        </ScrollView>
+          </ScrollView>
+        </LazyScrollProvider>
       )}
     </View>
   );
@@ -171,9 +185,6 @@ const createStyles = (colors) => ({
     color: colors.onGradient,
   },
   grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: GRID_GUTTER,
     paddingHorizontal: GRID_PADDING,
     paddingTop: 16,
   },

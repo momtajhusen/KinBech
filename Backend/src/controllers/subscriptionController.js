@@ -17,6 +17,22 @@ const DAY = 24 * 60 * 60 * 1000;
 const METHODS = ['esewa', 'khalti', 'ime', 'bank'];
 const METHOD_LABELS = { esewa: 'eSewa', khalti: 'Khalti', ime: 'IME Pay', bank: 'Bank transfer' };
 const PAYMENT_KEYS = ['esewa', 'khalti', 'ime', 'bank', 'note'];
+const PLAN_ICONS = ['', 'flash', 'rocket', 'storefront', 'star', 'diamond', 'trophy', 'flame', 'leaf', 'briefcase', 'pricetag'];
+
+const SCREEN_DEFAULTS = {
+  headerSubtitle: 'Post more items every day',
+  freePlanName: 'Free plan',
+  sectionTitle: 'Choose a plan',
+  sectionNote: 'Pay one time. No auto cut from your eSewa.',
+  stepsTitle: 'How it works',
+  steps: [
+    { title: 'Pick a plan', sub: 'More posts every day.' },
+    { title: 'Pay in eSewa', sub: 'Type your eSewa MPIN.' },
+    { title: 'Post more', sub: 'Starts right away.' },
+  ],
+  helpText: 'Need help? Talk to us',
+};
+const SCREEN_LIMITS = { headerSubtitle: 60, freePlanName: 30, sectionTitle: 40, sectionNote: 120, stepsTitle: 40, helpText: 40 };
 
 function badRequest(res, message) {
   return res.status(400).json({ message });
@@ -27,6 +43,9 @@ function presentPlan(plan) {
     id: String(plan._id),
     name: plan.name,
     tagline: plan.tagline || '',
+    description: plan.description || '',
+    icon: plan.icon || '',
+    badge: plan.badge || '',
     price: plan.price,
     durationDays: plan.durationDays,
     individualDailyListings: plan.individualDailyListings ?? null,
@@ -88,6 +107,25 @@ async function paymentDetails() {
   const doc = await PlatformSettings.findOne({ key: 'platform' }).select('subscriptionPayment').lean();
   const saved = doc?.subscriptionPayment || {};
   return Object.fromEntries(PAYMENT_KEYS.map((key) => [key, String(saved[key] || '')]));
+}
+
+/** Empty or bad values fall back to the defaults so the screen never shows a blank line. */
+function readScreen(saved = {}) {
+  const screen = {};
+  Object.entries(SCREEN_LIMITS).forEach(([key, max]) => {
+    screen[key] = String(saved[key] || '').trim().slice(0, max) || SCREEN_DEFAULTS[key];
+  });
+  const steps = Array.isArray(saved.steps) ? saved.steps : [];
+  screen.steps = SCREEN_DEFAULTS.steps.map((fallback, index) => ({
+    title: String(steps[index]?.title || '').trim().slice(0, 40) || fallback.title,
+    sub: String(steps[index]?.sub || '').trim().slice(0, 80) || fallback.sub,
+  }));
+  return screen;
+}
+
+async function screenTexts() {
+  const doc = await PlatformSettings.findOne({ key: 'platform' }).select('subscriptionScreen').lean();
+  return readScreen(doc?.subscriptionScreen || {});
 }
 
 /** Approved plan payments. Test-mode gateway payments are counted apart since no real money moved. */
@@ -166,10 +204,15 @@ function readPlan(body) {
     .map((item) => String(item).trim().slice(0, 80))
     .filter(Boolean)
     .slice(0, 8);
+  const icon = String(body.icon || '').trim();
+  if (!PLAN_ICONS.includes(icon)) return { error: 'Pick an icon from the list' };
   return {
     value: {
       name,
       tagline: String(body.tagline || '').trim().slice(0, 90),
+      description: String(body.description || '').trim().slice(0, 140),
+      icon,
+      badge: String(body.badge || '').trim().slice(0, 24),
       price: Math.round(price),
       durationDays,
       individualDailyListings: individual.value,
@@ -244,6 +287,7 @@ async function listPlans(req, res, next) {
       plans: plans.filter((plan) => planFitsAccount(plan, accountType)).map(presentPlan),
       accountType,
       payment: await paymentDetails(),
+      screen: await screenTexts(),
       gateways: {
         esewa: canUseEsewa(esewa, req.user, { isStaff: isAdminRole(req.user.role) })
           ? { enabled: true, mode: esewa.mode }
@@ -403,6 +447,7 @@ async function adminListPlans(req, res, next) {
     res.json({
       plans: plans.map((plan) => ({ ...presentPlan(plan), subscribers: subscribers[String(plan._id)] || 0 })),
       payment: await paymentDetails(),
+      screen: await screenTexts(),
       esewa: { enabled: Boolean(esewa.enabled), mode: esewa.mode, openToAll: esewa.mode === 'live' || Boolean(esewa.sandboxOpen) },
     });
   } catch (error) {
@@ -464,6 +509,21 @@ async function adminSavePayment(req, res, next) {
       { upsert: true }
     );
     res.json({ payment });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** PUT /subscriptions/admin/screen { headerSubtitle, freePlanName, sectionTitle, sectionNote, stepsTitle, steps, helpText } */
+async function adminSaveScreen(req, res, next) {
+  try {
+    const screen = readScreen(req.body || {});
+    await PlatformSettings.updateOne(
+      { key: 'platform' },
+      { $set: { key: 'platform', subscriptionScreen: screen } },
+      { upsert: true }
+    );
+    res.json({ screen, defaults: SCREEN_DEFAULTS });
   } catch (error) {
     next(error);
   }
@@ -602,6 +662,7 @@ module.exports = {
   adminUpdatePlan,
   adminDeletePlan,
   adminSavePayment,
+  adminSaveScreen,
   adminListRequests,
   adminApprove,
   adminReject,

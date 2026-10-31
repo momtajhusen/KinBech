@@ -106,6 +106,7 @@ export default function ItemDetailScreen({ navigation, route }) {
   const viewerThumbsRef = useRef(null);
   const viewerThumbWidthRef = useRef(0);
   const listingId = route?.params?.listingId || listing?.id || listing?._id;
+  const searchQuery = route?.params?.searchQuery || '';
 
   const loadListing = useCallback(async () => {
     if (!listingId) return;
@@ -183,6 +184,7 @@ export default function ItemDetailScreen({ navigation, route }) {
         title,
         exclude: listingId,
         category: listing?.category || '',
+        q: searchQuery,
         limit: 8,
       });
       if (cancelled || error || !data?.listings) return;
@@ -195,7 +197,7 @@ export default function ItemDetailScreen({ navigation, route }) {
     return () => {
       cancelled = true;
     };
-  }, [listing?.title, listing?.category, listingId]);
+  }, [listing?.title, listing?.category, listingId, searchQuery]);
 
   useEffect(() => {
     if (photoCountRef.current < 2) return;
@@ -395,6 +397,7 @@ export default function ItemDetailScreen({ navigation, route }) {
       listingId: card.id,
       item: card.listing || card,
       sharedId: card.id,
+      searchQuery,
     });
 
   const renderContactActions = () => (

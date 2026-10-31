@@ -129,7 +129,6 @@ export default function SellerProfilePage() {
 
       {!loading && !error && seller ? (
         <section className="seller-profile-hero">
-          {seller.cover ? <img src={seller.cover} alt="" className="seller-profile-cover" /> : null}
           <div className="seller-profile-hero-shade" aria-hidden />
           <div className="container seller-profile-hero-inner">
             <div className="seller-profile-topbar detail-header-inner">

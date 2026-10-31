@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
-import { FadeInDown, ZoomIn } from 'react-native-reanimated';
+import { FadeIn } from 'react-native-reanimated';
 import {
   ActivityIndicator,
   Alert,
@@ -25,8 +25,9 @@ import { ProductCardSkeleton, Skeleton } from '../components/SkeletonLoader';
 import { isNearEnd } from '../utils/scroll';
 import { VoiceSearchToggle, useVoiceSearchBox } from '../components/VoiceHost';
 import EmptyState from '../components/EmptyState';
-import ProductCard from '../components/ProductCard';
-import { Ping, PressableScale, Reanimated, Shimmer, enterCard } from '../components/Motion';
+import ProductCard, { compactCardLayout } from '../components/ProductCard';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
+import { Ping, PressableScale, Reanimated, enterQuick } from '../components/Motion';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { formatDistanceLabel, resolveMediaUrl, toCardItem } from '../utils/listing';
@@ -50,11 +51,11 @@ const TABS = [
   { key: 'about', label: 'About', icon: 'information-circle-outline', activeIcon: 'information-circle' },
 ];
 
-const BANNER_HEIGHT = 200;
 const TOP_BAR_HEIGHT = 52;
-const APP_ICON = 84;
-const GRID_GUTTER = 10;
-const GRID_PADDING = 12;
+const APP_ICON = 64;
+const GRID_GUTTER = 8;
+const GRID_PADDING = 10;
+const SIDEBAR_WIDTH = 70;
 const SHOP_PAGE = 30;
 const HERO_GRADIENT = ['#022C22', '#065F46', '#10B981'];
 
@@ -127,10 +128,11 @@ function initials(name) {
 }
 
 export default function ShopProfileScreen({ route, navigation }) {
+  const lazyScroll = useLazyScroll();
   const { colors, isDarkMode } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
-  const { width } = useWindowDimensions();
+  const { width, height: windowHeight } = useWindowDimensions();
   const { user } = useAuth();
   const requireLogin = useRequireLogin();
   const { shopId: rawShopId } = route.params || {};
@@ -147,16 +149,16 @@ export default function ShopProfileScreen({ route, navigation }) {
   const [chatBusy, setChatBusy] = useState(false);
   const [userCoords, setUserCoords] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [solidBar, setSolidBar] = useState(false);
   const [heroHeight, setHeroHeight] = useState(560);
+  const [tabsHeight, setTabsHeight] = useState(54);
+  const [productsTop, setProductsTop] = useState(0);
+  const [splitTop, setSplitTop] = useState(0);
   const pagingRef = useRef({ shopId: null, page: 0, hasMore: false });
   const loadingMoreRef = useRef(false);
-  const solidBarRef = useRef(false);
   const tabRef = useRef(tab);
   const scrollY = useRef(new Animated.Value(0)).current;
   const tabAnim = useRef(new Animated.Value(0)).current;
   const productPresets = useCategories('product');
-  const bannerHeight = BANNER_HEIGHT + insets.top;
   const barHeight = TOP_BAR_HEIGHT + insets.top;
   tabRef.current = tab;
 
@@ -239,9 +241,10 @@ export default function ShopProfileScreen({ route, navigation }) {
     Animated.spring(tabAnim, {
       toValue: Math.max(0, TABS.findIndex((t) => t.key === tab)),
       useNativeDriver: true,
-      damping: 18,
-      stiffness: 190,
-      mass: 0.7,
+      damping: 22,
+      stiffness: 220,
+      mass: 0.6,
+      overshootClamping: true,
     }).start();
   }, [tab, tabAnim]);
 
@@ -250,15 +253,11 @@ export default function ShopProfileScreen({ route, navigation }) {
       Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
         useNativeDriver: true,
         listener: (event) => {
-          const solid = event.nativeEvent.contentOffset.y > bannerHeight - barHeight - 40;
-          if (solid !== solidBarRef.current) {
-            solidBarRef.current = solid;
-            setSolidBar(solid);
-          }
+          lazyScroll.onScroll(event);
           if (tabRef.current === 'products' && isNearEnd(event, 800)) loadMoreRef.current();
         },
       }),
-    [scrollY, bannerHeight, barHeight]
+    [scrollY, lazyScroll.onScroll]
   );
 
   const categoryChips = useMemo(() => {
@@ -318,14 +317,14 @@ export default function ShopProfileScreen({ route, navigation }) {
     const skeletonCard = Math.floor((width - GRID_PADDING * 2 - GRID_GUTTER) / 2);
     return (
       <View style={styles.root}>
-        <ThemeStatusBar variant="header" />
-        <Skeleton width="100%" height={bannerHeight} borderRadius={0} />
+        <ThemeStatusBar />
+        <View style={{ height: barHeight }} />
         <Pressable
           onPress={() => navigation.goBack()}
           hitSlop={10}
-          style={[styles.glassBtn, styles.skeletonBack, { top: insets.top + 8 }]}
+          style={[styles.solidBtn, styles.skeletonBack, { top: insets.top + 8 }]}
         >
-          <Icon name="chevron-back" size={22} color="#FFFFFF" />
+          <Icon name="chevron-back" size={22} color={colors.text} />
         </Pressable>
         <View style={styles.skeletonWrap}>
           <View style={styles.skeletonCard}>
@@ -374,24 +373,13 @@ export default function ShopProfileScreen({ route, navigation }) {
   const distanceLabel = hasCoords && userCoords
     ? formatDistanceLabel(haversineKm(userCoords.lat, userCoords.lng, Number(coords.lat), Number(coords.lng)))
     : null;
-  const cover = shop.coverImage ? resolveMediaUrl(shop.coverImage) : '';
   const logo = shop.logo ? resolveMediaUrl(shop.logo) : '';
-  const cardWidth = Math.floor((width - GRID_PADDING * 2 - GRID_GUTTER) / 2);
+  const cardWidth = Math.floor((width - SIDEBAR_WIDTH - GRID_PADDING * 2 - GRID_GUTTER) / 2);
   const tabWidth = (width - 34) / TABS.length;
   const todayIndex = new Date().getDay();
 
-  const bannerShift = scrollY.interpolate({
-    inputRange: [-bannerHeight, 0, bannerHeight],
-    outputRange: [-bannerHeight / 2, 0, bannerHeight * 0.3],
-    extrapolateRight: 'clamp',
-  });
-  const bannerScale = scrollY.interpolate({
-    inputRange: [-bannerHeight, 0],
-    outputRange: [2, 1],
-    extrapolate: 'clamp',
-  });
-  const barOpacity = scrollY.interpolate({
-    inputRange: [bannerHeight - barHeight - 80, bannerHeight - barHeight - 20],
+  const titleOpacity = scrollY.interpolate({
+    inputRange: [70, 120],
     outputRange: [0, 1],
     extrapolate: 'clamp',
   });
@@ -400,20 +388,36 @@ export default function ShopProfileScreen({ route, navigation }) {
     outputRange: [0, barHeight],
     extrapolate: 'clamp',
   });
+  // The category sidebar stays under the sticky tabs while the product grid scrolls, like Explore.
+  const visibleTop = barHeight + tabsHeight;
+  const pinStart = productsTop + splitTop - visibleTop;
+  const sidebarPin = scrollY.interpolate({
+    inputRange: [pinStart, pinStart + 1],
+    outputRange: [0, 1],
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'extend',
+  });
+  const sidebarMaxHeight = Math.max(160, windowHeight - visibleTop - insets.bottom - 12);
   const tabSlide = tabAnim.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [0, tabWidth, tabWidth * 2],
   });
 
-  const openChat = async () => {
-    if (chatBusy || !ownerId) return;
+  const ensureChat = async (failTitle) => {
+    if (chatBusy || !ownerId) return null;
     setChatBusy(true);
     const { data, error } = await api.createChat({ userId: ownerId });
     setChatBusy(false);
-    if (error) {
-      Alert.alert('Chat failed', error);
-      return;
+    if (error || !data?.chat?.id) {
+      Alert.alert(failTitle, error || 'Please try again.');
+      return null;
     }
+    return data;
+  };
+
+  const openChat = async () => {
+    const data = await ensureChat('Chat failed');
+    if (!data) return;
     navigation.navigate(ROUTES.CHAT, {
       chatId: data.chat.id,
       name: shop.name,
@@ -424,9 +428,17 @@ export default function ShopProfileScreen({ route, navigation }) {
 
   const startChat = () => requireLogin('chat', openChat);
 
-  const callShop = () => {
-    if (shop.phone) Linking.openURL(`tel:${shop.phone}`).catch(() => {});
+  const openCall = async () => {
+    const data = await ensureChat('Call failed');
+    if (!data) return;
+    navigation.navigate(ROUTES.CALL, {
+      chatId: data.chat.id,
+      name: shop.name,
+      image: resolveMediaUrl(shop.logo || ''),
+    });
   };
+
+  const startCall = () => requireLogin('call', openCall);
 
   const openDirections = () => {
     const target = hasCoords ? `${coords.lat},${coords.lng}` : placeText;
@@ -438,6 +450,11 @@ export default function ShopProfileScreen({ route, navigation }) {
 
   const openLink = (url) => {
     if (url) Linking.openURL(url).catch(() => Alert.alert('Could not open', url));
+  };
+
+  const cycleSort = () => {
+    const index = SORTS.findIndex((option) => option.key === sortKey);
+    setSortKey(SORTS[(index + 1) % SORTS.length].key);
   };
 
   const shareShop = () => {
@@ -453,49 +470,20 @@ export default function ShopProfileScreen({ route, navigation }) {
 
   const quickActions = isOwner
     ? [
-        { key: 'edit', icon: 'create-outline', label: 'Edit shop', onPress: () => navigation.navigate(ROUTES.EDIT_SHOP) },
+        { key: 'add', icon: 'add-circle', label: 'Add', onPress: () => navigation.navigate(ROUTES.SHOP_POST_LISTING), primary: true },
+        { key: 'edit', icon: 'create-outline', label: 'Edit', onPress: () => navigation.navigate(ROUTES.EDIT_SHOP) },
         { key: 'stats', icon: 'analytics-outline', label: 'Stats', onPress: () => navigation.navigate(ROUTES.SHOP_DASHBOARD) },
-        { key: 'qr', icon: 'qr-code-outline', label: 'Store QR', onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR) },
-        { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
+        { key: 'qr', icon: 'qr-code-outline', label: 'QR', onPress: () => navigation.navigate(ROUTES.SHOP_STOREFRONT_QR) },
       ]
     : [
-        shop.phone ? { key: 'call', icon: 'call-outline', label: 'Call', onPress: callShop } : null,
-        shop.whatsapp
-          ? { key: 'whatsapp', icon: 'logo-whatsapp', label: 'WhatsApp', onPress: () => openLink(whatsappUrl(shop.whatsapp)) }
-          : null,
-        placeText || hasCoords ? { key: 'map', icon: 'navigate-outline', label: 'Directions', onPress: openDirections } : null,
-        { key: 'share', icon: 'share-social-outline', label: 'Share', onPress: shareShop },
+        { key: 'chat', icon: 'chatbubble-ellipses', label: 'Chat', onPress: startChat, primary: true },
+        { key: 'call', icon: 'call', label: 'Call', onPress: startCall, primary: true },
+        placeText || hasCoords ? { key: 'map', icon: 'navigate', label: 'Directions', onPress: openDirections } : null,
       ].filter(Boolean);
-
-  const stats = [
-    {
-      key: 'rating',
-      icon: 'star',
-      value: reviewCount ? rating.toFixed(1) : 'New',
-      label: reviewCount ? `${reviewCount} review${reviewCount === 1 ? '' : 's'}` : 'Rating',
-    },
-    {
-      key: 'products',
-      icon: 'cube',
-      value: `${listings.length}${pagingRef.current.hasMore ? '+' : ''}`,
-      label: 'Products',
-    },
-    distanceLabel
-      ? { key: 'distance', icon: 'navigate', value: distanceLabel, label: 'Away' }
-      : { key: 'since', icon: 'calendar', value: sinceYear || '–', label: 'On KinBech' },
-  ];
-
-  const highlights = [
-    shop.isVerified ? { icon: 'shield-checkmark', text: 'Verified business' } : null,
-    shop.deliveryAvailable ? { icon: 'bicycle', text: 'Home delivery' } : { icon: 'walk', text: 'Pickup & meetup' },
-    shop.paymentMethods?.length ? { icon: 'wallet', text: shop.paymentMethods.slice(0, 3).join(' · ') } : null,
-    shop.returnPolicy ? { icon: 'refresh', text: 'Returns accepted' } : null,
-    shop.establishedYear ? { icon: 'ribbon', text: `Since ${shop.establishedYear}` } : null,
-  ].filter(Boolean);
 
   const infoRows = [
     placeText ? { icon: 'location-outline', label: 'Address', value: placeText, onPress: openDirections } : null,
-    shop.phone ? { icon: 'call-outline', label: 'Phone', value: shop.phone, onPress: isOwner ? null : callShop } : null,
+    shop.phone ? { icon: 'call-outline', label: 'Phone', value: shop.phone } : null,
     shop.whatsapp
       ? { icon: 'logo-whatsapp', label: 'WhatsApp', value: shop.whatsapp, onPress: () => openLink(whatsappUrl(shop.whatsapp)) }
       : null,
@@ -535,34 +523,16 @@ export default function ShopProfileScreen({ route, navigation }) {
       </View>
     );
 
-  const renderHero = () => (
-    <View onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)}>
-      <Animated.View
-        style={[styles.banner, { height: bannerHeight, transform: [{ translateY: bannerShift }, { scale: bannerScale }] }]}
-      >
-        {cover ? (
-          <Image source={{ uri: cover }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        ) : (
-          <LinearGradient colors={HERO_GRADIENT} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill}>
-            <View style={styles.bannerArt}>
-              <Icon name="storefront" size={170} color="rgba(255,255,255,0.08)" />
-            </View>
-            <Text style={[styles.bannerWatermark, { top: insets.top + 56 }]} numberOfLines={1}>
-              {shop.name}
-            </Text>
-          </LinearGradient>
-        )}
-        <LinearGradient
-          colors={['rgba(0,0,0,0.55)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.3)']}
-          locations={[0, 0.5, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        <Shimmer duration={2600} pause={2600} color="rgba(255,255,255,0.12)" />
-      </Animated.View>
+  const metaParts = [
+    `${listings.length}${pagingRef.current.hasMore ? '+' : ''} products`,
+    distanceLabel ? `${distanceLabel} away` : sinceYear ? `Since ${sinceYear}` : null,
+  ].filter(Boolean);
 
-      <Reanimated.View entering={FadeInDown.delay(60).springify().damping(16)} style={styles.identityCard}>
+  const renderHero = () => (
+    <View onLayout={(e) => setHeroHeight(e.nativeEvent.layout.height)} style={{ paddingTop: barHeight + 6 }}>
+      <Reanimated.View entering={FadeIn.duration(220)} style={styles.identityCard}>
         <View style={styles.identityTop}>
-          <Reanimated.View entering={ZoomIn.delay(200).springify().damping(11)} style={styles.appIconWrap}>
+          <View style={styles.appIconWrap}>
             <View style={styles.appIcon}>
               {logo ? (
                 <Image source={{ uri: logo }} style={styles.fillImage} />
@@ -574,102 +544,73 @@ export default function ShopProfileScreen({ route, navigation }) {
             </View>
             {shop.isVerified ? (
               <View style={styles.verifiedBadge}>
-                <Icon name="checkmark" size={12} color="#FFFFFF" />
+                <Icon name="checkmark" size={11} color="#FFFFFF" />
               </View>
             ) : null}
-          </Reanimated.View>
+          </View>
           <View style={styles.identityCopy}>
-            <Text style={styles.name} numberOfLines={2}>
-              {shop.name}
-            </Text>
-            <Text style={styles.subline} numberOfLines={1}>
-              {shop.category || 'Local store'}
-              {shop.isVerified ? ' · Verified' : ''}
-            </Text>
-            <View style={styles.pillRow}>
-              <View style={[styles.pill, styles.pillStore]}>
-                <Icon name="storefront" size={10} color="#FFFFFF" />
-                <Text style={[styles.pillText, styles.pillStoreText]}>STORE</Text>
-              </View>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>
+                {shop.name}
+              </Text>
               {renderOpenPill()}
             </View>
+            <View style={styles.metaLine}>
+              <Icon name="star" size={11} color={colors.warning} />
+              <Text style={styles.metaStrong}>{reviewCount ? rating.toFixed(1) : 'New'}</Text>
+              {reviewCount ? <Text style={styles.metaText}>({reviewCount})</Text> : null}
+              {metaParts.map((part) => (
+                <Text key={part} style={styles.metaText} numberOfLines={1}>
+                  {` · ${part}`}
+                </Text>
+              ))}
+            </View>
+            {placeText ? (
+              <Pressable onPress={openDirections} style={styles.metaLine} hitSlop={4}>
+                <Icon name="location" size={11} color={colors.primary} />
+                <Text style={[styles.metaText, styles.metaFlex]} numberOfLines={1}>
+                  {shop.category ? `${shop.category} · ` : ''}
+                  {placeText}
+                </Text>
+              </Pressable>
+            ) : shop.category ? (
+              <Text style={styles.metaText} numberOfLines={1}>
+                {shop.category}
+              </Text>
+            ) : null}
           </View>
         </View>
-
-        {shop.tagline ? (
-          <Text style={styles.tagline} numberOfLines={3}>
-            {shop.tagline}
-          </Text>
-        ) : null}
-
-        <View style={styles.statsRow}>
-          {stats.map((s, i) => (
-            <View key={s.key} style={[styles.stat, i > 0 && styles.statDivider]}>
-              <View style={styles.statTop}>
-                <Icon name={s.icon} size={14} color={s.key === 'rating' ? colors.warning : colors.primary} />
-                <Text style={styles.statValue} numberOfLines={1}>
-                  {s.value}
+        {quickActions.length ? (
+          <View style={styles.quickRow}>
+            {quickActions.map((action, i) => (
+              <PressableScale
+                key={action.key}
+                scaleTo={0.97}
+                style={styles.quickItem}
+                contentStyle={[styles.quickBtn, action.primary && styles.quickBtnPrimary]}
+                onPress={action.onPress}
+              >
+                {chatBusy && (action.key === 'chat' || action.key === 'call') ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Icon name={action.icon} size={16} color={action.primary ? '#FFFFFF' : colors.primary} />
+                )}
+                <Text style={[styles.quickText, action.primary && styles.quickTextPrimary]} numberOfLines={1}>
+                  {action.label}
                 </Text>
-              </View>
-              <Text style={styles.statLabel} numberOfLines={1}>
-                {s.label}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {placeText ? (
-          <Pressable onPress={openDirections} style={styles.addressRow}>
-            <View style={styles.addressIcon}>
-              <Icon name="location" size={14} color="#FFFFFF" />
-            </View>
-            <Text style={styles.addressText} numberOfLines={1}>
-              {placeText}
-            </Text>
-            {distanceLabel ? <Text style={styles.addressDistance}>{distanceLabel}</Text> : null}
-            <Icon name="chevron-forward" size={14} color={colors.textMuted} />
-          </Pressable>
+              </PressableScale>
+            ))}
+          </View>
         ) : null}
       </Reanimated.View>
-
-      <View style={styles.quickRow}>
-        {quickActions.map((action, i) => (
-          <PressableScale
-            key={action.key}
-            entering={enterCard(i, 60)}
-            style={styles.quickItem}
-            contentStyle={styles.quickInner}
-            onPress={action.onPress}
-          >
-            <View style={styles.quickIcon}>
-              <Icon name={action.icon} size={20} color="#FFFFFF" />
-            </View>
-            <Text style={styles.quickLabel} numberOfLines={1}>
-              {action.label}
-            </Text>
-          </PressableScale>
-        ))}
-      </View>
-
-      {highlights.length ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlightRow}>
-          {highlights.map((h, i) => (
-            <Reanimated.View key={h.text} entering={enterCard(i, 50)} style={styles.highlight}>
-              <View style={styles.highlightIcon}>
-                <Icon name={h.icon} size={12} color="#FFFFFF" />
-              </View>
-              <Text style={styles.highlightText} numberOfLines={1}>
-                {h.text}
-              </Text>
-            </Reanimated.View>
-          ))}
-        </ScrollView>
-      ) : null}
     </View>
   );
 
   const renderTabs = () => (
-    <Animated.View style={[styles.tabWrap, { transform: [{ translateY: tabShift }] }]}>
+    <Animated.View
+      onLayout={(e) => setTabsHeight(e.nativeEvent.layout.height)}
+      style={[styles.tabWrap, { transform: [{ translateY: tabShift }] }]}
+    >
       <View style={styles.tabBar}>
         <Animated.View style={[styles.tabIndicator, { width: tabWidth, transform: [{ translateX: tabSlide }] }]} />
         {TABS.map((t) => {
@@ -677,7 +618,7 @@ export default function ShopProfileScreen({ route, navigation }) {
           const count = t.key === 'products' ? listings.length : t.key === 'reviews' ? reviewCount : 0;
           return (
             <Pressable key={t.key} style={[styles.tabBtn, { width: tabWidth }]} onPress={() => setTab(t.key)}>
-              <Icon name={active ? t.activeIcon : t.icon} size={15} color={active ? '#FFFFFF' : colors.textMuted} />
+              <Icon name={active ? t.activeIcon : t.icon} size={14} color={active ? '#FFFFFF' : colors.textMuted} />
               <Text style={[styles.tabText, active && styles.tabTextActive]} numberOfLines={1}>
                 {t.label}
               </Text>
@@ -711,88 +652,87 @@ export default function ShopProfileScreen({ route, navigation }) {
               <Icon name="close-circle" size={16} color={colors.textMuted} />
             </Pressable>
           ) : null}
-          <VoiceSearchToggle size={28} />
+          <VoiceSearchToggle size={26} />
         </View>
-      </View>
-
-      {categoryChips.length > 2 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catRow}>
-          {categoryChips.map((cat) => {
-            const active = cat.label === category;
-            return (
-              <Pressable
-                key={cat.label}
-                onPress={() => setCategory(cat.label)}
-                style={[styles.catChip, active && styles.catChipActive]}
-              >
-                <View style={[styles.catIcon, active && styles.catIconActive]}>
-                  {cat.imageUrl ? (
-                    <Image source={{ uri: cat.imageUrl }} style={styles.fillImage} />
-                  ) : (
-                    <Icon name={cat.icon} size={14} color={active ? colors.primary : '#FFFFFF'} />
-                  )}
-                </View>
-                <Text style={[styles.catLabel, active && styles.catLabelActive]} numberOfLines={1}>
-                  {cat.label}
-                </Text>
-                <Text style={[styles.catCount, active && styles.catCountActive]}>{cat.count}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : null}
-
-      <View style={styles.sortBar}>
-        <Text style={styles.resultText}>
-          {visibleListings.length} {visibleListings.length === 1 ? 'item' : 'items'}
-        </Text>
-        <View style={styles.sortChips}>
-          {SORTS.map((option) => {
-            const active = sortKey === option.key;
-            return (
-              <Pressable
-                key={option.key}
-                style={[styles.sortChip, active && styles.sortChipActive]}
-                onPress={() => setSortKey(option.key)}
-              >
-                <Text style={[styles.sortChipText, active && styles.sortChipTextActive]}>{option.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      {visibleListings.length === 0 ? (
-        <View style={[styles.emptyBox, styles.emptyBoxInset]}>
-          <View style={styles.emptyIcon}>
-            <Icon name="cube-outline" size={22} color="#FFFFFF" />
-          </View>
-          <Text style={styles.emptyTitle}>{listings.length ? 'No products match' : 'No products yet'}</Text>
-          <Text style={styles.emptyBody}>
-            {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
+        <Pressable onPress={cycleSort} style={[styles.sortBtn, sortKey !== 'newest' && styles.sortBtnActive]}>
+          <Icon name="swap-vertical" size={14} color={sortKey !== 'newest' ? '#FFFFFF' : colors.text} />
+          <Text style={[styles.sortBtnText, sortKey !== 'newest' && styles.sortBtnTextActive]} numberOfLines={1}>
+            {SORTS.find((option) => option.key === sortKey)?.label || 'Newest'}
           </Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.split} onLayout={(e) => setSplitTop(e.nativeEvent.layout.y)}>
+        <Animated.View
+          style={[styles.sidebar, { maxHeight: sidebarMaxHeight, transform: [{ translateY: sidebarPin }] }]}
+        >
+          <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={false} contentContainerStyle={styles.sidebarContent}>
+            {categoryChips.map((cat) => {
+              const active = cat.label === category;
+              return (
+                <Pressable
+                  key={cat.label}
+                  onPress={() => setCategory(cat.label)}
+                  style={[styles.sideItem, active && styles.sideItemActive]}
+                >
+                  {active ? <View style={styles.sideIndicator} /> : null}
+                  <View style={[styles.sideIcon, active && styles.sideIconActive]}>
+                    {cat.imageUrl ? (
+                      <Image source={{ uri: cat.imageUrl }} style={styles.fillImage} />
+                    ) : (
+                      <Icon name={cat.icon} size={16} color="#FFFFFF" />
+                    )}
+                  </View>
+                  <Text style={[styles.sideLabel, active && styles.sideLabelActive]} numberOfLines={2}>
+                    {cat.label}
+                  </Text>
+                  <Text style={styles.sideCount}>{cat.count}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </Animated.View>
+
+        <View style={styles.gridColumn}>
+          {visibleListings.length === 0 ? (
+            <View style={[styles.emptyBox, styles.emptyBoxGrid]}>
+              <View style={styles.emptyIcon}>
+                <Icon name="cube-outline" size={22} color="#FFFFFF" />
+              </View>
+              <Text style={styles.emptyTitle}>{listings.length ? 'No products match' : 'No products yet'}</Text>
+              <Text style={styles.emptyBody}>
+                {listings.length ? 'Try another search or category.' : "This shop hasn't added products yet."}
+              </Text>
+            </View>
+          ) : (
+            <LazyList
+              data={visibleListings}
+              columns={2}
+              gap={GRID_GUTTER}
+              style={styles.productGrid}
+              estimatedRowHeight={compactCardLayout(cardWidth, { hideMeta: true }).height}
+              renderItem={(listing, index, revisit) => {
+                const id = listing._id || listing.id;
+                const card = toCardItem({ ...listing, id });
+                if (!card) return null;
+                return (
+                  <Reanimated.View key={String(id)} entering={revisit ? undefined : enterQuick(index)}>
+                    <ProductCard
+                      {...card}
+                      condition={listing.condition}
+                      postedAt={listing.createdAt}
+                      compact
+                      hideMeta
+                      width={cardWidth}
+                      onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
+                    />
+                  </Reanimated.View>
+                );
+              }}
+            />
+          )}
         </View>
-      ) : (
-        <View style={styles.productGrid}>
-          {visibleListings.map((listing, index) => {
-            const id = listing._id || listing.id;
-            const card = toCardItem({ ...listing, id });
-            if (!card) return null;
-            return (
-              <Reanimated.View key={String(id)} entering={enterCard(index)}>
-                <ProductCard
-                  {...card}
-                  condition={listing.condition}
-                  postedAt={listing.createdAt}
-                  compact
-                  width={cardWidth}
-                  onPress={() => openItemDetail(navigation, { listingId: id, item: listing })}
-                />
-              </Reanimated.View>
-            );
-          })}
-        </View>
-      )}
+      </View>
       {loadingMore ? (
         <View style={styles.loadMoreRow}>
           <ActivityIndicator size="small" color={colors.primary} />
@@ -840,7 +780,7 @@ export default function ShopProfileScreen({ route, navigation }) {
         </View>
       ) : (
         reviews.map((review, index) => (
-          <Reanimated.View key={review._id} entering={enterCard(index)} style={styles.reviewCard}>
+          <Reanimated.View key={review._id} entering={enterQuick(index)} style={styles.reviewCard}>
             <View style={styles.reviewHeader}>
               <View style={styles.reviewAvatar}>
                 {review.reviewer?.avatarUrl ? (
@@ -888,8 +828,9 @@ export default function ShopProfileScreen({ route, navigation }) {
 
   const renderAbout = () => (
     <View style={styles.section}>
-      <Reanimated.View entering={enterCard(0)} style={styles.card}>
+      <Reanimated.View entering={enterQuick(0)} style={styles.card}>
         {renderCardHead('storefront', 'About the store')}
+        {shop.tagline ? <Text style={styles.tagline}>{shop.tagline}</Text> : null}
         <Text style={styles.aboutText}>{shop.description?.trim() || 'No description provided.'}</Text>
         {SOCIAL_LINKS.some((s) => social[s.key]) ? (
           <View style={styles.socialRow}>
@@ -906,7 +847,7 @@ export default function ShopProfileScreen({ route, navigation }) {
         ) : null}
       </Reanimated.View>
 
-      <Reanimated.View entering={enterCard(1)} style={styles.card}>
+      <Reanimated.View entering={enterQuick(1)} style={styles.card}>
         {renderCardHead('time', 'Opening hours', renderOpenPill())}
         <Text style={styles.hoursText}>{shop.openingHours || 'Hours not set'}</Text>
         <View style={styles.weekRow}>
@@ -922,7 +863,7 @@ export default function ShopProfileScreen({ route, navigation }) {
         </View>
       </Reanimated.View>
 
-      <Reanimated.View entering={enterCard(2)} style={styles.card}>
+      <Reanimated.View entering={enterQuick(2)} style={styles.card}>
         {renderCardHead('information-circle', 'Store details')}
         {infoRows.map((row, index) => (
           <Pressable
@@ -945,33 +886,39 @@ export default function ShopProfileScreen({ route, navigation }) {
     </View>
   );
 
-  const btnStyle = solidBar ? styles.solidBtn : styles.glassBtn;
-  const btnIcon = solidBar ? colors.text : '#FFFFFF';
+  const btnStyle = styles.solidBtn;
+  const btnIcon = colors.text;
 
   return (
     <View style={styles.root}>
-      <StatusBar style={solidBar ? (isDarkMode ? 'light' : 'dark') : 'light'} />
+      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+      <LazyScrollProvider value={lazyScroll.value}>
       <Animated.ScrollView
+        ref={lazyScroll.scrollRef}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
         style={styles.flex1}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         stickyHeaderIndices={[1]}
         onScroll={onScroll}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
       >
         {renderHero()}
         {renderTabs()}
-        <View>{tab === 'products' ? renderProducts() : tab === 'reviews' ? renderReviews() : renderAbout()}</View>
+        <View onLayout={(e) => setProductsTop(e.nativeEvent.layout.y)}>
+          {tab === 'products' ? renderProducts() : tab === 'reviews' ? renderReviews() : renderAbout()}
+        </View>
       </Animated.ScrollView>
+      </LazyScrollProvider>
 
       <View pointerEvents="box-none" style={[styles.topBar, { height: barHeight, paddingTop: insets.top }]}>
-        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.topBarBg, { opacity: barOpacity }]} />
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.topBarBg]} />
         <Pressable onPress={() => navigation.goBack()} hitSlop={10} style={btnStyle}>
           <Icon name="chevron-back" size={22} color={btnIcon} />
         </Pressable>
-        <Animated.View pointerEvents="none" style={[styles.topTitle, { opacity: barOpacity }]}>
+        <Animated.View pointerEvents="none" style={[styles.topTitle, { opacity: titleOpacity }]}>
           <View style={styles.topLogo}>
             {logo ? (
               <Image source={{ uri: logo }} style={styles.fillImage} />
@@ -993,41 +940,6 @@ export default function ShopProfileScreen({ route, navigation }) {
         ) : null}
       </View>
 
-      <Reanimated.View
-        entering={FadeInDown.delay(350).springify().damping(16)}
-        style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}
-      >
-        {isOwner ? (
-          <PressableScale
-            style={styles.flex1}
-            contentStyle={styles.ctaBtn}
-            onPress={() => navigation.navigate(ROUTES.SHOP_POST_LISTING)}
-          >
-            <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
-            <Shimmer duration={2000} pause={2200} />
-            <Icon name="add-circle" size={20} color="#FFFFFF" />
-            <Text style={styles.ctaText}>Add product</Text>
-          </PressableScale>
-        ) : (
-          <>
-            {shop.phone ? (
-              <PressableScale contentStyle={styles.ctaIconBtn} onPress={callShop}>
-                <Icon name="call" size={20} color={colors.primary} />
-              </PressableScale>
-            ) : null}
-            <PressableScale style={styles.flex1} contentStyle={styles.ctaBtn} onPress={startChat} disabled={chatBusy}>
-              <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
-              <Shimmer duration={2000} pause={2200} />
-              {chatBusy ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Icon name="chatbubble-ellipses" size={19} color="#FFFFFF" />
-              )}
-              <Text style={styles.ctaText}>{chatBusy ? 'Opening chat…' : 'Chat with store'}</Text>
-            </PressableScale>
-          </>
-        )}
-      </Reanimated.View>
     </View>
   );
 }
@@ -1047,7 +959,7 @@ const createStyles = (colors) => ({
   skeletonWrap: {
     paddingHorizontal: GRID_PADDING,
     gap: 16,
-    marginTop: -44,
+    marginTop: 10,
   },
   skeletonBack: {
     position: 'absolute',
@@ -1090,16 +1002,6 @@ const createStyles = (colors) => ({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  glassBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(15,23,42,0.38)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
-  },
   solidBtn: {
     width: 38,
     height: 38,
@@ -1138,46 +1040,24 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
 
-  banner: {
-    width: '100%',
-    overflow: 'hidden',
-    backgroundColor: '#065F46',
-  },
-  bannerArt: {
-    position: 'absolute',
-    right: -24,
-    bottom: -30,
-    transform: [{ rotate: '-12deg' }],
-  },
-  bannerWatermark: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    fontSize: 34,
-    fontWeight: '900',
-    letterSpacing: -0.5,
-    color: 'rgba(255,255,255,0.16)',
-  },
 
   identityCard: {
-    marginTop: -64,
     marginHorizontal: GRID_PADDING,
-    padding: 14,
-    gap: 12,
-    borderRadius: 26,
+    padding: 12,
+    borderRadius: 20,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     shadowColor: '#000000',
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   identityTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: 12,
   },
   appIconWrap: {
     width: APP_ICON,
@@ -1186,16 +1066,11 @@ const createStyles = (colors) => ({
   appIcon: {
     width: APP_ICON,
     height: APP_ICON,
-    borderRadius: 24,
+    borderRadius: 18,
     overflow: 'hidden',
-    borderWidth: 3,
-    borderColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
     backgroundColor: colors.background,
-    shadowColor: '#000000',
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
   appIconFallback: {
     flex: 1,
@@ -1203,7 +1078,7 @@ const createStyles = (colors) => ({
     justifyContent: 'center',
   },
   appIconInitials: {
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: -0.5,
@@ -1212,45 +1087,34 @@ const createStyles = (colors) => ({
     position: 'absolute',
     right: -4,
     bottom: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primary,
-    borderWidth: 2.5,
+    borderWidth: 2,
     borderColor: colors.surface,
   },
   identityCopy: {
     flex: 1,
     minWidth: 0,
-    gap: 4,
+    gap: 3,
   },
   name: {
-    fontSize: 21,
-    lineHeight: 25,
+    flexShrink: 1,
+    fontSize: 19,
+    lineHeight: 24,
     fontWeight: '900',
     letterSpacing: -0.3,
     color: colors.text,
   },
-  subline: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  pillRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 2,
-  },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
     borderRadius: 999,
   },
   pillDot: {
@@ -1259,166 +1123,43 @@ const createStyles = (colors) => ({
     borderRadius: 3,
   },
   pillText: {
-    fontSize: 11.5,
+    fontSize: 10,
     fontWeight: '800',
-  },
-  pillStore: {
-    backgroundColor: colors.primary,
-  },
-  pillStoreText: {
-    color: '#FFFFFF',
-    letterSpacing: 0.6,
   },
   tagline: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '500',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
     fontStyle: 'italic',
     color: colors.textSecondary,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    paddingVertical: 10,
-    borderRadius: 16,
-    backgroundColor: colors.background,
-  },
-  stat: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 4,
-  },
-  statDivider: {
-    borderLeftWidth: 1,
-    borderLeftColor: colors.border,
-  },
-  statTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  statValue: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  statLabel: {
-    fontSize: 11.5,
-    fontWeight: '600',
-    color: colors.textMuted,
-  },
-  addressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  addressIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-  },
-  addressText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  addressDistance: {
-    fontSize: 12.5,
-    fontWeight: '800',
-    color: colors.primary,
+    marginBottom: 6,
   },
 
-  quickRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: GRID_PADDING,
-    marginTop: 14,
-  },
-  quickItem: {
-    flex: 1,
-  },
-  quickInner: {
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 18,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  quickIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-  },
-  quickLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  highlightRow: {
-    gap: 8,
-    paddingHorizontal: GRID_PADDING,
-    paddingTop: 12,
-    paddingBottom: 2,
-  },
-  highlight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 5,
-    paddingRight: 11,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  highlightIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-  },
-  highlightText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.text,
-  },
 
   tabWrap: {
-    paddingTop: 12,
-    paddingBottom: 8,
-    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 6,
+    paddingHorizontal: GRID_PADDING,
     backgroundColor: colors.background,
   },
   tabBar: {
     flexDirection: 'row',
-    padding: 4,
-    borderRadius: 18,
+    padding: 3,
+    borderRadius: 14,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
   tabIndicator: {
     position: 'absolute',
-    top: 4,
-    bottom: 4,
-    left: 4,
-    borderRadius: 14,
+    top: 3,
+    bottom: 3,
+    left: 3,
+    borderRadius: 11,
     backgroundColor: colors.primary,
   },
   tabBtn: {
-    height: 38,
+    height: 32,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1456,16 +1197,21 @@ const createStyles = (colors) => ({
   },
 
   searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     paddingHorizontal: GRID_PADDING,
-    paddingTop: 4,
+    paddingTop: 2,
+    paddingBottom: 8,
   },
   searchBox: {
-    height: 44,
+    flex: 1,
+    height: 38,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 22,
+    paddingHorizontal: 12,
+    borderRadius: 19,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -1477,93 +1223,155 @@ const createStyles = (colors) => ({
     color: colors.text,
     minWidth: 0,
   },
-  catRow: {
+  quickRow: {
+    flexDirection: 'row',
     gap: 8,
-    paddingHorizontal: GRID_PADDING,
-    paddingTop: 12,
+    marginTop: 12,
   },
-  catChip: {
+  quickItem: {
+    flex: 1,
+  },
+  quickBtn: {
+    height: 38,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
-    paddingLeft: 5,
-    paddingRight: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.background,
   },
-  catChipActive: {
+  quickBtnPrimary: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  quickText: {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  quickTextPrimary: {
+    color: '#FFFFFF',
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  metaStrong: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  metaText: {
+    flexShrink: 1,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: colors.textMuted,
+  },
+  metaFlex: {
+    flex: 1,
+  },
+  sortBtn: {
+    height: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 11,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  sortBtnActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  catIcon: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  sortBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  sortBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  split: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  sidebar: {
+    width: SIDEBAR_WIDTH,
+    zIndex: 2,
+    backgroundColor: colors.surface,
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 18,
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  sidebarContent: {
+    paddingVertical: 4,
+  },
+  sideItem: {
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    marginHorizontal: 3,
+    borderRadius: 12,
+  },
+  sideItemActive: {
+    backgroundColor: colors.background,
+  },
+  sideIndicator: {
+    position: 'absolute',
+    left: -3,
+    top: 8,
+    bottom: 8,
+    width: 3,
+    borderTopRightRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: colors.primary,
+  },
+  sideIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.primary,
   },
-  catIconActive: {
-    backgroundColor: '#FFFFFF',
+  sideIconActive: {
+    elevation: 3,
   },
-  catLabel: {
-    maxWidth: 130,
-    fontSize: 13,
+  sideLabel: {
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: '700',
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  sideLabelActive: {
     color: colors.text,
-  },
-  catLabelActive: {
-    color: '#FFFFFF',
-  },
-  catCount: {
-    fontSize: 11.5,
     fontWeight: '800',
+  },
+  sideCount: {
+    fontSize: 9.5,
+    fontWeight: '700',
     color: colors.textMuted,
   },
-  catCountActive: {
-    color: 'rgba(255,255,255,0.85)',
-  },
-  sortBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: GRID_PADDING,
-    paddingVertical: 12,
-  },
-  resultText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  sortChips: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  sortChip: {
-    paddingHorizontal: 11,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  sortChipActive: {
-    backgroundColor: colors.text,
-    borderColor: colors.text,
-  },
-  sortChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  sortChipTextActive: {
-    color: colors.background,
+  gridColumn: {
+    flex: 1,
   },
   productGrid: {
     flexDirection: 'row',
@@ -1806,7 +1614,7 @@ const createStyles = (colors) => ({
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  emptyBoxInset: {
+  emptyBoxGrid: {
     marginHorizontal: GRID_PADDING,
   },
   emptyIcon: {
@@ -1829,48 +1637,4 @@ const createStyles = (colors) => ({
     textAlign: 'center',
   },
 
-  bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: GRID_PADDING,
-    paddingTop: 10,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 12,
-  },
-  ctaIconBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    backgroundColor: colors.background,
-  },
-  ctaBtn: {
-    height: 52,
-    borderRadius: 18,
-    overflow: 'hidden',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  ctaText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.2,
-  },
 });

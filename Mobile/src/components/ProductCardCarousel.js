@@ -1,6 +1,5 @@
 import { memo, useCallback } from 'react';
-import { ScrollView, useWindowDimensions } from 'react-native';
-import { Reanimated, enterSlide } from './Motion';
+import { ScrollView, View, useWindowDimensions } from 'react-native';
 import ProductCard, {
   CARD_GAP,
   CARD_ROW_PADDING,
@@ -37,10 +36,8 @@ function ProductCardCarousel({ items, onPressItem, contentWidth }) {
       overScrollMode="never"
     >
       {safeItems.map((item, index) => (
-        <Reanimated.View
+        <View
           key={item.id || `${item.title}-${index}`}
-          collapsable={false}
-          entering={index < 5 ? enterSlide(index, 70) : undefined}
           style={{ width: cardWidth, marginRight: CARD_GAP, flexShrink: 0 }}
         >
           <CarouselCard
@@ -48,7 +45,7 @@ function ProductCardCarousel({ items, onPressItem, contentWidth }) {
             width={cardWidth}
             onPressItem={onPressItem}
           />
-        </Reanimated.View>
+        </View>
       ))}
     </ScrollView>
   );

@@ -8,6 +8,7 @@ import { navigateToTab, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { resolveMediaUrl } from '../utils/listing';
 import EmptyState from '../components/EmptyState';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -173,6 +174,7 @@ function entryMeta(entry) {
 }
 
 export default function NotificationsScreen({ navigation }) {
+  const lazyScroll = useLazyScroll();
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
   const insets = useSafeAreaInsets();
@@ -512,17 +514,26 @@ export default function NotificationsScreen({ navigation }) {
       );
     }
     let lastGroup = '';
-    return entries.map((entry) => {
+    const rows = entries.map((entry) => {
       const group = dayGroup(entry.lead.createdAt);
       const showGroup = group !== lastGroup;
       lastGroup = group;
-      return (
-        <View key={entry.key}>
-          {showGroup ? <Text style={styles.groupLabel}>{group}</Text> : null}
-          {renderEntry(entry)}
-        </View>
-      );
+      return { key: entry.key, entry, label: showGroup ? group : '' };
     });
+    return (
+      <LazyList
+        data={rows}
+        keyExtractor={(row) => row.key}
+        estimatedRowHeight={84}
+        minRows={20}
+        renderItem={(row) => (
+          <View key={row.key}>
+            {row.label ? <Text style={styles.groupLabel}>{row.label}</Text> : null}
+            {renderEntry(row.entry)}
+          </View>
+        )}
+      />
+    );
   };
 
   const sheetEntry = sheet?.type === 'entry' ? sheet.entry : null;
@@ -562,10 +573,15 @@ export default function NotificationsScreen({ navigation }) {
         </Pressable>
       </LinearGradient>
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        scrollEventThrottle={50}
+        onScroll={lazyScroll.onScroll}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
       >
         <LinearGradient
           colors={colors.gradient}
@@ -604,6 +620,7 @@ export default function NotificationsScreen({ navigation }) {
           <Text style={styles.footerHint}>Long-press a notification for more options</Text>
         ) : null}
       </ScrollView>
+      </LazyScrollProvider>
 
       <Modal visible={Boolean(sheet)} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
         <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)}>

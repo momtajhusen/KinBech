@@ -105,8 +105,7 @@ export function toSellerCard(seller) {
   return {
     id,
     name: seller.name || 'Seller',
-    avatar: resolveMediaUrl(seller.avatarUrl || seller.coverImage),
-    cover: resolveMediaUrl(seller.coverImage || seller.avatarUrl),
+    avatar: resolveMediaUrl(seller.avatarUrl),
     rating: Number(seller.rating) || 0,
     reviewsCount: seller.reviewsCount || 0,
     listingCount: seller.listingCount || 0,

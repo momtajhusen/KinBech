@@ -30,6 +30,7 @@ import {
 } from '../utils/categories';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingLiveModal from '../components/ListingLiveModal';
+import PublishConfirmModal from '../components/PublishConfirmModal';
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import { useListingAiFill } from '../hooks/useListingAiFill';
@@ -200,6 +201,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     enabled: !isEdit && !loadingShop && Boolean(selectedShopId),
   });
   const [limitModal, setLimitModal] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   /** True when today's posts are used up; opens the limit modal instead of the picker. */
   const checkPostLimit = useCallback(async () => {
@@ -460,6 +462,13 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       revealField(variantAnchorRef);
       return;
     }
+    Keyboard.dismiss();
+    if (isEdit) submitListing();
+    else setConfirmOpen(true);
+  };
+
+  const submitListing = async () => {
+    setConfirmOpen(false);
     setSubmitting(true);
 
     const localPhotos = photos.map((photo) => photo?.uri).filter(Boolean);
@@ -1021,6 +1030,28 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         {...(alertConfig?.live ? {} : alertConfig || {})}
       />
       <ListingLiveModal visible={!!alertConfig?.live} {...(alertConfig?.live ? alertConfig : {})} />
+      <PublishConfirmModal
+        visible={confirmOpen}
+        photo={mainPhoto ? resolveMediaUrl(mainPhoto) : null}
+        photoCount={photos.filter((photo) => photo?.uri).length}
+        title={title.trim()}
+        price={price}
+        description={description.trim()}
+        details={[
+          { icon: 'pricetag-outline', label: 'Category', value: category },
+          { icon: 'sparkles-outline', label: 'Condition', value: condition },
+          {
+            icon: 'cube-outline',
+            label: 'Stock',
+            value: String(hasVariants
+              ? variants.reduce((sum, variant) => sum + (Number(variant.stock) || 0), 0)
+              : Number(stock) || 0),
+          },
+          { icon: 'storefront-outline', label: 'Brand', value: brand.trim() },
+        ]}
+        onEdit={() => setConfirmOpen(false)}
+        onConfirm={submitListing}
+      />
       <PostLimitModal
         visible={limitModal}
         quota={quota}

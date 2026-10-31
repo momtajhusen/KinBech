@@ -3474,6 +3474,68 @@ a.subs-user-name:hover {
   max-width: 110px;
 }
 
+.subs-icon-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.subs-icon-pick button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.subs-icon-pick button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.subs-icon-pick button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.subs-icon-pick button.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.subs-steps-title {
+  margin: 0.25rem 0 0.6rem;
+  font-size: 0.9rem;
+}
+
+.subs-step-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.subs-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
 .subs-payment {
   margin-bottom: 1rem;
 }

@@ -31,6 +31,44 @@ function localFile(rel) {
   return stat.isFile() ? file : null;
 }
 
+const THUMB_WIDTHS = new Set([200, 400]);
+const THUMB_SOURCE = /\.(jpe?g|png|webp)$/i;
+const THUMB_CACHE = 'public, max-age=31536000, immutable';
+
+/**
+ * `?w=200|400` on a photo returns a small WebP for lists and cards. Each size is made once
+ * and kept on disk; anything that fails falls back to the original file.
+ */
+async function serveThumb(res, rel, width) {
+  const root = path.resolve(getUploadsRoot());
+  const cached = path.resolve(root, '.thumbs', String(width), `${rel}.webp`);
+  if (!cached.startsWith(`${root}${path.sep}`)) return false;
+  if (fs.existsSync(cached)) {
+    res.setHeader('Cache-Control', THUMB_CACHE);
+    res.type('image/webp');
+    res.sendFile(cached, { dotfiles: 'allow' });
+    return true;
+  }
+  const source = await readUploadBuffer(`/uploads/${rel}`).catch(() => null);
+  if (!source) return false;
+  const sharp = require('sharp');
+  const out = await sharp(source)
+    .rotate()
+    .resize({ width, height: width * 2, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 74 })
+    .toBuffer()
+    .catch(() => null);
+  if (!out) return false;
+  fs.promises
+    .mkdir(path.dirname(cached), { recursive: true })
+    .then(() => fs.promises.writeFile(cached, out))
+    .catch(() => {});
+  res.setHeader('Cache-Control', THUMB_CACHE);
+  res.type('image/webp');
+  res.end(out);
+  return true;
+}
+
 function contentTypeFor(rel, fromObject) {
   if (fromObject && fromObject !== 'application/octet-stream') return fromObject;
   return CONTENT_TYPES[path.extname(rel).toLowerCase()] || 'application/octet-stream';
@@ -46,6 +84,15 @@ async function serveUploads(req, res, next) {
     return res.status(400).end();
   }
   if (!rel || rel.includes('..') || rel.includes('\\')) return res.status(400).end();
+
+  const width = Number(req.query?.w);
+  if (req.method === 'GET' && THUMB_WIDTHS.has(width) && THUMB_SOURCE.test(rel)) {
+    try {
+      if (await serveThumb(res, rel, width)) return undefined;
+    } catch (error) {
+      console.error('[uploads] thumbnail failed:', error.message || error);
+    }
+  }
 
   const local = localFile(rel);
   if (local) return res.sendFile(local);

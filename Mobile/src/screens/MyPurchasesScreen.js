@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { navigateToTab, openItemDetail, TABS } from '../navigation/helpers';
 import { api } from '../services/api';
 import { Skeleton } from '../components/SkeletonLoader';
-import { formatPrice, resolveMediaUrl } from '../utils/listing';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
+import { formatPrice, thumbUrl } from '../utils/listing';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 
@@ -16,6 +17,7 @@ export default function MyPurchasesScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [items, setItems] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const lazyScroll = useLazyScroll();
 
   const load = useCallback(async () => {
     const { data } = await api.getMyPurchases();
@@ -54,10 +56,15 @@ export default function MyPurchasesScreen({ navigation }) {
         </View>
       </View>
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
+        scrollEventThrottle={50}
+        onScroll={lazyScroll.onScroll}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
       >
         {!loaded && items.length === 0 ? (
           [0, 1, 2, 3].map((i) => <Skeleton key={i} width="100%" height={84} borderRadius={14} marginBottom={10} />)
@@ -75,7 +82,7 @@ export default function MyPurchasesScreen({ navigation }) {
             </Pressable>
           </View>
         ) : (
-          items.map((item) => {
+          <LazyList data={items} gap={10} estimatedRowHeight={84} minRows={20} renderItem={(item) => {
             const sellerName = item.shopId?.name || item.seller?.name;
             return (
               <Pressable
@@ -86,7 +93,8 @@ export default function MyPurchasesScreen({ navigation }) {
                 <View style={styles.thumb}>
                   {item.photos?.[0] ? (
                     <Image
-                      source={{ uri: resolveMediaUrl(item.photos[0]) }}
+                      source={{ uri: thumbUrl(item.photos[0], 200) }}
+                      resizeMethod="resize"
                       style={styles.thumbImage}
                       resizeMode="cover"
                     />
@@ -125,9 +133,10 @@ export default function MyPurchasesScreen({ navigation }) {
                 </View>
               </Pressable>
             );
-          })
+          }} />
         )}
       </ScrollView>
+      </LazyScrollProvider>
     </View>
   );
 }

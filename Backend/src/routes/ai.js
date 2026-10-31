@@ -389,6 +389,8 @@ const PURPOSE_LABELS = {
   listing: 'Listing photo fill',
   'shop-categories': 'Shop categories',
   voice: 'Voice helper',
+  'category-fix': 'Daily category check',
+  related: 'Related items',
   'voice-tts': 'Voice helper speech',
   test: 'Admin test',
   benchmark: 'Photo accuracy check',

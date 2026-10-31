@@ -12,6 +12,8 @@ const platformSettingsSchema = new mongoose.Schema(
     shopDailyListings: { type: Number, default: 0, min: 0 },
     /** Where sellers send plan payments: { esewa, khalti, ime, bank, note }. */
     subscriptionPayment: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /** Texts on the app's Plans screen; missing keys fall back to SCREEN_DEFAULTS in subscriptionController. */
+    subscriptionScreen: { type: mongoose.Schema.Types.Mixed, default: {} },
     /** Trust / auto-hide thresholds; missing keys fall back to utils/listingTrust DEFAULT_TRUST. */
     trust: { type: mongoose.Schema.Types.Mixed, default: {} },
   },

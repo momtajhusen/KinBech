@@ -10,9 +10,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
 import androidx.core.app.NotificationCompat
@@ -75,7 +77,7 @@ object IncomingCallNotifier {
     if (!canPost(context)) return false
     ensureChannel(context)
     val name = callerName.ifBlank { "KinBech user" }
-    downloadAvatar(callerImage)?.let { lastAvatar = callerImage to it }
+    downloadAvatar(callerImage)?.let { lastAvatar = callerImage to circleAvatar(it) }
     rememberItem(chatId, item)
     if (IncomingCallService.start(context, chatId, name, callerImage, timeoutMs)) return true
 
@@ -268,6 +270,17 @@ object IncomingCallNotifier {
     val y = (source.height - side) / 2
     val square = Bitmap.createBitmap(source, x, y, side, side)
     return Bitmap.createScaledBitmap(square, AVATAR_SIZE, AVATAR_SIZE, true)
+  }
+
+  /** Some phones (MIUI, One UI) draw the call banner's large icon square, so the photo is cut round here. */
+  fun circleAvatar(source: Bitmap): Bitmap {
+    val size = minOf(source.width, source.height)
+    val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      shader = BitmapShader(source, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+    }
+    Canvas(output).drawCircle(size / 2f, size / 2f, size / 2f, paint)
+    return output
   }
 
   fun initialsAvatar(name: String): Bitmap {

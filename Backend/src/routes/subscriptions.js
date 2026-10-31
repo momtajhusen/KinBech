@@ -27,6 +27,7 @@ router.post('/admin/plans', adminOnly, auditRoute('subscription.plan.create', { 
 router.put('/admin/plans/:id', adminOnly, auditRoute('subscription.plan.update', { targetType: 'settings', param: 'id' }), subscriptions.adminUpdatePlan);
 router.delete('/admin/plans/:id', adminOnly, auditRoute('subscription.plan.delete', { targetType: 'settings', param: 'id' }), subscriptions.adminDeletePlan);
 router.put('/admin/payment', adminOnly, auditRoute('subscription.payment.update', { targetType: 'settings' }), subscriptions.adminSavePayment);
+router.put('/admin/screen', adminOnly, auditRoute('subscription.screen.update', { targetType: 'settings' }), subscriptions.adminSaveScreen);
 router.get('/admin/requests', adminOnly, subscriptions.adminListRequests);
 router.post('/admin/requests/:id/approve', adminOnly, subscriptions.adminApprove);
 router.post('/admin/requests/:id/reject', adminOnly, subscriptions.adminReject);

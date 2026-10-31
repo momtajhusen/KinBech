@@ -2,7 +2,7 @@ import { useState, useEffect, memo, useCallback, useRef } from 'react';
 import Icon from './Icon';
 import { Image, Pressable, Text, View, Animated, Dimensions } from 'react-native';
 import { useTheme, useThemedStyles } from '../theme';
-import { resolveMediaUrl, formatDistanceLabel } from '../utils/listing';
+import { resolveMediaUrl, formatDistanceLabel, thumbUrl } from '../utils/listing';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(200, SCREEN_WIDTH / 2.0);
@@ -409,7 +409,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
                   ]}
                 >
                   {displayAvatar ? (
-                    <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
+                    <Image source={{ uri: thumbUrl(displayAvatar, 200) }} resizeMethod="resize" style={styles.avatarImage} />
                   ) : (
                     <Icon name={typeIcon} size={18} color={accent} />
                   )}
@@ -499,7 +499,7 @@ const SellerProfileCard = memo(function SellerProfileCard({
                   ]}
                 >
                   {displayAvatar ? (
-                    <Image source={{ uri: displayAvatar }} style={styles.avatarImage} />
+                    <Image source={{ uri: thumbUrl(displayAvatar, 200) }} resizeMethod="resize" style={styles.avatarImage} />
                   ) : (
                     <Icon name={typeIcon} size={22} color={accent} />
                   )}

@@ -47,77 +47,79 @@ import {
   subscribeQueuedAlertOpen,
 } from '../services/pushAlerts';
 import { useTheme } from '../theme';
-import AllCategoriesScreen from '../screens/AllCategoriesScreen';
 import CallScreen from '../screens/CallScreen';
 import ChatListScreen from '../screens/ChatListScreen';
-import ChatScreen from '../screens/ChatScreen';
-import CreateShopScreen from '../screens/CreateShopScreen';
-import ShopVerificationScreen from '../screens/ShopVerificationScreen';
-import InviteFriendsScreen from '../screens/InviteFriendsScreen';
-import CurrencySelectScreen from '../screens/CurrencySelectScreen';
-import EditListingScreen from '../screens/EditListingScreen';
-import EditProfileScreen from '../screens/EditProfileScreen';
-import EditShopScreen from '../screens/EditShopScreen';
 import ExploreScreen from '../screens/ExploreScreen';
-import HelpSupportScreen from '../screens/HelpSupportScreen';
 import HomeScreen from '../screens/HomeScreen';
-import IndividualPostListingScreen from '../screens/IndividualPostListingScreen';
-import InfoScreen from '../screens/InfoScreen';
-import ItemDetailScreen from '../screens/ItemDetailScreen';
-import LanguageSelectScreen from '../screens/LanguageSelectScreen';
 import LoginScreen from '../screens/LoginScreen';
-import MyListingsScreen from '../screens/MyListingsScreen';
-import MyPurchasesScreen from '../screens/MyPurchasesScreen';
-import RecentlyViewedScreen from '../screens/RecentlyViewedScreen';
-import NotificationsScreen from '../screens/NotificationsScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
-import PostListingScreen from '../screens/PostListingScreen';
-import PrivacyPolicyScreen from '../screens/PrivacyPolicyScreen';
-import PrivacyScreen from '../screens/PrivacyScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import ProfileSetupScreen from '../screens/ProfileSetupScreen';
-import RateReviewScreen from '../screens/RateReviewScreen';
-import ReportBlockUserScreen from '../screens/ReportBlockUserScreen';
-import SearchResultsScreen from '../screens/SearchResultsScreen';
-import SellerProfileScreen from '../screens/SellerProfileScreen';
-import SellerTypeSelectionScreen from '../screens/SellerTypeSelectionScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-import StoreCategorySelectionScreen from '../screens/StoreCategorySelectionScreen';
-import ShopPostListingScreen from '../screens/ShopPostListingScreen';
-import ShopProfileScreen from '../screens/ShopProfileScreen';
-import ShopDashboardScreen from '../screens/ShopDashboardScreen';
 import SplashScreen from '../screens/SplashScreen';
 import SignedInModal from '../components/SignedInModal';
 import AccountChoiceModal from '../components/AccountChoiceModal';
-import TermsScreen from '../screens/TermsScreen';
-import LegalHubScreen from '../screens/LegalHubScreen';
-import LegalDocumentScreen from '../components/LegalDocumentScreen';
-import WishlistScreen from '../screens/WishlistScreen';
-import SavedAddressesScreen from '../screens/SavedAddressesScreen';
-import PaymentMethodsScreen from '../screens/PaymentMethodsScreen';
-import WalletScreen from '../screens/WalletScreen';
-import SubscriptionScreen from '../screens/SubscriptionScreen';
-import PaymentHistoryScreen from '../screens/PaymentHistoryScreen';
-import TesterModeScreen from '../screens/TesterModeScreen';
-import ContactUsScreen from '../screens/ContactUsScreen';
-import ListingSuccessScreen from '../screens/ListingSuccessScreen';
-import ShopStorefrontQrScreen from '../screens/ShopStorefrontQrScreen';
 import AdminTabBar from '../components/admin/AdminTabBar';
 import AdminDashboardScreen from '../screens/admin/AdminDashboardScreen';
-import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
-import AdminListingsScreen from '../screens/admin/AdminListingsScreen';
-import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
-import AdminMoreScreen from '../screens/admin/AdminMoreScreen';
-import AdminShopsScreen from '../screens/admin/AdminShopsScreen';
-import AdminReviewsScreen from '../screens/admin/AdminReviewsScreen';
-import AdminPaymentsScreen from '../screens/admin/AdminPaymentsScreen';
-import AdminSupportScreen from '../screens/admin/AdminSupportScreen';
-import AdminUserDetailScreen from '../screens/admin/AdminUserDetailScreen';
-import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
-import AdminScamScreen from '../screens/admin/AdminScamScreen';
-import AdminLiveScreen from '../screens/admin/AdminLiveScreen';
 import { setPresenceEnabled, trackScreen } from '../services/presence';
 import { ADMIN_ROUTES, isAdminUser } from '../utils/admin';
+
+// Screens outside the first tabs load on first open, so app start parses less code.
+const loadPostListingScreen = () => require('../screens/PostListingScreen').default;
+const loadAllCategoriesScreen = () => require('../screens/AllCategoriesScreen').default;
+const loadChatScreen = () => require('../screens/ChatScreen').default;
+const loadCreateShopScreen = () => require('../screens/CreateShopScreen').default;
+const loadShopVerificationScreen = () => require('../screens/ShopVerificationScreen').default;
+const loadInviteFriendsScreen = () => require('../screens/InviteFriendsScreen').default;
+const loadCurrencySelectScreen = () => require('../screens/CurrencySelectScreen').default;
+const loadEditListingScreen = () => require('../screens/EditListingScreen').default;
+const loadEditProfileScreen = () => require('../screens/EditProfileScreen').default;
+const loadEditShopScreen = () => require('../screens/EditShopScreen').default;
+const loadHelpSupportScreen = () => require('../screens/HelpSupportScreen').default;
+const loadIndividualPostListingScreen = () => require('../screens/IndividualPostListingScreen').default;
+const loadInfoScreen = () => require('../screens/InfoScreen').default;
+const loadItemDetailScreen = () => require('../screens/ItemDetailScreen').default;
+const loadLanguageSelectScreen = () => require('../screens/LanguageSelectScreen').default;
+const loadMyListingsScreen = () => require('../screens/MyListingsScreen').default;
+const loadMyPurchasesScreen = () => require('../screens/MyPurchasesScreen').default;
+const loadRecentlyViewedScreen = () => require('../screens/RecentlyViewedScreen').default;
+const loadNotificationsScreen = () => require('../screens/NotificationsScreen').default;
+const loadPrivacyPolicyScreen = () => require('../screens/PrivacyPolicyScreen').default;
+const loadPrivacyScreen = () => require('../screens/PrivacyScreen').default;
+const loadProfileSetupScreen = () => require('../screens/ProfileSetupScreen').default;
+const loadRateReviewScreen = () => require('../screens/RateReviewScreen').default;
+const loadReportBlockUserScreen = () => require('../screens/ReportBlockUserScreen').default;
+const loadSearchResultsScreen = () => require('../screens/SearchResultsScreen').default;
+const loadSellerProfileScreen = () => require('../screens/SellerProfileScreen').default;
+const loadSellerTypeSelectionScreen = () => require('../screens/SellerTypeSelectionScreen').default;
+const loadSettingsScreen = () => require('../screens/SettingsScreen').default;
+const loadStoreCategorySelectionScreen = () => require('../screens/StoreCategorySelectionScreen').default;
+const loadShopPostListingScreen = () => require('../screens/ShopPostListingScreen').default;
+const loadShopProfileScreen = () => require('../screens/ShopProfileScreen').default;
+const loadShopDashboardScreen = () => require('../screens/ShopDashboardScreen').default;
+const loadTermsScreen = () => require('../screens/TermsScreen').default;
+const loadLegalHubScreen = () => require('../screens/LegalHubScreen').default;
+const loadLegalDocumentScreen = () => require('../components/LegalDocumentScreen').default;
+const loadWishlistScreen = () => require('../screens/WishlistScreen').default;
+const loadSavedAddressesScreen = () => require('../screens/SavedAddressesScreen').default;
+const loadPaymentMethodsScreen = () => require('../screens/PaymentMethodsScreen').default;
+const loadWalletScreen = () => require('../screens/WalletScreen').default;
+const loadSubscriptionScreen = () => require('../screens/SubscriptionScreen').default;
+const loadPaymentHistoryScreen = () => require('../screens/PaymentHistoryScreen').default;
+const loadTesterModeScreen = () => require('../screens/TesterModeScreen').default;
+const loadContactUsScreen = () => require('../screens/ContactUsScreen').default;
+const loadListingSuccessScreen = () => require('../screens/ListingSuccessScreen').default;
+const loadShopStorefrontQrScreen = () => require('../screens/ShopStorefrontQrScreen').default;
+const loadAdminReportsScreen = () => require('../screens/admin/AdminReportsScreen').default;
+const loadAdminListingsScreen = () => require('../screens/admin/AdminListingsScreen').default;
+const loadAdminUsersScreen = () => require('../screens/admin/AdminUsersScreen').default;
+const loadAdminMoreScreen = () => require('../screens/admin/AdminMoreScreen').default;
+const loadAdminShopsScreen = () => require('../screens/admin/AdminShopsScreen').default;
+const loadAdminReviewsScreen = () => require('../screens/admin/AdminReviewsScreen').default;
+const loadAdminPaymentsScreen = () => require('../screens/admin/AdminPaymentsScreen').default;
+const loadAdminSupportScreen = () => require('../screens/admin/AdminSupportScreen').default;
+const loadAdminUserDetailScreen = () => require('../screens/admin/AdminUserDetailScreen').default;
+const loadAdminTestersScreen = () => require('../screens/admin/AdminTestersScreen').default;
+const loadAdminScamScreen = () => require('../screens/admin/AdminScamScreen').default;
+const loadAdminLiveScreen = () => require('../screens/admin/AdminLiveScreen').default;
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -518,7 +520,7 @@ function MainTabs() {
         options={{ title: 'Explore' }}
         initialParams={{ category: undefined }}
       />
-      <Tab.Screen name="Post" component={PostListingScreen} options={{ title: 'Sell' }} />
+      <Tab.Screen name="Post" getComponent={loadPostListingScreen} options={{ title: 'Sell' }} />
       <Tab.Screen name="Chats" component={ChatListScreen} options={{ title: 'Chats' }} />
       <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
     </Tab.Navigator>
@@ -529,10 +531,10 @@ function AdminTabs() {
   return (
     <Tab.Navigator tabBar={(props) => <AdminTabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Dashboard' }} />
-      <Tab.Screen name="AdminReports" component={AdminReportsScreen} options={{ title: 'Reports' }} />
-      <Tab.Screen name="AdminListings" component={AdminListingsScreen} options={{ title: 'Listings' }} />
-      <Tab.Screen name="AdminUsers" component={AdminUsersScreen} options={{ title: 'Users' }} />
-      <Tab.Screen name="AdminMore" component={AdminMoreScreen} options={{ title: 'More' }} />
+      <Tab.Screen name="AdminReports" getComponent={loadAdminReportsScreen} options={{ title: 'Reports' }} />
+      <Tab.Screen name="AdminListings" getComponent={loadAdminListingsScreen} options={{ title: 'Listings' }} />
+      <Tab.Screen name="AdminUsers" getComponent={loadAdminUsersScreen} options={{ title: 'Users' }} />
+      <Tab.Screen name="AdminMore" getComponent={loadAdminMoreScreen} options={{ title: 'More' }} />
     </Tab.Navigator>
   );
 }
@@ -624,63 +626,63 @@ export default function AppNavigator() {
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
+        <Stack.Screen name="ProfileSetup" getComponent={loadProfileSetupScreen} />
         <Stack.Screen name="MainTabs" component={MainTabs} />
         <Stack.Screen name="AdminTabs" component={AdminTabs} />
-        <Stack.Screen name="AdminShops" component={AdminShopsScreen} />
-        <Stack.Screen name="AdminReviews" component={AdminReviewsScreen} />
-        <Stack.Screen name="AdminPayments" component={AdminPaymentsScreen} />
-        <Stack.Screen name="AdminSupport" component={AdminSupportScreen} />
-        <Stack.Screen name="AdminUserDetail" component={AdminUserDetailScreen} />
-        <Stack.Screen name="AdminTesters" component={AdminTestersScreen} />
-        <Stack.Screen name="AdminScam" component={AdminScamScreen} />
-        <Stack.Screen name="AdminLive" component={AdminLiveScreen} />
+        <Stack.Screen name="AdminShops" getComponent={loadAdminShopsScreen} />
+        <Stack.Screen name="AdminReviews" getComponent={loadAdminReviewsScreen} />
+        <Stack.Screen name="AdminPayments" getComponent={loadAdminPaymentsScreen} />
+        <Stack.Screen name="AdminSupport" getComponent={loadAdminSupportScreen} />
+        <Stack.Screen name="AdminUserDetail" getComponent={loadAdminUserDetailScreen} />
+        <Stack.Screen name="AdminTesters" getComponent={loadAdminTestersScreen} />
+        <Stack.Screen name="AdminScam" getComponent={loadAdminScamScreen} />
+        <Stack.Screen name="AdminLive" getComponent={loadAdminLiveScreen} />
 
-        <Stack.Screen name="AllCategories" component={AllCategoriesScreen} />
-        <Stack.Screen name="SearchResults" component={SearchResultsScreen} />
-        <Stack.Screen name="ItemDetail" component={ItemDetailScreen} />
-        <Stack.Screen name="PostListing" component={PostListingScreen} />
-        <Stack.Screen name="SellerTypeSelection" component={SellerTypeSelectionScreen} />
-        <Stack.Screen name="StoreCategorySelection" component={StoreCategorySelectionScreen} />
-        <Stack.Screen name="IndividualPostListing" component={IndividualPostListingScreen} />
-        <Stack.Screen name="ShopPostListing" component={ShopPostListingScreen} />
-        <Stack.Screen name="CreateShop" component={CreateShopScreen} />
-        <Stack.Screen name="ShopVerification" component={ShopVerificationScreen} />
-        <Stack.Screen name="InviteFriends" component={InviteFriendsScreen} />
-        <Stack.Screen name="EditListing" component={EditListingScreen} />
-        <Stack.Screen name="MyListings" component={MyListingsScreen} />
-        <Stack.Screen name="MyPurchases" component={MyPurchasesScreen} />
-        <Stack.Screen name="RecentlyViewed" component={RecentlyViewedScreen} />
-        <Stack.Screen name="ListingSuccess" component={ListingSuccessScreen} />
-        <Stack.Screen name="Chat" component={ChatScreen} />
+        <Stack.Screen name="AllCategories" getComponent={loadAllCategoriesScreen} />
+        <Stack.Screen name="SearchResults" getComponent={loadSearchResultsScreen} />
+        <Stack.Screen name="ItemDetail" getComponent={loadItemDetailScreen} />
+        <Stack.Screen name="PostListing" getComponent={loadPostListingScreen} />
+        <Stack.Screen name="SellerTypeSelection" getComponent={loadSellerTypeSelectionScreen} />
+        <Stack.Screen name="StoreCategorySelection" getComponent={loadStoreCategorySelectionScreen} />
+        <Stack.Screen name="IndividualPostListing" getComponent={loadIndividualPostListingScreen} />
+        <Stack.Screen name="ShopPostListing" getComponent={loadShopPostListingScreen} />
+        <Stack.Screen name="CreateShop" getComponent={loadCreateShopScreen} />
+        <Stack.Screen name="ShopVerification" getComponent={loadShopVerificationScreen} />
+        <Stack.Screen name="InviteFriends" getComponent={loadInviteFriendsScreen} />
+        <Stack.Screen name="EditListing" getComponent={loadEditListingScreen} />
+        <Stack.Screen name="MyListings" getComponent={loadMyListingsScreen} />
+        <Stack.Screen name="MyPurchases" getComponent={loadMyPurchasesScreen} />
+        <Stack.Screen name="RecentlyViewed" getComponent={loadRecentlyViewedScreen} />
+        <Stack.Screen name="ListingSuccess" getComponent={loadListingSuccessScreen} />
+        <Stack.Screen name="Chat" getComponent={loadChatScreen} />
         <Stack.Screen name="Call" component={CallScreen} options={{ freezeOnBlur: false }} />
-        <Stack.Screen name="Settings" component={SettingsScreen} />
-        <Stack.Screen name="Wishlist" component={WishlistScreen} />
-        <Stack.Screen name="Notifications" component={NotificationsScreen} />
-        <Stack.Screen name="RateReview" component={RateReviewScreen} />
-        <Stack.Screen name="ReportBlockUser" component={ReportBlockUserScreen} />
-        <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
-        <Stack.Screen name="Info" component={InfoScreen} />
-        <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
-        <Stack.Screen name="ShopProfile" component={ShopProfileScreen} />
-        <Stack.Screen name="ShopDashboard" component={ShopDashboardScreen} />
-        <Stack.Screen name="ShopStorefrontQr" component={ShopStorefrontQrScreen} />
-        <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-        <Stack.Screen name="EditShop" component={EditShopScreen} />
-        <Stack.Screen name="Privacy" component={PrivacyScreen} />
-        <Stack.Screen name="LanguageSelect" component={LanguageSelectScreen} />
-        <Stack.Screen name="CurrencySelect" component={CurrencySelectScreen} />
-        <Stack.Screen name="Terms" component={TermsScreen} />
-        <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
-        <Stack.Screen name="LegalHub" component={LegalHubScreen} />
-        <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} />
-        <Stack.Screen name="SavedAddresses" component={SavedAddressesScreen} />
-        <Stack.Screen name="PaymentMethods" component={PaymentMethodsScreen} />
-        <Stack.Screen name="Wallet" component={WalletScreen} />
-        <Stack.Screen name="Subscription" component={SubscriptionScreen} />
-        <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
-        <Stack.Screen name="TesterMode" component={TesterModeScreen} />
-        <Stack.Screen name="ContactUs" component={ContactUsScreen} />
+        <Stack.Screen name="Settings" getComponent={loadSettingsScreen} />
+        <Stack.Screen name="Wishlist" getComponent={loadWishlistScreen} />
+        <Stack.Screen name="Notifications" getComponent={loadNotificationsScreen} />
+        <Stack.Screen name="RateReview" getComponent={loadRateReviewScreen} />
+        <Stack.Screen name="ReportBlockUser" getComponent={loadReportBlockUserScreen} />
+        <Stack.Screen name="HelpSupport" getComponent={loadHelpSupportScreen} />
+        <Stack.Screen name="Info" getComponent={loadInfoScreen} />
+        <Stack.Screen name="SellerProfile" getComponent={loadSellerProfileScreen} />
+        <Stack.Screen name="ShopProfile" getComponent={loadShopProfileScreen} />
+        <Stack.Screen name="ShopDashboard" getComponent={loadShopDashboardScreen} />
+        <Stack.Screen name="ShopStorefrontQr" getComponent={loadShopStorefrontQrScreen} />
+        <Stack.Screen name="EditProfile" getComponent={loadEditProfileScreen} />
+        <Stack.Screen name="EditShop" getComponent={loadEditShopScreen} />
+        <Stack.Screen name="Privacy" getComponent={loadPrivacyScreen} />
+        <Stack.Screen name="LanguageSelect" getComponent={loadLanguageSelectScreen} />
+        <Stack.Screen name="CurrencySelect" getComponent={loadCurrencySelectScreen} />
+        <Stack.Screen name="Terms" getComponent={loadTermsScreen} />
+        <Stack.Screen name="PrivacyPolicy" getComponent={loadPrivacyPolicyScreen} />
+        <Stack.Screen name="LegalHub" getComponent={loadLegalHubScreen} />
+        <Stack.Screen name="LegalDocument" getComponent={loadLegalDocumentScreen} />
+        <Stack.Screen name="SavedAddresses" getComponent={loadSavedAddressesScreen} />
+        <Stack.Screen name="PaymentMethods" getComponent={loadPaymentMethodsScreen} />
+        <Stack.Screen name="Wallet" getComponent={loadWalletScreen} />
+        <Stack.Screen name="Subscription" getComponent={loadSubscriptionScreen} />
+        <Stack.Screen name="PaymentHistory" getComponent={loadPaymentHistoryScreen} />
+        <Stack.Screen name="TesterMode" getComponent={loadTesterModeScreen} />
+        <Stack.Screen name="ContactUs" getComponent={loadContactUsScreen} />
       </Stack.Navigator>
       <VoiceHost />
       <SignedInModal />

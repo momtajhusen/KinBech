@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
   Text,
@@ -20,8 +20,8 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import EmptyState from '../components/EmptyState';
 import { ProductCardSkeleton, Skeleton } from '../components/SkeletonLoader';
-import { featuredTimeLeft, formatPrice, resolveMediaUrl, timeAgo } from '../utils/listing';
-import { isNearEnd } from '../utils/scroll';
+import { featuredTimeLeft, formatPrice, resolveMediaUrl, thumbUrl, timeAgo } from '../utils/listing';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import { useAccountStatus } from '../hooks/useAccountStatus';
@@ -164,7 +164,6 @@ const SORT_OPTIONS = [
 const BOOST_COLOR = '#D97706';
 const FEATURED_BLUE = 'rgba(37, 99, 235, 0.92)';
 const GRID_GAP = 10;
-const RENDER_BATCH = 20;
 const GRID_IMAGE_RATIO = 0.78;
 
 function reviewReason(item) {
@@ -291,10 +290,7 @@ export default function MyListingsScreen({ navigation, route }) {
     return sortItems(items, sortBy);
   }, [listings, status, category, condition, matchesQuery, sortBy]);
 
-  const [visibleCount, setVisibleCount] = useState(RENDER_BATCH);
-  useEffect(() => {
-    setVisibleCount(RENDER_BATCH);
-  }, [status, category, condition, query, sortBy, viewMode]);
+  const lazyScroll = useLazyScroll();
 
   const extraFilters = (sortBy !== 'newest' ? 1 : 0) + (category !== 'all' ? 1 : 0) + (condition !== 'all' ? 1 : 0);
   const sortLabel = SORT_OPTIONS.find((option) => option.key === sortBy)?.label || 'Newest first';
@@ -567,7 +563,7 @@ export default function MyListingsScreen({ navigation, route }) {
         >
           <View style={styles.cardImageWrap}>
             {item.imageUrl ? (
-              <Image source={{ uri: item.imageUrl }} style={styles.cardImage} resizeMode="cover" />
+              <Image source={{ uri: thumbUrl(item.imageUrl, 400) }} resizeMethod="resize" style={styles.cardImage} resizeMode="cover" />
             ) : (
               <View style={[styles.cardImage, styles.cardImageEmpty]}>
                 <Icon name="image-outline" size={28} color={colors.textMuted} />
@@ -727,7 +723,7 @@ export default function MyListingsScreen({ navigation, route }) {
         >
           <View style={[styles.gridImageWrap, { height: Math.round(gridCardWidth * GRID_IMAGE_RATIO) }]}>
             {item.imageUrl ? (
-              <Image source={{ uri: item.imageUrl }} style={styles.cardImage} resizeMode="cover" />
+              <Image source={{ uri: thumbUrl(item.imageUrl, 400) }} resizeMethod="resize" style={styles.cardImage} resizeMode="cover" />
             ) : (
               <View style={[styles.cardImage, styles.cardImageEmpty]}>
                 <Icon name="image-outline" size={30} color={colors.textMuted} />
@@ -984,19 +980,18 @@ export default function MyListingsScreen({ navigation, route }) {
           </View>
         </View>
 
+      <LazyScrollProvider value={lazyScroll.value}>
       <ScrollView
+        ref={lazyScroll.scrollRef}
         style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         contentContainerStyle={{ paddingTop: 2, paddingBottom: insets.bottom + 96 }}
         refreshControl={refreshControl(colors, refreshing, onRefresh)}
-        scrollEventThrottle={100}
-        onScroll={(event) => {
-          if (visibleCount < filteredListings.length && isNearEnd(event, 800)) {
-            setVisibleCount((count) => count + RENDER_BATCH);
-          }
-        }}
+        scrollEventThrottle={50}
+        onScroll={lazyScroll.onScroll}
+        onContentSizeChange={lazyScroll.onContentSizeChange}
       >
         <AccountStatusCard
           compact
@@ -1049,12 +1044,13 @@ export default function MyListingsScreen({ navigation, route }) {
           />
         ) : (
           viewMode === 'grid' ? (
-            <View style={styles.gridContent}>{filteredListings.slice(0, visibleCount).map(renderGridCard)}</View>
+            <LazyList data={filteredListings} columns={2} gap={GRID_GAP} style={styles.gridContent} estimatedRowHeight={300} renderItem={renderGridCard} />
           ) : (
-            <View style={styles.listContent}>{filteredListings.slice(0, visibleCount).map(renderCard)}</View>
+            <LazyList data={filteredListings} gap={10} style={styles.listContent} estimatedRowHeight={150} renderItem={renderCard} />
           )
         )}
       </ScrollView>
+      </LazyScrollProvider>
 
       <Modal
         visible={sheetOpen}

@@ -4,7 +4,7 @@ import { Dimensions, Pressable, Text, View, useWindowDimensions, Animated } from
 import { Shimmer } from './Motion';
 import { useWishlist } from '../context/WishlistContext';
 import { useTheme, useThemedStyles } from '../theme';
-import { cardPrice } from '../utils/listing';
+import { cardPrice, thumbUrl } from '../utils/listing';
 import { useDisplayCurrency } from '../utils/currency';
 
 export const CARD_ROW_PADDING = 16;
@@ -12,15 +12,17 @@ export const CARD_GAP = 10;
 export const PEEK_VISIBLE = 2.5;
 export const COMPACT_IMAGE_RATIO = 0.88;
 export const COMPACT_BODY_HEIGHT = 118;
+const COMPACT_BODY_HEIGHT_NO_META = 80;
 
-export function compactCardLayout(width) {
+export function compactCardLayout(width, { hideMeta = false } = {}) {
   const cardWidth = Number(width) || 0;
   const imageHeight = Math.round(cardWidth * COMPACT_IMAGE_RATIO);
+  const bodyHeight = hideMeta ? COMPACT_BODY_HEIGHT_NO_META : COMPACT_BODY_HEIGHT;
   return {
     width: cardWidth,
     imageHeight,
-    bodyHeight: COMPACT_BODY_HEIGHT,
-    height: imageHeight + COMPACT_BODY_HEIGHT,
+    bodyHeight,
+    height: imageHeight + bodyHeight,
   };
 }
 
@@ -320,6 +322,7 @@ const ProductCard = memo(function ProductCard({
   condition,
   postedAt,
   listing,
+  hideMeta = false,
 }) {
   useDisplayCurrency();
   const priceText = cardPrice({ listing, price });
@@ -333,7 +336,7 @@ const ProductCard = memo(function ProductCard({
   const bgColor = resolveColor(imageColor, colors) ?? colors.iconBackground;
   const cardWidth = width ?? (compact ? peekCardWidth(screenWidth) : undefined);
   const frameWidth = cardWidth || (compact ? peekCardWidth(screenWidth) : 0);
-  const layout = compact && frameWidth ? compactCardLayout(frameWidth) : null;
+  const layout = compact && frameWidth ? compactCardLayout(frameWidth, { hideMeta }) : null;
   const imageHeight = layout?.imageHeight ?? 140;
   const iconSize = compact ? 28 : 42;
 
@@ -359,7 +362,13 @@ const ProductCard = memo(function ProductCard({
   );
 
   useEffect(() => {
-    if (!photo) imageReveal.setValue(1);
+    if (!photo) {
+      imageReveal.setValue(1);
+      return undefined;
+    }
+    // Android sometimes skips onLoad for cached images; never leave the photo hidden.
+    const timer = setTimeout(() => imageReveal.setValue(1), 1200);
+    return () => clearTimeout(timer);
   }, [photo, imageReveal]);
 
   const revealImage = useCallback(() => {
@@ -426,7 +435,8 @@ const ProductCard = memo(function ProductCard({
         <View style={[styles.image, { backgroundColor: bgColor, height: imageHeight }]}>
           {photo ? (
             <Animated.Image
-              source={{ uri: photo }}
+              source={{ uri: thumbUrl(photo, 400) }}
+              resizeMethod="resize"
               style={[styles.imageFill, imageMotion]}
               resizeMode="cover"
               onLoad={revealImage}
@@ -480,14 +490,14 @@ const ProductCard = memo(function ProductCard({
             </View>
           ) : null}
 
-          {location ? (
+          {location && !hideMeta ? (
             <View style={styles.metaRow}>
               <Icon name="location-outline" size={13} color={colors.textMuted} />
               <Text style={styles.metaText} numberOfLines={1}>{cityOnly(location)}</Text>
             </View>
           ) : null}
 
-          {sellerName ? (
+          {sellerName && !hideMeta ? (
             <View style={styles.metaRow}>
               <Icon
                 name={sellerType === 'shop' ? 'storefront-outline' : 'person-outline'}

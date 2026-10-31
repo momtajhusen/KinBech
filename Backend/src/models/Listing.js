@@ -85,6 +85,13 @@ const listingSchema = new mongoose.Schema(
       /** The title the AI last named a category for, so it is asked once per title. */
       aiTitle: { type: String, default: '' },
     },
+    /** What the AI understood this product to be, for related items (utils/relatedListings). */
+    relatedAi: {
+      key: { type: String, default: '' },
+      type: { type: String, default: '' },
+      same: [{ type: String }],
+      close: [{ type: String }],
+    },
     matchedKeywords: [{ type: String }],
     heldAt: { type: Date, default: null },
     views: { type: Number, default: 0, index: true },

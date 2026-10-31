@@ -20,10 +20,9 @@ import {
   Shimmer,
   SoftPop,
   Wiggle,
-  enterCard,
-  enterSlide,
   enterUp,
 } from '../components/Motion';
+import { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProductCardCarousel from '../components/ProductCardCarousel';
 import SearchBar from '../components/SearchBar';
@@ -60,6 +59,8 @@ const APP_LOGO = require('../../assets/icons/app-icon.png');
 const BUDGET_LIMIT = 5000;
 
 let storesMemory = [];
+let boostedMemory = [];
+const URGENT_LIMIT = 12;
 
 function listingPrice(item) {
   const value = Number(item?.listing?.price);
@@ -103,6 +104,7 @@ export default function HomeScreen({ navigation }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [recentViews, setRecentViews] = useState(() => getRecentlyViewed());
   const [pinnedStores, setPinnedStores] = useState([]);
+  const [boostedRaw, setBoostedRaw] = useState(() => boostedMemory);
   const hasLoadedRef = useRef(Boolean(initialCatalog?.listings?.length));
   const catalogFpRef = useRef(catalogFingerprint(initialCatalog?.listings || []));
   const locationLabelRef = useRef('Kathmandu');
@@ -301,8 +303,22 @@ export default function HomeScreen({ navigation }) {
     setLoading(false);
   }, [loadStores, resolveCoordsQuick]);
 
+  const loadBoosted = useCallback(async () => {
+    const known = userCoordsRef.current;
+    const params = { featured: 1, sort: 'newest', page: 1, limit: URGENT_LIMIT };
+    if (known.lat != null && known.lng != null) {
+      params.lat = known.lat;
+      params.lng = known.lng;
+    }
+    const { data, error } = await api.getListings(params);
+    if (error) return;
+    const next = (data?.listings || []).map(toCardItem).filter(Boolean);
+    boostedMemory = next;
+    setBoostedRaw(next);
+  }, []);
+
   const { refreshing, onRefresh } = usePullRefresh(() =>
-    Promise.all([loadListings({ silent: true, force: true }), reloadAccountStatus()])
+    Promise.all([loadListings({ silent: true, force: true }), loadBoosted(), reloadAccountStatus()])
   );
 
   useEffect(() => {
@@ -322,6 +338,7 @@ export default function HomeScreen({ navigation }) {
       }).catch(() => {});
       // Always silent load for instant display
       loadListings({ silent: true });
+      loadBoosted();
       // Load other data in background
       loadRecentlyViewed().then((items) => setRecentViews(items));
       api.getCategoryCounts().then(({ data }) => {
@@ -334,7 +351,7 @@ export default function HomeScreen({ navigation }) {
       if (getAuthToken()) api.getNotifications().then(({ data }) => {
         if (data) setUnreadCount(data.unreadCount || 0);
       });
-    }, [loadListings, loadStores])
+    }, [loadListings, loadStores, loadBoosted])
   );
 
   const openItem = useCallback(
@@ -433,6 +450,22 @@ export default function HomeScreen({ navigation }) {
     [nearbyListings, decorate]
   );
 
+  // Boosted (featured) items only; the section hides itself when nothing is boosted right now.
+  const urgent = useMemo(() => {
+    const now = Date.now();
+    const seen = new Set();
+    return boostedRaw
+      .filter((item) => {
+        if (!item?.isFeatured || seen.has(item.id)) return false;
+        if (item.featuredUntil && new Date(item.featuredUntil).getTime() <= now) return false;
+        seen.add(item.id);
+        return true;
+      })
+      .slice(0, URGENT_LIMIT)
+      .map((item) => decorate(attachDistanceToCard(item, userCoords)));
+  }, [boostedRaw, userCoords, decorate]);
+
+
   const interestRank = useMemo(
     () => new Map(interestCategories.map((name, index) => [name, index])),
     [interestCategories]
@@ -493,7 +526,7 @@ export default function HomeScreen({ navigation }) {
   const categoryGap = 8;
   const categoryTileWidth = Math.floor((windowWidth - 32 - categoryGap * (CATEGORY_COLS - 1)) / CATEGORY_COLS);
 
-  const renderStore = (store, index) => {
+  const renderStore = (store) => {
     const isShop = store.sellerType === 'shop';
     const logo = resolveMediaUrl(store.avatarUrl || '');
     const distance = formatDistanceLabel(Number(store.distance));
@@ -502,7 +535,7 @@ export default function HomeScreen({ navigation }) {
     const accentSoft = isShop ? colors.pastelGreen : colors.pastelBlue;
     const typeIcon = isShop ? 'storefront' : 'person';
     return (
-      <Reanimated.View key={String(store.shopId || store.id || store._id)} entering={enterSlide(index, 70)}>
+      <View key={String(store.shopId || store.id || store._id)}>
       <Pressable
         onPress={() => openStore(store)}
         style={({ pressed }) => [
@@ -578,9 +611,78 @@ export default function HomeScreen({ navigation }) {
           ) : null}
         </View>
       </Pressable>
-      </Reanimated.View>
+      </View>
     );
   };
+
+  const urgentSection = urgent.length > 0 ? (
+    <Reanimated.View entering={SECTION_IN}>
+      <Section
+        styles={styles}
+        colors={colors}
+        icon="rocket"
+        tint={colors.danger}
+        title="Urgent Sell"
+        subtitle="Boosted by sellers who want to sell fast"
+        onViewAll={() =>
+          openCollection({ featured: true, sort: 'newest', title: 'Urgent Sell', subtitle: 'Boosted items near you' })
+        }
+        items={urgent}
+        onPressItem={openItem}
+      />
+    </Reanimated.View>
+  ) : null;
+
+  const trendingSection = (
+    <Reanimated.View entering={SECTION_IN}>
+      <Section
+        styles={styles}
+        colors={colors}
+        icon="flame"
+        tint={colors.danger}
+        title="Trending near you"
+        subtitle="Most viewed items around you"
+        onViewAll={() => openCollection({ sort: 'trending', title: 'Trending near you', subtitle: 'Most viewed around you' })}
+        items={trending}
+        onPressItem={openItem}
+      />
+    </Reanimated.View>
+  );
+
+  const pickedSection = forYou.length > 0 ? (
+    <Reanimated.View entering={SECTION_IN}>
+      <Section
+        styles={styles}
+        colors={colors}
+        icon="sparkles"
+        tint={colors.primary}
+        title="Picked for you"
+        subtitle="Based on what you browse and save"
+        onViewAll={() =>
+          openCollection({ sort: 'recommended', title: 'Picked for you', subtitle: 'Based on your interests' })
+        }
+        items={forYou}
+        onPressItem={openItem}
+      />
+    </Reanimated.View>
+  ) : null;
+
+  const pinnedSection = pinnedStores.length > 0 ? (
+    <Reanimated.View entering={SECTION_IN} style={styles.block}>
+      <SectionHeader
+        styles={styles}
+        colors={colors}
+        icon="bookmark"
+        tint={colors.primary}
+        title="Pinned sellers"
+        subtitle="Your favourite sellers saved for quick access"
+        onViewAll={openSellers}
+      />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storeRow}>
+        {pinnedStores.map(renderStore)}
+      </ScrollView>
+    </Reanimated.View>
+  ) : null;
 
   return (
     <View style={styles.container}>
@@ -699,7 +801,6 @@ export default function HomeScreen({ navigation }) {
                 <PressableScale
                   key={cat.label}
                   style={{ width: categoryTileWidth }}
-                  entering={enterCard(index, 40)}
                   scaleTo={0.95}
                   onPress={() => (cat.isMore ? navigation.navigate(ROUTES.ALL_CATEGORIES) : openCategory(cat.label))}
                 >
@@ -744,71 +845,22 @@ export default function HomeScreen({ navigation }) {
           )
         ) : (
           <>
-            {forYou.length > 0 ? (
-              <Reanimated.View entering={enterUp(2, 46)}>
-              <Section
-                styles={styles}
-                colors={colors}
-                icon="sparkles"
-                tint={colors.primary}
-                title="Picked for you"
-                subtitle="Based on what you browse and save"
-                onViewAll={() =>
-                  openCollection({
-                    sort: 'recommended',
-                    title: 'Picked for you',
-                    subtitle: 'Based on your interests',
-                  })
-                }
-                items={forYou}
-                onPressItem={openItem}
-              />
-              </Reanimated.View>
-            ) : null}
-
-            {pinnedStores.length > 0 ? (
-              <Reanimated.View entering={enterUp(3, 46)} style={styles.block}>
-                <SectionHeader
-                  styles={styles}
-                  colors={colors}
-                  icon="bookmark"
-                  tint={colors.primary}
-                  title="Pinned sellers"
-                  subtitle="Your favourite sellers saved for quick access"
-                  onViewAll={openSellers}
-                />
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.storeRow}
-                >
-                  {pinnedStores.map(renderStore)}
-                </ScrollView>
-              </Reanimated.View>
-            ) : null}
-
-            <Reanimated.View entering={enterUp(4, 46)}>
-            <Section
-              styles={styles}
-              colors={colors}
-              icon="flame"
-              tint={colors.danger}
-              title="Trending near you"
-              subtitle="Most viewed items around you"
-              onViewAll={() =>
-                openCollection({
-                  sort: 'trending',
-                  title: 'Trending near you',
-                  subtitle: 'Most viewed around you',
-                })
-              }
-              items={trending}
-              onPressItem={openItem}
-            />
-            </Reanimated.View>
+            {urgent.length > 0 ? (
+              <>
+                {urgentSection}
+                {pinnedSection}
+                {pickedSection}
+              </>
+            ) : (
+              <>
+                {pickedSection}
+                {pinnedSection}
+                {trendingSection}
+              </>
+            )}
 
             {topCategories.length > 1 ? (
-              <Reanimated.View entering={enterUp(5, 46)} style={styles.block}>
+              <Reanimated.View entering={SECTION_IN} style={styles.block}>
                 <SectionHeader
                   styles={styles}
                   colors={colors}
@@ -837,7 +889,7 @@ export default function HomeScreen({ navigation }) {
               </Reanimated.View>
             ) : null}
 
-            <Reanimated.View entering={enterUp(6, 46)}>
+            <Reanimated.View entering={SECTION_IN}>
             <Section
               styles={styles}
               colors={colors}
@@ -853,7 +905,7 @@ export default function HomeScreen({ navigation }) {
             />
             </Reanimated.View>
 
-            <Reanimated.View entering={enterUp(7, 46)} style={styles.sellBanner}>
+            <Reanimated.View entering={SECTION_IN} style={styles.sellBanner}>
               <LinearGradient
                 colors={colors.gradient}
                 start={{ x: 0, y: 0 }}
@@ -894,7 +946,7 @@ export default function HomeScreen({ navigation }) {
             </Reanimated.View>
 
             {budget.length > 0 ? (
-              <Reanimated.View entering={enterUp(8, 46)}>
+              <Reanimated.View entering={SECTION_IN}>
               <Section
                 styles={styles}
                 colors={colors}
@@ -917,7 +969,7 @@ export default function HomeScreen({ navigation }) {
             ) : null}
 
             {recent.length > 0 ? (
-              <Reanimated.View entering={enterUp(9, 46)}>
+              <Reanimated.View entering={SECTION_IN}>
               <Section
                 styles={styles}
                 colors={colors}
@@ -994,6 +1046,8 @@ function Section({ styles, colors, icon, tint, title, subtitle, onViewAll, items
     </View>
   );
 }
+
+const SECTION_IN = FadeIn.duration(220);
 
 const createStyles = (colors) => ({
   container: {
@@ -1285,10 +1339,14 @@ const createStyles = (colors) => ({
     backgroundColor: colors.surface,
     padding: 10,
     overflow: 'hidden',
+    shadowColor: colors.primary,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   individualCard: {
     borderColor: 'rgba(37, 99, 235, 0.22)',
-    backgroundColor: 'rgba(37, 99, 235, 0.03)',
   },
   storeHeader: {
     flexDirection: 'row',

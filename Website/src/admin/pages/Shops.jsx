@@ -230,9 +230,9 @@ const Shops = () => {
               {shops.map((shop) => (
                 <article className="data-card" key={shop.id}>
                   <div className="data-card-media">
-                    {shop.logo || shop.coverImage ? (
+                    {shop.logo ? (
                       <img
-                        src={mediaUrl(shop.logo || shop.coverImage)}
+                        src={mediaUrl(shop.logo)}
                         alt={shop.name}
                         loading="lazy"
                       />

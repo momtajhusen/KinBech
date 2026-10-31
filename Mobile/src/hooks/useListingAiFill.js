@@ -29,11 +29,12 @@ async function photoForAi(uri) {
 /** Individual sellers sell used items: suggested price is this share of the brand-new price. */
 export const USED_PRICE_SHARE = { Good: 0.5, Fair: 0.25 };
 
+// Fine steps for cheap items: a NPR 10 pen must not become NPR 50.
 function roundPrice(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 0;
-  const step = n < 1000 ? 50 : n < 10000 ? 100 : n < 100000 ? 500 : 1000;
-  return Math.max(step, Math.round(n / step) * step);
+  const step = n < 20 ? 1 : n < 100 ? 5 : n < 500 ? 10 : n < 1000 ? 50 : n < 10000 ? 100 : n < 100000 ? 500 : 1000;
+  return Math.max(1, Math.round(n / step) * step);
 }
 
 const ISSUE_LABELS = {
@@ -190,7 +191,7 @@ export function priceWarning(price, estimate) {
   const value = Number(text.replace(/,/g, ''));
   if (!Number.isFinite(value)) return '';
   if (value <= 0) return 'Price is NPR 0. This listing will go to manual review.';
-  if (!(estimate > 0)) return '';
+  if (!(estimate > 0) || Math.abs(value - estimate) < 100) return '';
   const ratio = value / estimate;
   if (ratio < 0.3) return 'Price looks too low for this item. It will go to manual review.';
   if (ratio > 3) return 'Price looks too high for this item. It will go to manual review.';

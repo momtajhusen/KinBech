@@ -13,6 +13,13 @@ const CATEGORY_ICONS = {
   Fashion: 'shirt-outline',
 };
 
+/** Small server-made copy of an uploaded photo for cards and lists; other URLs pass through. */
+export function thumbUrl(url, width = 400) {
+  const full = resolveMediaUrl(url);
+  if (!full || !/\/uploads\/[^?#]+\.(jpe?g|png|webp)$/i.test(full)) return full;
+  return `${full}?w=${width}`;
+}
+
 export function resolveMediaUrl(url) {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();

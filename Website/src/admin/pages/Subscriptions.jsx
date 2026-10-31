@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Banknote,
+  Briefcase,
   Check,
   CheckCircle2,
   Clock,
@@ -10,16 +11,25 @@ import {
   Crown,
   Eye,
   EyeOff,
+  Flame,
+  Gem,
+  Leaf,
   Pencil,
   Plus,
   Rocket,
   Search,
+  Smartphone,
+  Sparkles,
+  Star,
   Store,
+  Tag,
   Trash2,
+  Trophy,
   User,
   Users,
   Wallet,
   XCircle,
+  Zap,
 } from 'lucide-react';
 import api from '../services/api';
 import Modal, { ModalSwitch } from '../components/Modal';
@@ -56,9 +66,34 @@ const REJECT_PRESETS = [
 ];
 
 const DURATION_PRESETS = [7, 30, 90, 365];
+/** Values are Ionicons names the app draws; '' lets the app pick from the plan type. */
+const PLAN_ICONS = [
+  { value: '', label: 'Auto', Icon: Sparkles },
+  { value: 'flash', label: 'Flash', Icon: Zap },
+  { value: 'rocket', label: 'Rocket', Icon: Rocket },
+  { value: 'storefront', label: 'Shop', Icon: Store },
+  { value: 'star', label: 'Star', Icon: Star },
+  { value: 'diamond', label: 'Diamond', Icon: Gem },
+  { value: 'trophy', label: 'Trophy', Icon: Trophy },
+  { value: 'flame', label: 'Fire', Icon: Flame },
+  { value: 'leaf', label: 'Leaf', Icon: Leaf },
+  { value: 'briefcase', label: 'Business', Icon: Briefcase },
+  { value: 'pricetag', label: 'Tag', Icon: Tag },
+];
+const SCREEN_FIELDS = [
+  { key: 'headerSubtitle', label: 'Header line', max: 60, hint: 'Under “Plans & limits” at the top' },
+  { key: 'freePlanName', label: 'Free plan name', max: 30, hint: 'Shown on the current plan card when a seller has no plan' },
+  { key: 'sectionTitle', label: 'Plans title', max: 40, hint: 'Above the plan cards' },
+  { key: 'sectionNote', label: 'Plans note', max: 120, hint: 'Small line under the plans title', wide: true },
+  { key: 'stepsTitle', label: 'Steps title', max: 40, hint: 'Title of the steps card' },
+  { key: 'helpText', label: 'Help link text', max: 40, hint: 'Opens Contact us' },
+];
 const EMPTY_PLAN = {
   name: '',
   tagline: '',
+  description: '',
+  icon: '',
+  badge: '',
   price: 499,
   durationDays: 30,
   individualDailyListings: 20,
@@ -193,9 +228,21 @@ function LimitField({ label, icon: Icon, value, onChange }) {
   );
 }
 
+/** Same words the app writes when a plan has no description of its own. */
+function autoSummary(plan) {
+  const days = `${Number(plan.durationDays) || 0} day${Number(plan.durationDays) === 1 ? '' : 's'}`;
+  const count = (value, what) => (value === 0 ? `unlimited ${what}` : `up to ${value} ${what}`);
+  if (plan.shopDailyListings != null) {
+    const own = plan.individualDailyListings != null ? ` and ${count(plan.individualDailyListings, 'own items')}` : '';
+    return `Post ${count(plan.shopDailyListings, 'shop items')}${own} every day, for ${days}.`;
+  }
+  if (plan.individualDailyListings == null) return '';
+  return `Post ${count(plan.individualDailyListings, 'items')} every day, for ${days}.`;
+}
+
 function PlanModal({ plan, onClose, onSaved }) {
   const [form, setForm] = useState(() =>
-    plan ? { ...plan, features: (plan.features || []).join('\n') } : EMPTY_PLAN
+    plan ? { ...EMPTY_PLAN, ...plan, features: (plan.features || []).join('\n') } : EMPTY_PLAN
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -250,6 +297,28 @@ function PlanModal({ plan, onClose, onSaved }) {
         <input id="plan-tagline" className="form-input" maxLength={90} value={form.tagline} onChange={(e) => set({ tagline: e.target.value })} placeholder="For sellers who post every day" />
       </div>
       <div className="form-group">
+        <label htmlFor="plan-description">One line on the card</label>
+        <input
+          id="plan-description"
+          className="form-input"
+          maxLength={140}
+          value={form.description}
+          onChange={(e) => set({ description: e.target.value })}
+          placeholder={autoSummary(form) || 'Post up to 20 items every day, for 30 days.'}
+        />
+        <p className="form-hint">Leave empty and the app writes it from the limits: “{autoSummary(form)}”</p>
+      </div>
+      <div className="form-group">
+        <label>Card icon</label>
+        <div className="subs-icon-pick">
+          {PLAN_ICONS.map(({ value, label, Icon }) => (
+            <button key={label} type="button" className={form.icon === value ? 'active' : ''} onClick={() => set({ icon: value })}>
+              <Icon aria-hidden /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="form-group">
         <label htmlFor="plan-days">Length</label>
         <div className="subs-inline">
           <input id="plan-days" className="form-input subs-days" type="number" min="1" max="366" value={form.durationDays} onChange={(e) => set({ durationDays: e.target.value })} />
@@ -277,14 +346,22 @@ function PlanModal({ plan, onClose, onSaved }) {
           rows={4}
           value={form.features}
           onChange={(e) => set({ features: e.target.value })}
-          placeholder={'Post up to 20 items a day\nPlan badge on your profile'}
+          placeholder={'Plan badge on your profile\nHelp on WhatsApp'}
         />
+        <p className="form-hint">Each line shows with a green tick under the one line on the card.</p>
       </div>
 
       <div className="subs-form-grid">
         <ModalSwitch checked={form.highlight} onChange={(v) => set({ highlight: v })} label="Most popular" hint="Shown with a badge and bright button" />
         <ModalSwitch checked={form.active} onChange={(v) => set({ active: v })} label="Visible in the app" hint="Off hides it from new buyers" />
       </div>
+      {form.highlight ? (
+        <div className="form-group">
+          <label htmlFor="plan-badge">Badge text</label>
+          <input id="plan-badge" className="form-input" maxLength={24} value={form.badge} onChange={(e) => set({ badge: e.target.value })} placeholder="Most popular" />
+          <p className="form-hint">Orange ribbon on the card. Empty shows “Most popular”.</p>
+        </div>
+      ) : null}
       <div className="form-group">
         <label htmlFor="plan-order">Order</label>
         <input id="plan-order" className="form-input subs-days" type="number" value={form.sortOrder} onChange={(e) => set({ sortOrder: e.target.value })} />
@@ -299,7 +376,7 @@ function PlanCard({ plan, onEdit, onToggle, onDelete }) {
   const limits = [limitLabel(plan.individualDailyListings, 'individual'), limitLabel(plan.shopDailyListings, 'store')].filter(Boolean);
   return (
     <div className={`subs-plan ${plan.highlight ? 'highlight' : ''} ${plan.active ? '' : 'hidden-plan'}`}>
-      {plan.highlight ? <span className="subs-plan-ribbon">Most popular</span> : null}
+      {plan.highlight ? <span className="subs-plan-ribbon">{plan.badge || 'Most popular'}</span> : null}
       <div className="subs-plan-top">
         <div>
           <h4>{plan.name}</h4>
@@ -313,11 +390,10 @@ function PlanCard({ plan, onEdit, onToggle, onDelete }) {
       <div className="subs-plan-limits">
         {limits.map((text) => <span key={text}><Rocket aria-hidden /> {text}</span>)}
       </div>
-      {plan.features.length ? (
-        <ul className="subs-plan-features">
-          {plan.features.map((feature) => <li key={feature}><Check aria-hidden /> {feature}</li>)}
-        </ul>
-      ) : null}
+      <ul className="subs-plan-features">
+        <li><Check aria-hidden /> {plan.description || autoSummary(plan)}</li>
+        {plan.features.map((feature) => <li key={feature}><Check aria-hidden /> {feature}</li>)}
+      </ul>
       <div className="subs-plan-foot">
         <span className="subs-muted"><Users aria-hidden /> {plan.subscribers} active</span>
         {!plan.active ? <span className="status-badge suspended">Hidden</span> : null}
@@ -404,6 +480,69 @@ function PaymentForm({ payment, onSaved }) {
   );
 }
 
+function ScreenForm({ screen, onSaved }) {
+  const [form, setForm] = useState(screen);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => setForm(screen), [screen]);
+  const changed = JSON.stringify(form) !== JSON.stringify(screen);
+  const setStep = (index, patch) =>
+    setForm((current) => ({ ...current, steps: current.steps.map((step, i) => (i === index ? { ...step, ...patch } : step)) }));
+
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const { data } = await api.put('/subscriptions/admin/screen', form);
+      onSaved(data.screen);
+    } catch (err) {
+      setError(errorText(err, 'Could not save the screen texts'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="card subs-payment" onSubmit={save}>
+      <div className="card-header">
+        <h3><Smartphone className="item-icon" aria-hidden /> Plans screen in the app</h3>
+      </div>
+      <p className="page-hint">
+        Words sellers read on the Plans &amp; limits screen. Keep them short and simple. An empty box goes back to the default text.
+      </p>
+      <div className="subs-form-grid">
+        {SCREEN_FIELDS.map((field) => (
+          <div className={`form-group ${field.wide ? 'subs-wide' : ''}`} key={field.key}>
+            <label htmlFor={`screen-${field.key}`}>{field.label}</label>
+            <input
+              id={`screen-${field.key}`}
+              className="form-input"
+              maxLength={field.max}
+              value={form[field.key] || ''}
+              onChange={(e) => setForm((current) => ({ ...current, [field.key]: e.target.value }))}
+            />
+            <p className="form-hint">{field.hint}</p>
+          </div>
+        ))}
+      </div>
+      <h4 className="subs-steps-title">Steps (3)</h4>
+      {(form.steps || []).map((step, index) => (
+        <div className="subs-step-row" key={index}>
+          <span className="subs-step-num">{index + 1}</span>
+          <input className="form-input" maxLength={40} value={step.title} placeholder="Step title" onChange={(e) => setStep(index, { title: e.target.value })} />
+          <input className="form-input" maxLength={80} value={step.sub} placeholder="Short help line" onChange={(e) => setStep(index, { sub: e.target.value })} />
+        </div>
+      ))}
+      {error ? <div className="u360-error">{error}</div> : null}
+      <div className="form-actions">
+        <button type="button" className="btn btn-secondary" disabled={!changed || busy} onClick={() => setForm(screen)}>Reset</button>
+        <button type="submit" className="btn btn-primary" disabled={!changed || busy}>{busy ? 'Saving…' : 'Save texts'}</button>
+      </div>
+    </form>
+  );
+}
+
 export default function Subscriptions() {
   const [params] = useSearchParams();
   const initialQ = params.get('q') || '';
@@ -412,7 +551,7 @@ export default function Subscriptions() {
   const [summary, setSummary] = useState(null);
   const [search, setSearch] = useState(initialQ);
   const [q, setQ] = useState(initialQ);
-  const [plansData, setPlansData] = useState({ plans: [], payment: {} });
+  const [plansData, setPlansData] = useState({ plans: [], payment: {}, screen: null });
   const [message, setMessage] = useState('');
   const [editing, setEditing] = useState(null);
   const [prompt, setPrompt] = useState(null);
@@ -438,7 +577,7 @@ export default function Subscriptions() {
     try {
       const { data } = await api.get('/subscriptions/admin/plans');
       if (!Array.isArray(data?.plans)) throw new Error('Unexpected response');
-      setPlansData({ plans: data.plans, payment: data.payment || {}, esewa: data.esewa || {} });
+      setPlansData({ plans: data.plans, payment: data.payment || {}, esewa: data.esewa || {}, screen: data.screen || null });
     } catch (err) {
       setMessage(errorText(err, 'Could not load plans'));
     }
@@ -575,6 +714,7 @@ export default function Subscriptions() {
             Requests{counts.pending ? ` (${counts.pending})` : ''}
           </button>
           <button type="button" className={tab === 'plans' ? 'active' : ''} onClick={() => setTab('plans')}>Plans</button>
+          <button type="button" className={tab === 'screen' ? 'active' : ''} onClick={() => setTab('screen')}>App screen</button>
           <button type="button" className={tab === 'payment' ? 'active' : ''} onClick={() => setTab('payment')}>Payment details</button>
         </div>
         {tab === 'plans' ? (
@@ -651,6 +791,16 @@ export default function Subscriptions() {
             </button>
           </div>
         )
+      ) : null}
+
+      {tab === 'screen' && plansData.screen ? (
+        <ScreenForm
+          screen={plansData.screen}
+          onSaved={(screen) => {
+            setPlansData((current) => ({ ...current, screen }));
+            toast.success('The app shows the new texts next time sellers open Plans.', { title: 'Texts saved' });
+          }}
+        />
       ) : null}
 
       {tab === 'payment' ? <EsewaGatewayCard /> : null}

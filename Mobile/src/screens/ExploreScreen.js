@@ -41,7 +41,8 @@ import SellerProfileCard from '../components/SellerProfileCard';
 import SearchBar from '../components/SearchBar';
 import { useExploreVoiceTurns } from '../components/VoiceHost';
 import EmptyState from '../components/EmptyState';
-import ProductCard from '../components/ProductCard';
+import ProductCard, { compactCardLayout } from '../components/ProductCard';
+import LazyList, { LazyScrollProvider, useLazyScroll } from '../components/LazyList';
 import pinnedStoresUtils from '../utils/pinnedStores';
 import { isNearEnd } from '../utils/scroll';
 import { ProductCardSkeleton, SellerProfileCardSkeleton } from '../components/SkeletonLoader';
@@ -686,6 +687,7 @@ export default function ExploreScreen({ navigation, route }) {
   ]));
   const sidebarItemAnims = useRef(new Map()).current;
   const skipEnter = useRef(false);
+  const lazyScroll = useLazyScroll();
 
   const getSidebarItemAnim = useCallback((label) => {
     if (!sidebarItemAnims.has(label)) {
@@ -1039,7 +1041,12 @@ export default function ExploreScreen({ navigation, route }) {
   const handleProductPress = useCallback((product, index) => {
     // Navigate to product detail
     if (product) {
-      openItemDetail(navigation, { listingId: product.id, item: product.listing || product, sharedId: product.id });
+      openItemDetail(navigation, {
+        listingId: product.id,
+        item: product.listing || product,
+        sharedId: product.id,
+        searchQuery: searchQueryRef.current,
+      });
     }
   }, [navigation]);
 
@@ -1660,15 +1667,19 @@ export default function ExploreScreen({ navigation, route }) {
                 </View>
               ) : null}
 
+              <LazyScrollProvider value={lazyScroll.value}>
               <ScrollView
+                ref={lazyScroll.scrollRef}
                 style={styles.mainContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 contentContainerStyle={[styles.scrollViewContent, { paddingBottom: insets.bottom }]}
                 refreshControl={refreshControl(colors, refreshing, onRefresh, !searchFocused)}
-                scrollEventThrottle={100}
+                scrollEventThrottle={50}
+                onContentSizeChange={lazyScroll.onContentSizeChange}
                 onScroll={(event) => {
+                  lazyScroll.onScroll(event);
                   if (activeTab === 'products' && !searchActive && isNearEnd(event, 900)) loadMoreProducts();
                 }}
               >
@@ -1717,8 +1728,13 @@ export default function ExploreScreen({ navigation, route }) {
                       </View>
                     ) : filteredProducts.length > 0 ? (
                       <>
-                        <View style={styles.productGrid}>
-                          {filteredProducts.map((item, index) => {
+                        <LazyList
+                          data={filteredProducts}
+                          columns={2}
+                          gap={GRID_GUTTER}
+                          style={styles.productGrid}
+                          estimatedRowHeight={compactCardLayout(productCardWidth).height}
+                          renderItem={(item, index, revisit) => {
                             const card = (
                               <GridCard
                                 item={item}
@@ -1728,7 +1744,8 @@ export default function ExploreScreen({ navigation, route }) {
                               />
                             );
                             let entering;
-                            if (skipEnter.current) entering = enterQuick(index);
+                            if (revisit) entering = undefined;
+                            else if (skipEnter.current) entering = enterQuick(index);
                             else if (index <= 7) entering = enterCard(index, 50);
                             else entering = enterCard(index % 2, 60);
                             return (
@@ -1736,8 +1753,8 @@ export default function ExploreScreen({ navigation, route }) {
                                 {card}
                               </Reanimated.View>
                             );
-                          })}
-                        </View>
+                          }}
+                        />
                         {loadingMoreProducts ? (
                           <View style={styles.loadMoreRow}>
                             <ActivityIndicator size="small" color={colors.primary} />
@@ -1800,6 +1817,7 @@ export default function ExploreScreen({ navigation, route }) {
                   />
                 )}
               </ScrollView>
+              </LazyScrollProvider>
             </View>
           </View>
         </View>
