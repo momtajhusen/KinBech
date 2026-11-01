@@ -11,8 +11,23 @@ import {
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { LinearGradient } from 'expo-linear-gradient';
+import { FadeInDown, withSpring, withTiming } from 'react-native-reanimated';
 import Icon from './Icon';
+import { PressableScale, Reanimated } from './Motion';
 import { useTheme, useThemedStyles } from '../theme';
+
+function cardIn() {
+  'worklet';
+  const spring = { damping: 16, stiffness: 170, mass: 0.8 };
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 50 }, { scale: 0.94 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 200 }),
+      transform: [{ translateY: withSpring(0, spring) }, { scale: withSpring(1, spring) }],
+    },
+  };
+}
 import { cropImageRect } from '../utils/pickImage';
 
 let opener = null;
@@ -263,8 +278,12 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onCancel}>
       <GestureHandlerRootView style={styles.overlay}>
-        <View style={[styles.card, { width: sheetWidth }]}>
+        {visible ? (
+        <Reanimated.View entering={cardIn} style={[styles.card, { width: sheetWidth }]}>
           <View style={styles.header}>
+            <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.headerIcon}>
+              <Icon name="crop" size={18} color="#FFFFFF" />
+            </LinearGradient>
             <View style={styles.headerText}>
               <Text style={styles.title}>Crop photo</Text>
               <Text style={styles.subtitle}>Drag to move · pinch to zoom · rotate, flip, straighten</Text>
@@ -307,7 +326,7 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
             </View>
           </GestureDetector>
 
-          <View style={styles.tools}>
+          <Reanimated.View entering={FadeInDown.delay(120).duration(280)} style={styles.tools}>
             {[
               { key: 'left', icon: 'refresh', flip: true, label: 'Left', action: () => bake([{ rotate: -90 }]) },
               { key: 'right', icon: 'refresh', label: 'Right', action: () => bake([{ rotate: 90 }]) },
@@ -331,7 +350,7 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
                 <Text style={styles.toolLabel}>{tool.label}</Text>
               </Pressable>
             ))}
-          </View>
+          </Reanimated.View>
 
           <View style={styles.editRow}>
             <Pressable style={styles.undo} onPress={undo} disabled={!history.length || busy || saving}>
@@ -357,14 +376,22 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
             </Pressable>
           </View>
 
-          <Pressable style={styles.use} onPress={applyCrop} disabled={!photo || saving}>
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.useText}>Use photo</Text>
-            )}
-          </Pressable>
-        </View>
+          <Reanimated.View entering={FadeInDown.delay(200).duration(280)} style={styles.useWrap}>
+            <PressableScale scaleTo={0.97} onPress={applyCrop} disabled={!photo || saving}>
+              <LinearGradient colors={colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.use}>
+                {saving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Icon name="checkmark-circle" size={19} color="#FFFFFF" />
+                    <Text style={styles.useText}>Use photo</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </PressableScale>
+          </Reanimated.View>
+        </Reanimated.View>
+        ) : null}
       </GestureHandlerRootView>
     </Modal>
   );
@@ -387,9 +414,16 @@ function createStyles(colors) {
       paddingBottom: 14,
       alignItems: 'center',
     },
+    headerIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     header: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       gap: 10,
       marginBottom: 12,
       alignSelf: 'stretch',
@@ -526,14 +560,17 @@ function createStyles(colors) {
       fontWeight: '800',
       color: colors.text,
     },
-    use: {
+    useWrap: {
       alignSelf: 'stretch',
-      height: 50,
       marginTop: 14,
+    },
+    use: {
+      height: 52,
       borderRadius: 16,
+      flexDirection: 'row',
+      gap: 8,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: colors.primary,
     },
     useText: {
       fontSize: 16,

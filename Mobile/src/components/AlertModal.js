@@ -1,201 +1,203 @@
-import React from 'react';
-import { Modal, View, Text, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
-import Icon from './Icon';
+import { useEffect } from 'react';
+import { ActivityIndicator, Modal, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { FadeIn, FadeInDown, ZoomIn, withSpring, withTiming } from 'react-native-reanimated';
+import Icon from './Icon';
+import { PressableScale, Pulse, Reanimated } from './Motion';
+import { callHaptic } from '../services/callHaptics';
 import { useTheme, useThemedStyles } from '../theme';
+
+const TONES = {
+  success: { icon: 'checkmark', gradient: ['#34D399', '#047857'], haptic: 'answer' },
+  error: { icon: 'close', gradient: ['#F87171', '#DC2626'], haptic: 'failed' },
+  warning: { icon: 'alert', gradient: ['#FBBF24', '#D97706'], haptic: 'remoteEnd' },
+};
+
+function cardIn() {
+  'worklet';
+  const spring = { damping: 15, stiffness: 180, mass: 0.8 };
+  return {
+    initialValues: { opacity: 0, transform: [{ translateY: 40 }, { scale: 0.9 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 180 }),
+      transform: [{ translateY: withSpring(0, spring) }, { scale: withSpring(1, spring) }],
+    },
+  };
+}
 
 const createStyles = (colors) => ({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(2, 6, 23, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   container: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 28,
     width: '100%',
     maxWidth: 360,
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
-    elevation: 12,
+    borderRadius: 26,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    elevation: 16,
   },
-  iconWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  iconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.shadow,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  iconGlow: {
+  glow: {
     position: 'absolute',
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    opacity: 0.3,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 130,
+  },
+  body: {
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 22,
+    alignItems: 'center',
+  },
+  iconRing: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  iconCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   title: {
-    fontSize: 22,
-    fontWeight: '800',
+    fontSize: 21,
+    fontWeight: '900',
     color: colors.text,
-    marginBottom: 10,
     textAlign: 'center',
+    letterSpacing: -0.2,
   },
   message: {
-    fontSize: 15,
+    marginTop: 8,
+    fontSize: 14.5,
+    lineHeight: 22,
     color: colors.textMuted,
-    lineHeight: 23,
-    marginBottom: 28,
     textAlign: 'center',
   },
-  buttonContainer: {
-    gap: 12,
+  buttons: {
+    alignSelf: 'stretch',
+    gap: 10,
+    marginTop: 24,
   },
-  button: {
+  primary: {
+    height: 52,
     borderRadius: 16,
-    paddingVertical: 16,
     alignItems: 'center',
-    shadowColor: colors.gradientStart,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 6,
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
-  buttonText: {
+  primaryText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#FFFFFF',
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
-  secondaryButton: {
-    paddingVertical: 14,
-    alignItems: 'center',
+  secondary: {
+    height: 50,
     borderRadius: 16,
-    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
     borderColor: colors.border,
+    backgroundColor: colors.background,
   },
-  secondaryButtonText: {
+  secondaryText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
 });
 
-export function AlertModal({
-  visible,
-  onClose,
-  title,
-  message,
-  type = 'info',
-  primaryButton,
-  secondaryButton,
-  loading = false,
-}) {
+function AlertContent({ onClose, title, message, type, primaryButton, secondaryButton, loading }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
+  const tone = TONES[type] || { icon: 'information', gradient: colors.gradient, haptic: 'toggleOn' };
+  const tint = tone.gradient[tone.gradient.length - 1];
 
-  const getIconName = () => {
-    switch (type) {
-      case 'success':
-        return 'checkmark-circle';
-      case 'error':
-        return 'close-circle';
-      case 'warning':
-        return 'warning';
-      default:
-        return 'information-circle';
-    }
-  };
-
-  const getIconColors = () => {
-    switch (type) {
-      case 'success':
-        return { bg: '#047857', glow: '#047857', icon: '#FFFFFF' };
-      case 'error':
-        return { bg: '#EF4444', glow: '#EF4444', icon: '#FFFFFF' };
-      case 'warning':
-        return { bg: '#F59E0B', glow: '#F59E0B', icon: '#FFFFFF' };
-      default:
-        return { bg: colors.primary, glow: colors.primary, icon: '#FFFFFF' };
-    }
-  };
-
-  const iconColors = getIconColors();
+  useEffect(() => {
+    callHaptic(tone.haptic);
+  }, [tone.haptic]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.container}>
-          <View style={styles.iconWrapper}>
-            <View style={[styles.iconGlow, { backgroundColor: iconColors.glow }]} />
-            <View style={[styles.iconContainer, { backgroundColor: iconColors.bg }]}>
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size={32} />
-              ) : (
-                <Icon name={getIconName()} size={36} color={iconColors.icon} />
-              )}
-            </View>
-          </View>
+    <Reanimated.View entering={FadeIn.duration(180)} style={styles.overlay}>
+      <Reanimated.View entering={cardIn} style={styles.container}>
+        <LinearGradient colors={[`${tint}33`, `${tint}00`]} style={styles.glow} pointerEvents="none" />
+        <View style={styles.body}>
+          <Reanimated.View entering={ZoomIn.delay(90).duration(320)}>
+            <Pulse active={!loading} to={1.08} pause={1600} style={[styles.iconRing, { backgroundColor: `${tint}1F` }]}>
+              <LinearGradient colors={tone.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.iconCircle}>
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="large" />
+                ) : (
+                  <Icon name={tone.icon} size={34} color="#FFFFFF" />
+                )}
+              </LinearGradient>
+            </Pulse>
+          </Reanimated.View>
 
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          <Reanimated.View entering={FadeInDown.delay(120).duration(280)} style={{ alignSelf: 'stretch' }}>
+            {title ? <Text style={styles.title}>{title}</Text> : null}
+            {message ? <Text style={styles.message}>{message}</Text> : null}
+          </Reanimated.View>
 
-          <View style={styles.buttonContainer}>
-            {primaryButton && (
-              <TouchableOpacity
-                activeOpacity={0.8}
+          <Reanimated.View entering={FadeInDown.delay(180).duration(280)} style={styles.buttons}>
+            {primaryButton ? (
+              <PressableScale
+                scaleTo={0.97}
+                disabled={loading}
                 onPress={() => {
                   primaryButton.onPress?.();
                   onClose?.();
                 }}
-                disabled={loading}
-                style={styles.button}
               >
                 <LinearGradient
                   colors={colors.gradient}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
-                  style={{ ...styles.button, width: '100%' }}
+                  style={[styles.primary, loading && { opacity: 0.7 }]}
                 >
-                  <Text style={styles.buttonText}>
-                    {loading ? 'Please wait...' : primaryButton.text}
-                  </Text>
+                  <Text style={styles.primaryText}>{loading ? 'Please wait...' : primaryButton.text}</Text>
                 </LinearGradient>
-              </TouchableOpacity>
-            )}
-
-            {secondaryButton && (
-              <TouchableOpacity
-                activeOpacity={0.7}
+              </PressableScale>
+            ) : null}
+            {secondaryButton ? (
+              <PressableScale
+                scaleTo={0.97}
+                disabled={loading}
+                contentStyle={styles.secondary}
                 onPress={() => {
                   secondaryButton.onPress?.();
                   onClose?.();
                 }}
-                disabled={loading}
-                style={styles.secondaryButton}
               >
-                <Text style={styles.secondaryButtonText}>{secondaryButton.text}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+                <Text style={styles.secondaryText}>{secondaryButton.text}</Text>
+              </PressableScale>
+            ) : null}
+          </Reanimated.View>
         </View>
-      </View>
+      </Reanimated.View>
+    </Reanimated.View>
+  );
+}
+
+export function AlertModal({ visible, onClose, type = 'info', loading = false, ...rest }) {
+  return (
+    <Modal visible={!!visible} transparent animationType="none" statusBarTranslucent onRequestClose={onClose}>
+      {visible ? <AlertContent {...rest} type={type} loading={loading} onClose={onClose} /> : null}
     </Modal>
   );
 }

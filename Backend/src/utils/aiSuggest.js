@@ -176,7 +176,7 @@ function buildPrompt(categories, shop) {
     'that helps you identify the exact model.',
     '',
     'Reply with JSON only, in exactly this shape:',
-    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "person": {"visible": boolean, "note": string, "revealing": boolean, "revealingNote": string}, "focus": {"isProduct": boolean, "reason": string}, "searchWords": string[]}',
+    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "person": {"visible": boolean, "note": string, "revealing": boolean, "revealingNote": string}, "focus": {"isProduct": boolean, "reason": string}, "photo": {"usable": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
     '',
     'Safety rules (check first):',
     '- KinBech is a family marketplace. Set safety.allowed to false when the photo shows nudity,',
@@ -204,6 +204,18 @@ function buildPrompt(categories, shop) {
     '  scenery or screenshots with no product. True when a buyer can clearly see what is sold,',
     '  including clothes or jewellery modelled by a person in a normal catalogue style photo.',
     '- focus.reason: one short plain sentence on why it is not a product photo. Empty when true.',
+    '- photo.usable: false when a buyer could not tell what is being sold from this photo.',
+    '- photo.issue: exactly one of "none", "qr_code", "blurry", "too_dark", "blank", "unclear".',
+    '  qr_code: the photo is mainly a QR code, barcode or payment code. A small code on, next to',
+    '  or behind a clearly visible product is fine.',
+    '  blurry: so out of focus or shaky that the item cannot be made out.',
+    '  too_dark: so dark, or so overexposed, that the item cannot be seen.',
+    '  blank: one plain colour, a bare wall, floor or sky, a finger over the lens, or almost',
+    '  nothing in the frame.',
+    '  unclear: a random close-up, texture or pattern, a cluttered scene with no main item, or a',
+    '  screenshot of text, chat, payment or social media with no product.',
+    '- A slightly soft, dim or simple photo is usable when the item can still be recognised.',
+    '- photo.reason: one short plain sentence on what is wrong. Empty when usable.',
     '',
     'Price rules:',
     '- priceNpr: a realistic selling price in Nepal, in Nepali rupees (NPR), for this exact item',
@@ -311,7 +323,13 @@ function parseSuggestion(rawText) {
   const titleWords = String(parsed.title || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
   const title = (titleWords.length > 5 ? titleWords.slice(0, 5) : titleWords).join(' ');
   const description = String(parsed.description || '').trim();
-  if (!title && !description) return null;
+  const photo = photoVerdict(parsed.photo);
+  const focus = {
+    isProduct: parsed.focus?.isProduct !== false,
+    reason: String(parsed.focus?.reason || '').trim().slice(0, 160),
+  };
+  // A blank, QR-only or off-topic photo has nothing to name, so an empty title is a valid answer there.
+  if (!title && !description && photo.usable && focus.isProduct) return null;
   const priceNpr = Math.round(Number(parsed.priceNpr));
   const newPriceNpr = Math.round(Number(parsed.newPriceNpr));
 
@@ -338,10 +356,21 @@ function parseSuggestion(rawText) {
       revealing: parsed.person?.revealing === true,
       revealingNote: String(parsed.person?.revealingNote || '').trim().slice(0, 120),
     },
-    focus: {
-      isProduct: parsed.focus?.isProduct !== false,
-      reason: String(parsed.focus?.reason || '').trim().slice(0, 160),
-    },
+    focus,
+    photo,
+  };
+}
+
+const PHOTO_ISSUES = ['qr_code', 'blurry', 'too_dark', 'blank', 'unclear'];
+
+function photoVerdict(raw) {
+  const issue = String(raw?.issue || '').trim().toLowerCase();
+  const known = PHOTO_ISSUES.includes(issue);
+  const usable = raw?.usable !== false && !known;
+  return {
+    usable,
+    issue: usable ? 'none' : known ? issue : 'unclear',
+    reason: usable ? '' : String(raw?.reason || '').trim().slice(0, 160),
   };
 }
 

@@ -1,5 +1,7 @@
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Modal, StyleSheet, Text, View } from 'react-native';
+import { FadeIn, FadeInDown, FadeInUp, withSpring, withTiming } from 'react-native-reanimated';
 import Icon from './Icon';
+import { PressableScale, Reanimated } from './Motion';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme';
@@ -22,24 +24,46 @@ function PreviewVideo({ uri }) {
   );
 }
 
+function mediaIn() {
+  'worklet';
+  const spring = { damping: 18, stiffness: 160, mass: 0.9 };
+  return {
+    initialValues: { opacity: 0, transform: [{ scale: 0.86 }] },
+    animations: {
+      opacity: withTiming(1, { duration: 220 }),
+      transform: [{ scale: withSpring(1, spring) }],
+    },
+  };
+}
+
 export default function ListingMediaPreview({ visible, item, onClose }) {
+  return (
+    <Modal visible={!!visible} animationType="none" transparent statusBarTranslucent onRequestClose={onClose}>
+      {visible ? <PreviewContent item={item} onClose={onClose} /> : null}
+    </Modal>
+  );
+}
+
+function PreviewContent({ item, onClose }) {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const isVideo = item?.type === 'video';
   const label = isVideo ? 'Video preview' : 'Photo preview';
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-          <Text style={styles.headerTitle}>{label}</Text>
-          <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-            <Icon name="close" size={24} color="#fff" />
-          </Pressable>
-        </View>
+    <Reanimated.View entering={FadeIn.duration(200)} style={styles.backdrop}>
+        <Reanimated.View entering={FadeInDown.delay(80).duration(260)} style={[styles.header, { paddingTop: insets.top + 8 }]}>
+          <View style={styles.headerPill}>
+            <Icon name={isVideo ? 'videocam' : 'image'} size={15} color="#fff" />
+            <Text style={styles.headerTitle}>{label}</Text>
+          </View>
+          <PressableScale onPress={onClose} hitSlop={12} contentStyle={styles.closeBtn}>
+            <Icon name="close" size={22} color="#fff" />
+          </PressableScale>
+        </Reanimated.View>
 
-        <View style={styles.body}>
-          {item?.uri && isVideo && visible ? (
+        <Reanimated.View entering={mediaIn} style={styles.body}>
+          {item?.uri && isVideo ? (
             <PreviewVideo key={item.uri} uri={resolveMediaUrl(item.uri)} />
           ) : item?.uri ? (
             <Image source={{ uri: resolveMediaUrl(item.uri) }} style={styles.image} resizeMode="contain" />
@@ -49,18 +73,19 @@ export default function ListingMediaPreview({ visible, item, onClose }) {
               <Text style={styles.emptyText}>Nothing to preview</Text>
             </View>
           )}
-        </View>
+        </Reanimated.View>
 
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          <Pressable
+        <Reanimated.View entering={FadeInUp.delay(120).duration(260)} style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
+          <PressableScale
             onPress={onClose}
-            style={[styles.doneBtn, { backgroundColor: colors.primary }]}
+            scaleTo={0.97}
+            contentStyle={[styles.doneBtn, { backgroundColor: colors.primary }]}
           >
-            <Text style={styles.doneBtnText}>Close</Text>
-          </Pressable>
-        </View>
-      </View>
-    </Modal>
+            <Icon name="checkmark" size={18} color="#fff" />
+            <Text style={styles.doneBtnText}>Done</Text>
+          </PressableScale>
+        </Reanimated.View>
+    </Reanimated.View>
   );
 }
 
@@ -76,10 +101,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 8,
   },
+  headerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
   headerTitle: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '800',
   },
   closeBtn: {
     width: 40,
@@ -115,9 +149,12 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   doneBtn: {
-    borderRadius: 14,
-    paddingVertical: 14,
+    height: 52,
+    borderRadius: 16,
+    flexDirection: 'row',
+    gap: 6,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   doneBtnText: {
     color: '#fff',

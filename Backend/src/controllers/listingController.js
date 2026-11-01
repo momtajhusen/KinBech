@@ -67,6 +67,11 @@ const PHOTO_ISSUE_LABELS = {
   person: "a real person's face",
   revealing: 'private body areas highlighted',
   off_topic: 'no clear item for sale',
+  qr_code: 'only a QR code or barcode',
+  blurry: 'a blurry photo',
+  too_dark: 'a photo too dark to see',
+  blank: 'a blank photo',
+  unclear: 'a photo where the item cannot be made out',
   other: 'content that breaks KinBech rules',
 };
 
@@ -1761,7 +1766,7 @@ async function featureListing(req, res, next) {
 async function getRelatedListings(req, res, next) {
   try {
     const exclude = String(req.query.exclude || '');
-    const limit = Math.min(12, Math.max(1, parseInt(req.query.limit, 10) || 8));
+    const limit = Math.min(20, Math.max(1, parseInt(req.query.limit, 10) || 8));
     let source = mongoose.isValidObjectId(exclude)
       ? await Listing.findById(exclude).select('title description category relatedAi').lean()
       : null;

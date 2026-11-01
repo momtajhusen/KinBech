@@ -78,6 +78,36 @@ const PHOTO_FLAG_COPY = {
     body: 'This photo puts private body areas on show, so our team checks it before it goes live.',
     tip: 'Show the item on a hanger, laid flat or on a mannequin instead.',
   },
+  qr_code: {
+    icon: 'qr-code-outline',
+    title: 'Only a QR code in the photo',
+    body: 'Buyers need to see the item, not a code, so our team checks it before it goes live.',
+    tip: 'Take a photo of the item itself. Share payment details in chat.',
+  },
+  blurry: {
+    icon: 'aperture-outline',
+    title: 'Photo is blurry',
+    body: 'The item is hard to make out, so our team checks it before it goes live.',
+    tip: 'Hold the phone steady and tap the item to focus.',
+  },
+  too_dark: {
+    icon: 'moon-outline',
+    title: 'Photo is too dark',
+    body: 'The item is hard to see, so our team checks it before it goes live.',
+    tip: 'Take the photo near a window or in good light.',
+  },
+  blank: {
+    icon: 'square-outline',
+    title: 'Photo looks empty',
+    body: 'There is no item to see in this photo, so our team checks it before it goes live.',
+    tip: 'Fill the frame with the item you are selling.',
+  },
+  unclear: {
+    icon: 'help-circle-outline',
+    title: 'Item is not clear',
+    body: 'It is hard to tell what is for sale here, so our team checks it before it goes live.',
+    tip: 'Take a clear photo of just the item on a plain background.',
+  },
   off_topic: {
     icon: 'help-circle-outline',
     title: 'No item in focus',

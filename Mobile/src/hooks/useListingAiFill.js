@@ -176,6 +176,8 @@ export function useListingAiFill({
       // A real person in the photo is allowed, but our team looks at it before it goes live.
       if (suggestion.revealingDetected) {
         setImageFlag({ uri: photoUri, issue: 'revealing', reason: suggestion.revealingNote || 'Private body areas are highlighted' });
+      } else if (suggestion.photoIssue) {
+        setImageFlag({ uri: photoUri, issue: suggestion.photoIssue, reason: suggestion.photoIssueNote || '' });
       } else if (suggestion.offTopic) {
         setImageFlag({ uri: photoUri, issue: 'off_topic', reason: suggestion.offTopicNote || 'No clear item for sale in the photo' });
       } else if (suggestion.faceDetected) {

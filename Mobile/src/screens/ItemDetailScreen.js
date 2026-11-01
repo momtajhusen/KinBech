@@ -50,6 +50,41 @@ const IMAGE_HEIGHT = 340;
 const AUTO_SLIDE_MS = 2500;
 const HERO_WIDTH = SCREEN_WIDTH - 32;
 
+const RELATED_FILTERS = [
+  { key: 'all', label: 'All', icon: 'apps-outline' },
+  { key: 'nearest', label: 'Nearest', icon: 'navigate-outline', sort: true },
+  { key: 'cheapest', label: 'Lowest price', icon: 'trending-down-outline', sort: true },
+  { key: 'cheaper', label: 'Cheaper than this', icon: 'pricetag-outline' },
+  { key: 'new', label: 'New', icon: 'sparkles-outline' },
+  { key: 'used', label: 'Used', icon: 'refresh-outline' },
+  { key: 'shop', label: 'Shops', icon: 'storefront-outline' },
+  { key: 'individual', label: 'Individuals', icon: 'person-outline' },
+];
+
+const amountOf = (card) => Number(card?.listing?.price) || 0;
+const isNewCondition = (card) => /new/i.test(String(card?.listing?.condition || ''));
+
+function filterRelated(cards, key, currentPrice) {
+  switch (key) {
+    case 'nearest':
+      return cards.filter((card) => card.distanceKm != null).sort((a, b) => a.distanceKm - b.distanceKm);
+    case 'cheapest':
+      return cards.filter((card) => amountOf(card) > 0).sort((a, b) => amountOf(a) - amountOf(b));
+    case 'cheaper':
+      return currentPrice > 0 ? cards.filter((card) => amountOf(card) > 0 && amountOf(card) < currentPrice) : [];
+    case 'new':
+      return cards.filter(isNewCondition);
+    case 'used':
+      return cards.filter((card) => !isNewCondition(card));
+    case 'shop':
+      return cards.filter((card) => card.sellerType === 'shop');
+    case 'individual':
+      return cards.filter((card) => card.sellerType !== 'shop');
+    default:
+      return cards;
+  }
+}
+
 function isVideoUri(uri) {
   const value = String(uri || '').toLowerCase();
   return (
@@ -96,6 +131,7 @@ export default function ItemDetailScreen({ navigation, route }) {
   const [variantSelection, setVariantSelection] = useState({});
   const [distanceLabel, setDistanceLabel] = useState(null);
   const [relatedItems, setRelatedItems] = useState([]);
+  const [relatedFilter, setRelatedFilter] = useState('all');
   const pagerRef = useRef(null);
   const thumbsRef = useRef(null);
   const photoCountRef = useRef(0);
@@ -162,6 +198,7 @@ export default function ItemDetailScreen({ navigation, route }) {
 
   useEffect(() => {
     const title = listing?.title;
+    setRelatedFilter('all');
     if (!title || !listingId) {
       setRelatedItems([]);
       return undefined;
@@ -185,7 +222,7 @@ export default function ItemDetailScreen({ navigation, route }) {
         exclude: listingId,
         category: listing?.category || '',
         q: searchQuery,
-        limit: 8,
+        limit: 20,
       });
       if (cancelled || error || !data?.listings) return;
       const cards = data.listings
@@ -391,6 +428,17 @@ export default function ItemDetailScreen({ navigation, route }) {
       navigation.navigate(ROUTES.SELLER_PROFILE, { seller: item.sellerData });
     }
   };
+
+  const currentPrice = Number(listing.price) || 0;
+  // A chip shows only when it changes the list: sorts need two items, filters a real subset.
+  const relatedChips = RELATED_FILTERS.map((filter) => ({
+    ...filter,
+    count: filterRelated(relatedItems, filter.key, currentPrice).length,
+  })).filter((chip) =>
+    chip.key === 'all' || (chip.sort ? chip.count >= 2 : chip.count > 0 && chip.count < relatedItems.length)
+  );
+  const activeRelatedFilter = relatedChips.some((chip) => chip.key === relatedFilter) ? relatedFilter : 'all';
+  const shownRelated = filterRelated([...relatedItems], activeRelatedFilter, currentPrice);
 
   const openRelated = (card) =>
     navigation.push(ROUTES.ITEM_DETAIL, {
@@ -738,9 +786,34 @@ export default function ItemDetailScreen({ navigation, route }) {
 
           {relatedItems.length > 0 ? (
             <View style={styles.relatedSection}>
-              <Text style={styles.sectionTitle}>Related items</Text>
+              <Text style={[styles.sectionTitle, styles.relatedTitle]}>Related items</Text>
+              {relatedChips.length > 1 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.relatedChips}
+                  contentContainerStyle={styles.relatedChipsContent}
+                >
+                  {relatedChips.map((chip) => {
+                    const active = chip.key === activeRelatedFilter;
+                    return (
+                      <Pressable
+                        key={chip.key}
+                        onPress={() => setRelatedFilter(chip.key)}
+                        style={[styles.relatedChip, active && styles.relatedChipActive]}
+                      >
+                        <Icon name={chip.icon} size={14} color={active ? colors.onPrimary : colors.textSecondary} />
+                        <Text style={[styles.relatedChipText, active && styles.relatedChipTextActive]}>{chip.label}</Text>
+                        {!chip.sort && chip.key !== 'all' ? (
+                          <Text style={[styles.relatedChipCount, active && styles.relatedChipTextActive]}>{chip.count}</Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
               <View style={styles.relatedGrid}>
-                {relatedItems.map((card) => (
+                {shownRelated.map((card) => (
                   <ProductCard
                     key={card.id}
                     {...card}
@@ -1352,7 +1425,10 @@ const createStyles = (colors) => ({
     lineHeight: 21,
   },
   relatedSection: {
-    marginTop: 22,
+    marginTop: 10,
+  },
+  relatedTitle: {
+    marginBottom: 14,
   },
   relatedHint: {
     marginTop: 2,
@@ -1364,6 +1440,42 @@ const createStyles = (colors) => ({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: RELATED_GUTTER,
+  },
+  relatedChips: {
+    marginBottom: 14,
+    marginHorizontal: -16,
+  },
+  relatedChipsContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  relatedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  relatedChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  relatedChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  relatedChipTextActive: {
+    color: colors.onPrimary,
+  },
+  relatedChipCount: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textMuted,
   },
   safetyBanner: {
     flexDirection: 'row',

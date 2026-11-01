@@ -18,6 +18,7 @@ const {
   voiceSearchTurn,
 } = require('../utils/aiSuggest');
 const { openLiveSpeech, pipeSpeech, waitSpeechReady } = require('../utils/voiceLive');
+const { photoPixelIssue } = require('../utils/photoQuality');
 const { searchSummary } = require('../controllers/listingController');
 const { CATALOG, catalogEntry } = require('../utils/aiCatalog');
 const { LEVELS, levelLimits, sellerLevel } = require('../utils/aiSellerLevel');
@@ -117,6 +118,18 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
     }
     const aiUsage = { used: quota.used, limit: quota.limit };
     const photoSaved = rememberAiPhoto({ userId: req.user._id, data, mimeType });
+    const pixelIssue = await photoPixelIssue(Buffer.from(data, 'base64'));
+    // A plain colour has nothing for the AI to read, so it is flagged without spending a call.
+    if (pixelIssue === 'blank') {
+      refundAiCall(req.user._id, quota.day);
+      quota = null;
+      return res.json({
+        suggestion: { title: '', description: '', category: null, condition: null, searchWords: [], photoIssue: 'blank', photoIssueNote: '' },
+        model: null,
+        aiUsage: { ...aiUsage, used: Math.max(0, aiUsage.used - 1) },
+        photoKey: await photoSaved,
+      });
+    }
 
     const { suggestion, model } = await suggestListingFromImage({
       data,
@@ -138,12 +151,20 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
         photoKey: await photoSaved,
       });
     }
-    const resolved = await resolveProductCategory({
-      name: suggestion.category,
-      title: suggestion.title,
-      description: suggestion.description,
-      createIfMissing: true,
-    });
+    // A QR-only or off-topic photo comes back with no item name; it gets no category, condition or price.
+    const named = Boolean(suggestion.title);
+    if (!named) {
+      suggestion.category = null;
+      suggestion.condition = null;
+    }
+    const resolved = named
+      ? await resolveProductCategory({
+        name: suggestion.category,
+        title: suggestion.title,
+        description: suggestion.description,
+        createIfMissing: true,
+      })
+      : null;
     const moderation = await evaluateListingModeration({
       title: suggestion.title,
       description: suggestion.description,
@@ -175,11 +196,11 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
     }
 
     const individual = req.body?.forShop !== true;
-    if (individual) {
+    if (individual && named) {
       suggestion.condition = suggestion.condition === 'Fair' ? 'Fair' : 'Good';
     }
 
-    if (!suggestion.contentBlocked) {
+    if (named && !suggestion.contentBlocked) {
       const usedShare = USED_PRICE_SHARE[suggestion.condition];
       if (individual && usedShare && suggestion.newPriceNpr) {
         suggestion.price = roundPrice(suggestion.newPriceNpr * usedShare);
@@ -209,6 +230,12 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
       suggestion.revealingDetected = true;
       suggestion.revealingNote = suggestion.person.revealingNote || suggestion.person.note;
     }
+    const unreadable = pixelIssue || (suggestion.photo && !suggestion.photo.usable ? suggestion.photo.issue : '');
+    if (unreadable) {
+      suggestion.photoIssue = unreadable;
+      suggestion.photoIssueNote = suggestion.photo?.issue === unreadable ? suggestion.photo.reason : '';
+    }
+    delete suggestion.photo;
     if (suggestion.focus && !suggestion.focus.isProduct) {
       suggestion.offTopic = true;
       suggestion.offTopicNote = suggestion.focus.reason;
