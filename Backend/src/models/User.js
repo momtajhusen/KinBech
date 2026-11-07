@@ -124,6 +124,8 @@ const userSchema = new mongoose.Schema(
       currency: { type: String, default: 'NPR (₨)' },
       showPhone: { type: Boolean, default: false },
       showLocation: { type: Boolean, default: true },
+      /** The Hindi voice helper on the sell screens (the mic toggle there). */
+      sellVoice: { type: Boolean, default: true },
     },
     /** Shareable invite code — friend signup grants featuredCredits */
     referralCode: { type: String, trim: true, uppercase: true, unique: true, sparse: true, index: true },

@@ -126,6 +126,7 @@ export function toSellerCard(seller) {
     gallery: (seller.productGallery || []).map(resolveMediaUrl).filter(Boolean),
     openingHours: seller.openingHours || '',
     phone: seller.phone || '',
+    socialLinks: seller.socialLinks || {},
     shopId: seller.shopId || null,
     userId: seller.userId || null,
     raw: seller,

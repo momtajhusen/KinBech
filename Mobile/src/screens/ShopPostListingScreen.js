@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormScroll, revealFocusedInput, scrollFieldToTop, useKeyboardHeight } from '../components/FormScroll';
-import SearchWordsField from '../components/SearchWordsField';
 import { openItemDetail, ROUTES } from '../navigation/helpers';
 import { api } from '../services/api';
 import { uploadMediaUris } from '../utils/mediaUpload';
@@ -31,6 +30,14 @@ import {
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingLiveModal from '../components/ListingLiveModal';
 import PublishConfirmModal from '../components/PublishConfirmModal';
+import AiItemCheckModal from '../components/AiItemCheckModal';
+import ListingDetailsModal from '../components/ListingDetailsModal';
+import SellVoiceBar, { VoiceToggle } from '../components/SellVoiceBar';
+import { useListingDetailsStep } from '../hooks/useListingDetailsStep';
+import { useSellVoice } from '../hooks/useSellVoice';
+import { useSellVoiceSetting } from '../hooks/useSellVoiceSetting';
+import { readDetails } from '../utils/listingDetails';
+import { describeControls, detailsForVoice, runVoiceTurn } from '../utils/sellVoiceControls';
 import VariantEditor from '../components/VariantEditor';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import { analysedPhotoKey, useListingAiFill } from '../hooks/useListingAiFill';
@@ -56,6 +63,8 @@ function resolveColor(colorRef, colors) {
 }
 
 const CONDITIONS = ['New', 'Good', 'Fair'];
+// Room at the end of the form so the floating voice bar never covers the last field.
+const VOICE_BAR_SPACE = 72;
 
 function FloatingField({
   label,
@@ -151,7 +160,6 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const originalAnchorRef = useRef(null);
   const brandAnchorRef = useRef(null);
   const skuAnchorRef = useRef(null);
-  const searchAnchorRef = useRef(null);
   const keyboardHeight = useKeyboardHeight();
   const [fieldErrors, setFieldErrors] = useState({});
   const titleRef = useRef(null);
@@ -183,6 +191,11 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   const [price, setPrice] = useState(editListing?.price != null ? String(editListing.price) : '');
   const priceTextRef = useRef(price);
   priceTextRef.current = price;
+  // No automatic keyboard while the details card is open or the voice helper is talking.
+  const holdFocusRef = useRef(false);
+  const voiceOnRef = useRef(false);
+  const [voicePhoto, setVoicePhoto] = useState(null);
+  const [voiceOn, setVoiceOn] = useSellVoiceSetting({ askMic: !isEdit });
   const [originalPrice, setOriginalPrice] = useState(
     editListing?.originalPrice != null && editListing.originalPrice !== ''
       ? String(editListing.originalPrice)
@@ -336,6 +349,125 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
   useEffect(() => {
     keepOnlyPhoto(mainPhoto);
   }, [mainPhoto, keepOnlyPhoto]);
+
+  const detailsStep = useListingDetailsStep({
+    ai,
+    description,
+    setDescription,
+    photoUri: mainPhoto,
+    onClosed: () => focusEmptyPrice(),
+  });
+
+  // The Hindi voice helper talks from the moment AI has read the cover photo until the listing is posted.
+  const voiceActive = !isEdit && voiceOn && Boolean(mainPhoto) && voicePhoto === mainPhoto && !submitting && !alertConfig?.live;
+  const voiceStage = ai.filling ? 'reading' : ai.pending ? 'check' : detailsStep.open ? 'details' : confirmOpen ? 'publish' : 'form';
+  const applyVoiceSet = (set, descriptionAdd) => {
+    if (set.title) {
+      setTitle(set.title);
+      clearFieldError('title');
+    }
+    if (set.category) {
+      const item = categories.find((cat) => cat.label === set.category);
+      categoryTouchedRef.current = true;
+      setCategory(set.category);
+      if (item) setAiCategory(item);
+      chipScrollRef.current?.scrollTo({ x: 0, animated: true });
+    }
+    if (set.condition && CONDITIONS.includes(set.condition)) setCondition(set.condition);
+    if (set.price) {
+      setPrice(String(set.price));
+      clearFieldError('price');
+    }
+    if (set.brand) setBrand(set.brand);
+    if (set.stock) setStock(String(set.stock));
+    if (descriptionAdd) {
+      setDescription((current) => (current.trim() ? `${current.trim()}\n${descriptionAdd}` : descriptionAdd));
+    }
+  };
+
+  // Everything on the screen the seller could tap right now, so the voice helper can tap it for them.
+  const voiceControls = () => {
+    const list = [];
+    const add = (id, kind, label, run, extra = {}) => list.push({ id, kind, label, run, ...extra });
+    const fieldAnchors = {
+      photos: photoAnchorRef,
+      title: titleAnchorRef,
+      description: descAnchorRef,
+      price: priceAnchorRef,
+      original_price: originalAnchorRef,
+      stock: stockAnchorRef,
+      brand: brandAnchorRef,
+      sku: skuAnchorRef,
+    };
+    const fieldInputs = { title: titleRef, description: descRef, price: priceRef, stock: stockRef, brand: brandRef, sku: skuRef };
+    if (confirmOpen) {
+      add('publish_now', 'button', 'Final review: "Publish now" — posts the listing', () => submitListing(), { later: true });
+      add('edit_review', 'button', 'Final review: "Edit" — closes the review and goes back to the form', () => setConfirmOpen(false));
+    } else if (!detailsStep.open && !ai.pending) {
+      add('publish', 'button', 'Publish button — checks the form and opens the final review', () => publish());
+    }
+    if (detailsStep.open) {
+      add('save_details', 'button', `${detailsStep.details.label} details card: save`, () => detailsStep.save(), { later: true });
+      add('skip_details', 'button', `${detailsStep.details.label} details card: skip / close`, () => detailsStep.skip(), { later: true });
+    } else if (detailsStep.known) {
+      add('edit_details', 'button', `Open the ${detailsStep.known.label} details card to change details`, () => detailsStep.edit());
+    }
+    add('description', 'text', 'Description box: replace the whole description with this English text', (value) => setDescription(String(value)));
+    add('original_price', 'number', 'Original price (MRP, shown crossed out)', (value) => setOriginalPrice(String(Math.round(value))), {
+      value: originalPrice,
+    });
+    add('sku', 'text', 'SKU / product code', (value) => setSku(String(value)), { value: sku });
+    add('on_sale', 'toggle', 'On sale switch', (value) => setIsOnSale(Boolean(value)), { value: isOnSale });
+    add('all_categories', 'button', showAllCategories ? 'Show only my shop categories' : 'Show all categories', () =>
+      setShowAllCategories((value) => !value)
+    );
+    add('show_field', 'select', 'Scroll the form to a section', (value) => revealField(fieldAnchors[value]), { options: Object.keys(fieldAnchors) });
+    add('type_in', 'select', 'Open the keyboard in a field so the seller types it by hand', (value) => revealField(fieldAnchors[value], fieldInputs[value]), {
+      options: Object.keys(fieldInputs),
+      later: true,
+    });
+    if (!ai.filling) add('ai_refill', 'button', 'AI sparkle button — read the cover photo again and refill the form', () => ai.fill({ photoUri: mainPhoto }));
+    add('change_cover', 'button', 'Take or choose a new cover photo', () => pickPhoto(0), { later: true });
+    const freeSlot = Array.from({ length: MAX_LISTING_PHOTOS - 1 }, (_, i) => i + 1).find((i) => !photos[i]?.uri);
+    if (freeSlot) add('add_photo', 'button', 'Add another photo', () => pickPhoto(freeSlot), { later: true });
+    add('clear_form', 'button', 'Clear — removes the photo and empties the whole form', () => resetForm(), { later: true });
+    add('back', 'button', 'Back — leave the sell screen', () => handleBack(), { later: true });
+    return list;
+  };
+
+  const voice = useSellVoice({
+    active: voiceActive,
+    stage: voiceStage,
+    paused: keyboardHeight > 0 || limitModal || (!!alertConfig && !alertConfig.live),
+    buildTurn: () => ({
+      forShop: true,
+      form: { title, description, category, condition, price, brand, stock, originalPrice, sku, isOnSale },
+      categories: categories.map((cat) => cat.label),
+      conditions: CONDITIONS,
+      aiPrice: ai.aiPrice,
+      check: ai.pending ? ai.pending.suggestion : null,
+      details: detailsForVoice(detailsStep, (known) => readDetails(known, description)),
+      controls: describeControls(voiceControls()),
+    }),
+    applyTurn: (turn, when) =>
+      runVoiceTurn(turn, when, {
+        controls: voiceControls(),
+        applySet: applyVoiceSet,
+        detailsStep,
+        savedDetails: detailsStep.known ? readDetails(detailsStep.known, description) : {},
+        pending: ai.pending,
+        answerCheck: answerAiCheck,
+        confirmOpen,
+        openPublish: publish,
+        closePublish: () => setConfirmOpen(false),
+        confirmPublish: () => {
+          if (!repeatCheck.checking) submitListing();
+        },
+      }),
+  });
+  voiceOnRef.current = voiceActive && !voice.muted;
+  holdFocusRef.current = detailsStep.openRef.current || voiceOnRef.current;
+  const voiceBar = voiceActive ? <SellVoiceBar voice={voice} inline /> : null;
   const imageFlag =
     ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
       ? { issue: ai.imageFlag.issue, reason: ai.imageFlag.reason }
@@ -396,21 +528,85 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
     if (index === 0 && pickedUri && !isEdit) {
       // Open the keyboard for price only once AI is done, so it does not jump while the photo is read.
       const focusPrice = () => {
-        if (priceTextRef.current.trim() || TextInput.State?.currentlyFocusedInput?.()) return;
+        if (priceTextRef.current.trim() || holdFocusRef.current || TextInput.State?.currentlyFocusedInput?.()) return;
         revealField(priceAnchorRef, priceRef);
       };
       if (ai.limitReached) {
+        setVoicePhoto(pickedUri);
         setTimeout(focusPrice, 350);
       } else {
         ai.fill({ silent: true, photoUri: pickedUri, onlyEmpty: true }).then((result) => {
-          if (result !== 'blocked') setTimeout(focusPrice, 250);
+          if (result !== 'blocked') setVoicePhoto(pickedUri);
+          if (result !== 'blocked' && result !== 'confirm') setTimeout(focusPrice, 250);
         });
       }
     }
   }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, isEdit, mainPhoto, checkPostLimit]);
 
+  const focusEmptyPrice = () =>
+    setTimeout(() => {
+      if (!priceTextRef.current.trim() && !holdFocusRef.current) revealField(priceAnchorRef, priceRef);
+    }, 250);
+
+  const answerAiCheck = (choice) => {
+    ai.resolvePending(choice);
+    if (choice === 'retake') {
+      pickPhoto(0);
+    } else if (choice === 'unsure') {
+      // While the voice helper talks, the keyboard would only interrupt it.
+      if (!voiceOnRef.current) revealField(titleAnchorRef, titleRef);
+    } else {
+      focusEmptyPrice();
+    }
+  };
+
   const removePhoto = (index) => {
+    // Details come from the cover, so a new post starts over without it.
+    if (index === 0 && !isEdit) {
+      resetForm();
+      return;
+    }
     setPhotos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const formDirty = Boolean(
+    photos.some((item) => item?.uri) ||
+      title.trim() ||
+      description.trim() ||
+      price.trim() ||
+      originalPrice.trim() ||
+      brand.trim() ||
+      sku.trim() ||
+      searchWords.length ||
+      hasVariants
+  );
+
+  const resetForm = () => {
+    Keyboard.dismiss();
+    ai.reset();
+    setVoicePhoto(null);
+    uploadedRef.current = null;
+    setPhotos([]);
+    setFieldErrors({});
+    setTitle('');
+    setDescription('');
+    setSearchWords([]);
+    categoryTouchedRef.current = false;
+    setAiCategory(null);
+    setShowAllCategories(false);
+    setCategory((shopCategories?.length ? shopCategories : allCategories)[0]?.label || 'Mobiles');
+    chipScrollRef.current?.scrollTo({ x: 0, animated: false });
+    setCondition('New');
+    setPrice('');
+    setOriginalPrice('');
+    setStock('1');
+    setBrand('');
+    setSku('');
+    setIsOnSale(false);
+    setHasVariants(false);
+    setVariantOptions([]);
+    setVariants([]);
+    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
   };
 
   const validateStep1 = () => {
@@ -660,8 +856,6 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
 
   if (!colors) return null;
 
-  const photoCount = photos.filter(Boolean).length;
-
   return (
     <View style={styles.root}>
       <ThemeStatusBar variant="header" />
@@ -676,7 +870,7 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
       <View style={styles.flex}>
         <FormScroll
           ref={scrollRef}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 }]}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 + (voiceActive ? VOICE_BAR_SPACE : 0) }]}
         >
           {loadingShop && !userShop ? (
             <View style={styles.shopInfoCard}>
@@ -705,14 +899,16 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
           ) : null}
 
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Photos</Text>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>Photos</Text>
+              {!isEdit && formDirty ? (
+                <Pressable onPress={resetForm} hitSlop={10}>
+                  <Text style={styles.clearText}>Clear</Text>
+                </Pressable>
+              ) : null}
+            </View>
             <View style={styles.mediaCountRow}>
-              <View style={styles.countChip}>
-                <Icon name="image" size={11} color={colors.primary} />
-                <Text style={styles.countChipText}>
-                  {photoCount}/{MAX_LISTING_PHOTOS}
-                </Text>
-              </View>
+              {!isEdit ? <VoiceToggle value={voiceOn} onChange={setVoiceOn} /> : null}
               <AiFillButton filling={ai.filling} onPress={() => ai.fill({ photoUri: mainPhoto })} />
             </View>
           </View>
@@ -833,14 +1029,6 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
             anchorRef={descAnchorRef}
             onFocus={focusField}
           />
-
-          <View ref={searchAnchorRef} collapsable={false}>
-            <SearchWordsField
-              words={searchWords}
-              onChange={setSearchWords}
-              onFocus={focusField}
-            />
-          </View>
 
           <Text style={styles.fieldLabel}>Category</Text>
           {shopCategoriesLoading && !shopCategories ? (
@@ -1044,18 +1232,18 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
               </Pressable>
             </View>
           ) : null}
+
+          <Pressable style={styles.continueBtn} onPress={publish} disabled={submitting}>
+            {submitting ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.continueBtnText}>{isEdit ? 'Save changes' : 'Publish'}</Text>
+            )}
+          </Pressable>
         </FormScroll>
 
-        {keyboardHeight === 0 ? (
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 10 }]}>
-            <Pressable style={styles.continueBtn} onPress={publish} disabled={submitting}>
-              {submitting ? (
-                <ActivityIndicator color={colors.onPrimary} />
-              ) : (
-                <Text style={styles.continueBtnText}>{isEdit ? 'Save changes' : 'Publish'}</Text>
-              )}
-            </Pressable>
-          </View>
+        {keyboardHeight === 0 && voiceActive ? (
+          <SellVoiceBar voice={voice} style={[styles.voiceFloat, { bottom: insets.bottom + 8 }]} />
         ) : null}
       </View>
 
@@ -1065,7 +1253,24 @@ export default function ShopPostListingScreen({ navigation, editListing = null }
         {...(alertConfig?.live ? {} : alertConfig || {})}
       />
       <ListingLiveModal visible={!!alertConfig?.live} {...(alertConfig?.live ? alertConfig : {})} />
+      <AiItemCheckModal
+        visible={!!ai.pending}
+        photo={ai.pending?.photoUri || null}
+        suggestion={ai.pending?.suggestion}
+        onChoose={answerAiCheck}
+        voiceBar={voiceBar}
+      />
+      <ListingDetailsModal
+        visible={detailsStep.open}
+        details={detailsStep.details}
+        values={detailsStep.values}
+        onChange={detailsStep.setValue}
+        onSave={detailsStep.save}
+        onSkip={detailsStep.skip}
+        voiceBar={voiceBar}
+      />
       <PublishConfirmModal
+        voiceBar={voiceBar}
         visible={confirmOpen}
         photo={mainPhoto ? resolveMediaUrl(mainPhoto) : null}
         photoCount={photos.filter((photo) => photo?.uri).length}
@@ -1185,19 +1390,15 @@ const createStyles = (colors) => ({
     fontWeight: '800',
     color: colors.text,
   },
-  countChip: {
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: colors.iconBackground,
+    gap: 8,
   },
-  countChipText: {
-    fontSize: 11,
+  clearText: {
+    fontSize: 12,
     fontWeight: '700',
-    color: colors.primary,
+    color: colors.danger,
   },
   shopInfoCard: {
     flexDirection: 'row',
@@ -1460,14 +1661,13 @@ const createStyles = (colors) => ({
     color: colors.text,
   },
   ...formFieldStyles(colors),
-  bottomBar: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  voiceFloat: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
   },
   continueBtn: {
+    marginTop: 6,
     backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 13,

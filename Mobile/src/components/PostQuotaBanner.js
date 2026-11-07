@@ -17,7 +17,7 @@ export default function PostQuotaBanner({ quota, onUpgrade }) {
     return (
       <View style={[styles.card, styles.planCard]}>
         <View style={[styles.icon, { backgroundColor: colors.glow }]}>
-          <Icon name="rocket" size={16} color={colors.primary} />
+          <Icon name="rocket" size={14} color={colors.primary} />
         </View>
         <View style={styles.copy}>
           <Text style={styles.title}>{quota.plan.name} plan</Text>
@@ -36,10 +36,10 @@ export default function PostQuotaBanner({ quota, onUpgrade }) {
   const showDots = limit <= MAX_DOTS;
 
   return (
-    <View style={[styles.card, out && styles.cardOut]}>
+    <View style={[styles.card, styles.cardMeter, { borderColor: `${tone}40` }, out && styles.cardOut]}>
       <View style={styles.row}>
         <View style={[styles.icon, { backgroundColor: `${tone}1F` }]}>
-          <Icon name={out ? 'lock-closed' : 'flash'} size={16} color={tone} />
+          <Icon name={out ? 'lock-closed' : 'flash'} size={14} color={tone} />
         </View>
         <View style={styles.copy}>
           <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
@@ -61,7 +61,7 @@ export default function PostQuotaBanner({ quota, onUpgrade }) {
         {canUpgrade ? (
           <Pressable onPress={onUpgrade} hitSlop={6} style={({ pressed }) => [pressed && { opacity: 0.8 }]}>
             <LinearGradient colors={out ? ['#F59E0B', '#EA580C'] : colors.gradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.cta}>
-              <Icon name="rocket-outline" size={13} color="#FFFFFF" />
+              <Icon name="rocket-outline" size={12} color="#FFFFFF" />
               <Text style={styles.ctaText}>{out ? 'Upgrade' : 'Get more'}</Text>
             </LinearGradient>
           </Pressable>
@@ -84,39 +84,42 @@ export default function PostQuotaBanner({ quota, onUpgrade }) {
 }
 
 const createStyles = (colors) => ({
+  // The screen already pads the top; the card sits a little into that padding.
   card: {
-    marginHorizontal: 10,
-    marginTop: 8,
-    marginBottom: 4,
-    paddingVertical: 11,
-    paddingHorizontal: 11,
-    gap: 10,
-    borderRadius: 16,
+    marginHorizontal: 2,
+    marginTop: -4,
+    marginBottom: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
   },
+  // Room under the text for the usage meter along the bottom edge.
+  cardMeter: { paddingBottom: 13 },
   cardOut: {
     borderColor: `${colors.error}55`,
     backgroundColor: `${colors.error}0D`,
   },
-  planCard: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  planCard: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  icon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  icon: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   copy: { flex: 1, minWidth: 0 },
-  title: { fontSize: 13.5, fontWeight: '800', color: colors.text },
-  sub: { marginTop: 1, fontSize: 11.5, color: colors.textMuted },
+  title: { fontSize: 13, fontWeight: '800', color: colors.text },
+  sub: { marginTop: 1, fontSize: 11, color: colors.textMuted },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 999,
   },
-  ctaText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
-  dots: { flexDirection: 'row', gap: 4 },
-  dot: { flex: 1, height: 6, borderRadius: 3 },
-  track: { height: 6, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden' },
-  fill: { height: 6, borderRadius: 3 },
+  ctaText: { fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' },
+  dots: { position: 'absolute', left: 10, right: 10, bottom: 5, flexDirection: 'row', gap: 3 },
+  dot: { flex: 1, height: 3, borderRadius: 2 },
+  track: { position: 'absolute', left: 10, right: 10, bottom: 5, height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
+  fill: { height: 3, borderRadius: 2 },
 });

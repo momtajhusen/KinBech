@@ -24,6 +24,7 @@ const { isAdminRole } = require('../utils/adminScopes');
 const { notifyAdmins, whoLabel, clip } = require('../utils/adminNotify');
 const { categoriesForShop } = require('../utils/shopProductCategories');
 const { toPublic } = require('./categoryController');
+const { mergeSocialLinks } = require('../utils/shopSocial');
 
 function notifyShopVerification(shop, owner) {
   notifyAdmins({
@@ -70,24 +71,22 @@ const TEXT_LIMITS = {
   deliveryAreas: 200,
   returnPolicy: 300,
 };
-const SOCIAL_KEYS = ['facebook', 'instagram', 'tiktok', 'youtube'];
-
 function cleanText(value, max) {
   return String(value ?? '').trim().slice(0, max);
 }
 
+/** Returns `{ message, field }` when the body has invalid social links, otherwise null. */
 function applyProfileExtras(shop, body) {
+  if (body.socialLinks && typeof body.socialLinks === 'object') {
+    const current = shop.socialLinks?.toObject ? shop.socialLinks.toObject() : shop.socialLinks || {};
+    const merged = mergeSocialLinks(current, body.socialLinks);
+    if (merged.error) return { message: merged.error, field: merged.field };
+    shop.socialLinks = merged.links;
+  }
   Object.entries(TEXT_LIMITS).forEach(([field, max]) => {
     if (body[field] !== undefined) shop[field] = cleanText(body[field], max);
   });
   if (body.coverImage !== undefined) shop.coverImage = cleanText(body.coverImage, 500);
-  if (body.socialLinks && typeof body.socialLinks === 'object') {
-    const next = { ...(shop.socialLinks?.toObject ? shop.socialLinks.toObject() : shop.socialLinks || {}) };
-    SOCIAL_KEYS.forEach((key) => {
-      if (body.socialLinks[key] !== undefined) next[key] = cleanText(body.socialLinks[key], 200);
-    });
-    shop.socialLinks = next;
-  }
   if (Array.isArray(body.openDays)) {
     shop.openDays = OPEN_DAYS.filter((day) => body.openDays.includes(day));
   }
@@ -100,6 +99,7 @@ function applyProfileExtras(shop, body) {
     const max = new Date().getFullYear();
     shop.establishedYear = Number.isInteger(year) && year >= 1900 && year <= max ? year : null;
   }
+  return null;
 }
 
 async function createShop(req, res, next) {
@@ -281,7 +281,14 @@ async function updateShop(req, res, next) {
     if (req.body.category !== undefined) {
       shop.category = mapShopCategory(req.body.category);
     }
-    applyProfileExtras(shop, req.body);
+    const extrasError = applyProfileExtras(shop, req.body);
+    if (extrasError) {
+      return res.status(400).json({
+        code: 'invalid_social_links',
+        message: extrasError.message,
+        fieldErrors: { [extrasError.field]: extrasError.message },
+      });
+    }
     if (req.body.coordinates) {
       shop.coordinates = {
         lat: req.body.coordinates.lat != null ? Number(req.body.coordinates.lat) : shop.coordinates?.lat,

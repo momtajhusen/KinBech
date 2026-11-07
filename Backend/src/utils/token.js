@@ -77,6 +77,7 @@ function publicUser(user, options = {}) {
     currency: 'NPR (₨)',
     showPhone: false,
     showLocation: true,
+    sellVoice: true,
   };
   const prefs = user.preferences
     ? { ...defaultPrefs, ...(user.preferences.toObject ? user.preferences.toObject() : user.preferences) }

@@ -2,6 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+const { detailPromptLines, detailsFor } = require('./listingDetails');
+
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 const {
@@ -176,7 +178,7 @@ function buildPrompt(categories, shop) {
     'that helps you identify the exact model.',
     '',
     'Reply with JSON only, in exactly this shape:',
-    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "person": {"visible": boolean, "note": string, "revealing": boolean, "revealingNote": string}, "focus": {"isProduct": boolean, "reason": string}, "photo": {"usable": boolean, "issue": string, "reason": string}, "searchWords": string[]}',
+    '{"title": string, "description": string, "category": string, "condition": string, "priceNpr": number, "newPriceNpr": number, "safety": {"allowed": boolean, "issue": string, "reason": string}, "person": {"visible": boolean, "note": string, "revealing": boolean, "revealingNote": string}, "focus": {"isProduct": boolean, "reason": string}, "photo": {"usable": boolean, "issue": string, "reason": string}, "identity": {"confidence": number, "alternatives": [{"title": string, "category": string}]}, "details": {"kind": string, "values": {"<field key>": string}}, "searchWords": string[]}',
     '',
     'Safety rules (check first):',
     '- KinBech is a family marketplace. Set safety.allowed to false when the photo shows nudity,',
@@ -216,6 +218,12 @@ function buildPrompt(categories, shop) {
     '  screenshot of text, chat, payment or social media with no product.',
     '- A slightly soft, dim or simple photo is usable when the item can still be recognised.',
     '- photo.reason: one short plain sentence on what is wrong. Empty when usable.',
+    '- identity.confidence: 0 to 100, how sure you are what this item is and that it is a real item for sale.',
+    '  90 to 100: sharp photo, the item is obvious. 70 to 89: the item is clear, only the brand or model is unsure.',
+    '  Below 70: blurry, cut off, too far away, several different items, or it could be quite different things.',
+    '- identity.alternatives: when confidence is below 70, 2 or 3 other items it could be, most likely first.',
+    '  Each has a 5-word "title" written like the main title and a "category" following the category rules.',
+    '  Never repeat the main title. [] when confidence is 70 or more.',
     '',
     'Price rules:',
     '- priceNpr: a realistic selling price in Nepal, in Nepali rupees (NPR), for this exact item',
@@ -261,6 +269,7 @@ function buildPrompt(categories, shop) {
     '- condition: exactly one of "New", "Good", "Fair", judged from the visible wear.',
     '- If something is unclear, give your best reasonable guess instead of leaving it empty.',
   ];
+  lines.push('', ...detailPromptLines());
   lines.push('');
   lines.push('Category rules (critical — buyers filter by this):');
   lines.push('- Put the same product type in the same category every time.');
@@ -320,8 +329,7 @@ function parseSuggestion(rawText) {
     return { title: '', description: '', category: null, condition: null, priceNpr: null, newPriceNpr: null, searchWords: [], safety };
   }
 
-  const titleWords = String(parsed.title || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
-  const title = (titleWords.length > 5 ? titleWords.slice(0, 5) : titleWords).join(' ');
+  const title = fiveWordTitle(parsed.title);
   const description = String(parsed.description || '').trim();
   const photo = photoVerdict(parsed.photo);
   const focus = {
@@ -358,7 +366,30 @@ function parseSuggestion(rawText) {
     },
     focus,
     photo,
+    identity: identityVerdict(parsed.identity, title),
+    details: detailsFor(parsed.details),
   };
+}
+
+function fiveWordTitle(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean).slice(0, 5).join(' ').slice(0, 120);
+}
+
+/** `confidence` is null when the model left it out, which counts as sure. */
+function identityVerdict(raw, title) {
+  const value = Number(raw?.confidence);
+  const confidence = raw?.confidence != null && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : null;
+  const seen = new Set([title.toLowerCase()]);
+  const alternatives = (Array.isArray(raw?.alternatives) ? raw.alternatives : [])
+    .map((alt) => ({ title: fiveWordTitle(alt?.title), category: String(alt?.category || '').trim().slice(0, 40) || null }))
+    .filter((alt) => {
+      const key = alt.title.toLowerCase();
+      if (!alt.title || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 3);
+  return { confidence, alternatives };
 }
 
 const PHOTO_ISSUES = ['qr_code', 'blurry', 'too_dark', 'blank', 'unclear'];
@@ -1838,6 +1869,7 @@ const ENGINE = {
 
 module.exports = {
   ENGINE,
+  runGemini,
   benchmarkModel,
   classifyFailure,
   listAvailableModels,

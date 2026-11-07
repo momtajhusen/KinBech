@@ -1,5 +1,6 @@
 const { isPrivateRef, refOwnerId, withViewUrls } = require('./privateMedia');
 const { openField } = require('./fieldCrypto');
+const { publicSocialLinks } = require('./shopSocial');
 
 function normalizeTaxId(value) {
   return String(value || '')
@@ -86,7 +87,7 @@ function shopPublicFields(shop, options = {}) {
     whatsapp: showPhone ? obj.whatsapp || '' : '',
     email: obj.email || '',
     website: obj.website || '',
-    socialLinks: obj.socialLinks || {},
+    socialLinks: publicSocialLinks(obj.socialLinks),
     openDays: Array.isArray(obj.openDays) ? obj.openDays : [],
     deliveryAvailable: Boolean(obj.deliveryAvailable),
     deliveryAreas: obj.deliveryAreas || '',

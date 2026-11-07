@@ -18,6 +18,7 @@ const {
   voiceSearchTurn,
 } = require('../utils/aiSuggest');
 const { openLiveSpeech, pipeSpeech, waitSpeechReady } = require('../utils/voiceLive');
+const { sellVoiceTurn } = require('../utils/sellVoice');
 const { photoPixelIssue } = require('../utils/photoQuality');
 const { searchSummary } = require('../controllers/listingController');
 const { CATALOG, catalogEntry } = require('../utils/aiCatalog');
@@ -66,6 +67,24 @@ const router = express.Router();
 
 /** Individual sellers sell used items: AI price is this share of the brand-new Nepal price. */
 const USED_PRICE_SHARE = { Good: 0.5, Fair: 0.25 };
+
+// Below this AI confidence, or with one of these photo issues, the app asks the seller what the item is
+// instead of filling the form on its own.
+const UNSURE_BELOW = 70;
+const UNSURE_PHOTO_ISSUES = new Set(['blurry', 'too_dark', 'unclear', 'blank']);
+
+/** Other items the photo could be, without prohibited ones; categories snap to known names. */
+async function safeAlternatives(alternatives, categories, fallbackCategory) {
+  const names = new Map(categories.map((name) => [name.toLowerCase(), name]));
+  const checked = await Promise.all(
+    (alternatives || []).map(async (alt) => {
+      const category = names.get(String(alt.category || '').toLowerCase()) || fallbackCategory || null;
+      const moderation = await evaluateListingModeration({ title: alt.title, description: '', category }).catch(() => null);
+      return moderation && !moderation.prohibited ? { title: alt.title, category } : null;
+    })
+  );
+  return checked.filter(Boolean);
+}
 
 /**
  * Analyse an uploaded product photo and suggest listing details plus an NPR price
@@ -124,7 +143,18 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
       refundAiCall(req.user._id, quota.day);
       quota = null;
       return res.json({
-        suggestion: { title: '', description: '', category: null, condition: null, searchWords: [], photoIssue: 'blank', photoIssueNote: '' },
+        suggestion: {
+          title: '',
+          description: '',
+          category: null,
+          condition: null,
+          searchWords: [],
+          photoIssue: 'blank',
+          photoIssueNote: '',
+          uncertain: true,
+          confidence: 0,
+          alternatives: [],
+        },
         model: null,
         aiUsage: { ...aiUsage, used: Math.max(0, aiUsage.used - 1) },
         photoKey: await photoSaved,
@@ -242,6 +272,15 @@ router.post('/listing-suggest', requireAuth, aiLimiter, async (req, res) => {
     }
     delete suggestion.person;
     delete suggestion.focus;
+    const identity = suggestion.identity || { confidence: null, alternatives: [] };
+    delete suggestion.identity;
+    if (!named || suggestion.contentBlocked || !suggestion.details) delete suggestion.details;
+    suggestion.confidence = identity.confidence;
+    const lowConfidence = named && identity.confidence != null && identity.confidence < UNSURE_BELOW;
+    if (!suggestion.contentBlocked && (lowConfidence || UNSURE_PHOTO_ISSUES.has(suggestion.photoIssue))) {
+      suggestion.uncertain = true;
+      suggestion.alternatives = await safeAlternatives(identity.alternatives, categories, suggestion.category);
+    }
     return res.json({ suggestion, model, aiUsage, photoKey: await photoSaved });
   } catch (error) {
     if (quota?.ok) refundAiCall(req.user._id, quota.day);
@@ -336,6 +375,34 @@ router.post('/voice-query', requireAuth, aiLimiter, async (req, res) => {
     if (status === 502) console.error('[ai] voice-query failed:', error.message || error);
     else console.warn('[ai] voice-query:', error.message);
     return res.status(status).json({ message: status === 502 ? 'Voice search could not understand. Please try again.' : error.message });
+  }
+});
+
+/** One turn of the sell helper (Nepali, Hindi once switched): the form and the seller's words in, a spoken line and form changes out. */
+router.post('/sell-voice', requireAuth, aiLimiter, async (req, res) => {
+  const userId = String(req.user._id);
+  try {
+    if (!takeVoiceTurn(userId)) {
+      return res.status(429).json({ message: 'Voice helper limit reached for today. Please fill the form yourself.' });
+    }
+    const speech = takeVoiceTurn(userId, 'speech', VOICE_SPEECH_PER_DAY) ? openLiveSpeech({ userId }) : null;
+    res.on('close', () => {
+      if (!res.writableFinished) speech?.cancel();
+    });
+    let turn;
+    try {
+      turn = await sellVoiceTurn(req.body || {}, { userId });
+    } catch (error) {
+      speech?.cancel();
+      throw error;
+    }
+    if (!turn.reply) speech?.cancel();
+    return res.json({ ...turn, speechId: speech && turn.reply ? speech.say(turn.reply) : null });
+  } catch (error) {
+    const status = error.status === 429 || error.status === 503 ? error.status : 502;
+    if (status === 502) console.error('[ai] sell-voice failed:', error.message || error);
+    else console.warn('[ai] sell-voice:', error.message);
+    return res.status(status).json({ message: status === 502 ? 'Voice helper could not answer. Please try again.' : error.message });
   }
 });
 

@@ -661,6 +661,14 @@ export const api = {
     request(`/ai/listing-photo/${encodeURIComponent(key)}`, { method: 'DELETE', timeoutMs: 6000 }),
   voiceQuery: (payload, options = {}) =>
     request('/ai/voice-query', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 15000, ...options }),
+  sellVoice: (payload, options = {}) =>
+    request('/ai/sell-voice', { method: 'POST', body: JSON.stringify(payload), timeoutMs: 25000, ...options }),
+  voiceReady: (id, options = {}) =>
+    request(`/ai/voice-ready/${encodeURIComponent(id)}`, { timeoutMs: 10000, ...options }),
+  voiceAudioUrl: (id) => {
+    const base = getWorkingApiBaseUrl() || getApiBaseUrlCandidates()[0] || '';
+    return base ? `${base.replace(/\/$/, '')}/ai/voice-audio/${encodeURIComponent(id)}` : '';
+  },
   updateListing: (id, payload) =>
     request(`/listings/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteListing: (id) => request(`/listings/${id}`, { method: 'DELETE' }),

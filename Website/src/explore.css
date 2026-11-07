@@ -1595,6 +1595,36 @@ body.explore-filter-sheet-lock {
   font-weight: 600;
 }
 
+.seller-social-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.seller-social-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.seller-social-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+.seller-social-link--facebook { color: #1877f2; }
+.seller-social-link--instagram { color: #e1306c; }
+.seller-social-link--tiktok { color: #111; }
+.seller-social-link--youtube { color: #ff0000; }
+
 @media (max-width: 640px) {
   .seller-profile-hero {
     padding-bottom: 24px;

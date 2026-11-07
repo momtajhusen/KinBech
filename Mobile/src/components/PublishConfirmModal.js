@@ -159,6 +159,7 @@ function ConfirmContent({
   checking,
   onOpenDuplicate,
   photoFlag,
+  voiceBar,
 }) {
   const { colors } = useTheme();
   const styles = useThemedStyles(createStyles);
@@ -265,6 +266,8 @@ function ConfirmContent({
                 : 'Check the details. Your post goes live for nearby buyers once you publish.'}
           </Text>
         </ScrollView>
+
+        {voiceBar ? <View style={styles.voice}>{voiceBar}</View> : null}
 
         <View style={styles.actions}>
           <PressableScale style={styles.actionFlex} contentStyle={styles.secondary} onPress={onEdit}>
@@ -512,6 +515,10 @@ const createStyles = (colors) =>
       fontSize: 12,
       lineHeight: 17,
       color: colors.textMuted,
+    },
+    voice: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
     },
     actions: {
       flexDirection: 'row',

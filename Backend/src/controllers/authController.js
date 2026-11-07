@@ -652,6 +652,10 @@ async function updatePreferences(req, res, next) {
       req.user.preferences = req.user.preferences || {};
       req.user.preferences.showLocation = Boolean(req.body.showLocation);
     }
+    if (req.body.sellVoice !== undefined) {
+      req.user.preferences = req.user.preferences || {};
+      req.user.preferences.sellVoice = Boolean(req.body.sellVoice);
+    }
     req.user.markModified('preferences');
 
     await req.user.save();

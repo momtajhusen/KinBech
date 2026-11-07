@@ -38,6 +38,7 @@ import { useAuth } from '../context/AuthContext';
 import { useRequireLogin } from '../components/LoginPrompt';
 import { usePullRefresh, refreshControl } from '../hooks/usePullRefresh';
 import pinnedStoresUtils from '../utils/pinnedStores';
+import { linkedSocials } from '../utils/socialLinks';
 
 const SORTS = [
   { key: 'newest', label: 'Newest' },
@@ -91,19 +92,10 @@ function openStatus(hours, openDays) {
   return end > start ? mins >= start && mins < end : mins >= start || mins < end;
 }
 
-const SOCIAL_LINKS = [
-  { key: 'facebook', icon: 'logo-facebook', color: '#1877F2', base: 'https://facebook.com/' },
-  { key: 'instagram', icon: 'logo-instagram', color: '#E1306C', base: 'https://instagram.com/' },
-  { key: 'tiktok', icon: 'logo-tiktok', color: '#111111', base: 'https://www.tiktok.com/@' },
-  { key: 'youtube', icon: 'logo-youtube', color: '#FF0000', base: 'https://youtube.com/@' },
-];
-
-function toUrl(value, base = 'https://') {
+function toUrl(value) {
   const text = String(value || '').trim();
   if (!text) return '';
-  if (/^https?:\/\//i.test(text)) return text;
-  if (/\.[a-z]{2,}(\/|$)/i.test(text) && base !== 'https://') return `https://${text}`;
-  return `${base}${text.replace(/^@/, '')}`;
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
 }
 
 function whatsappUrl(number) {
@@ -364,7 +356,7 @@ export default function ShopProfileScreen({ route, navigation }) {
   const rating = Number(shop.ratingAverage) || 0;
   const reviewCount = Number(shop.reviewCount) || reviews.length;
   const isOpen = openStatus(shop.openingHours, shop.openDays);
-  const social = shop.socialLinks || {};
+  const socials = linkedSocials(shop.socialLinks);
   const sinceYear = shop.createdAt ? new Date(shop.createdAt).getFullYear() : null;
   const coords = shop.coordinates || {};
   const hasCoords =
@@ -580,6 +572,27 @@ export default function ShopProfileScreen({ route, navigation }) {
             ) : null}
           </View>
         </View>
+        {socials.length ? (
+          <View style={styles.socialRow}>
+            {socials.map((s) => {
+              const tint = s.key === 'tiktok' ? colors.text : s.color;
+              return (
+                <PressableScale
+                  key={s.key}
+                  scaleTo={0.95}
+                  style={styles.socialItem}
+                  contentStyle={[styles.socialBtn, { backgroundColor: `${tint}14`, borderColor: `${tint}33` }]}
+                  onPress={() => openLink(s.url)}
+                >
+                  <Icon name={s.icon} size={16} color={tint} />
+                  <Text style={[styles.socialText, { color: tint }]} numberOfLines={1}>
+                    {s.label}
+                  </Text>
+                </PressableScale>
+              );
+            })}
+          </View>
+        ) : null}
         {quickActions.length ? (
           <View style={styles.quickRow}>
             {quickActions.map((action, i) => (
@@ -832,19 +845,6 @@ export default function ShopProfileScreen({ route, navigation }) {
         {renderCardHead('storefront', 'About the store')}
         {shop.tagline ? <Text style={styles.tagline}>{shop.tagline}</Text> : null}
         <Text style={styles.aboutText}>{shop.description?.trim() || 'No description provided.'}</Text>
-        {SOCIAL_LINKS.some((s) => social[s.key]) ? (
-          <View style={styles.socialRow}>
-            {SOCIAL_LINKS.filter((s) => social[s.key]).map((s) => (
-              <Pressable
-                key={s.key}
-                onPress={() => openLink(toUrl(social[s.key], s.base))}
-                style={[styles.socialBtn, { backgroundColor: `${s.color}14` }]}
-              >
-                <Icon name={s.icon} size={18} color={s.color} />
-              </Pressable>
-            ))}
-          </View>
-        ) : null}
       </Reanimated.View>
 
       <Reanimated.View entering={enterQuick(1)} style={styles.card}>
@@ -1536,12 +1536,23 @@ const createStyles = (colors) => ({
     gap: 8,
     marginTop: 12,
   },
+  socialItem: {
+    flex: 1,
+  },
   socialBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    height: 34,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  socialText: {
+    flexShrink: 1,
+    fontSize: 12.5,
+    fontWeight: '800',
   },
   hoursText: {
     fontSize: 16,

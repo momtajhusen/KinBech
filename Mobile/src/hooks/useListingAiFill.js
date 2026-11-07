@@ -76,9 +76,14 @@ export function useListingAiFill({
   const [aiCondition, setAiCondition] = useState(null);
   const [aiNewPrice, setAiNewPrice] = useState(null);
   const [imageFlag, setImageFlag] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [detailsOffer, setDetailsOffer] = useState(null);
+  const [lastDetails, setLastDetails] = useState(null);
+  const detailsAsked = useRef(new Set());
   const atLeastMin = (value) => (minPrice > 0 && value > 0 && value < minPrice ? minPrice : value);
   const sessionUris = useRef(new Set());
   const mounted = useRef(true);
+  const runRef = useRef(0);
 
   const discardPhotos = useCallback((uris, { remote = true } = {}) => {
     uris.forEach((uri) => {
@@ -107,6 +112,22 @@ export function useListingAiFill({
     [discardPhotos]
   );
 
+  /** Fresh form: forgets every AI suggestion, and a fill still running is ignored when it returns. */
+  const reset = useCallback(() => {
+    runRef.current += 1;
+    setFilling(false);
+    setError('');
+    setAiPrice(null);
+    setAiCondition(null);
+    setAiNewPrice(null);
+    setImageFlag(null);
+    setPending(null);
+    setDetailsOffer(null);
+    detailsAsked.current.clear();
+    setLastDetails(null);
+    endSession();
+  }, [endSession]);
+
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -120,13 +141,89 @@ export function useListingAiFill({
       showErrorAlert({ title, message, onConfirm: () => setAlertConfig(null) })
     );
 
-  /** Resolves to 'done', 'blocked', 'failed' or 'skipped'. */
+  const applySuggestion = (suggestion, onlyEmpty) => {
+    // An automatic fill must not overwrite what the user already typed.
+    const put = (setter, text) => {
+      if (!text || !setter) return;
+      setter((current) => (onlyEmpty && String(current || '').trim() ? current : text));
+    };
+    put(fields.setTitle, suggestion.title);
+    put(fields.setDescription, suggestion.description);
+    if (suggestion.title) onTitleFilled?.();
+    if (Array.isArray(suggestion.searchWords) && suggestion.searchWords.length) {
+      fields.setSearchWords?.((current) => mergeSearchWords(current, suggestion.searchWords));
+    }
+    if (suggestion.category) {
+      const record = suggestion.categoryRecord;
+      const item = {
+        id: record?.id,
+        label: suggestion.category,
+        icon: record?.icon || 'pricetag-outline',
+        color: record?.color || '#5B39C6',
+        tint: record?.color || '#5B39C6',
+      };
+      upsertCategoryMemory('product', item);
+      fields.setCategory?.(suggestion.category, item);
+    }
+    if (suggestion.condition && conditions.includes(suggestion.condition)) {
+      fields.setCondition?.(suggestion.condition);
+      setAiCondition(suggestion.condition);
+    }
+    const newPrice = Number(suggestion.newPrice);
+    setAiNewPrice(!forShop && suggestion.priceSource === 'new_price' && newPrice > 0 ? newPrice : null);
+    const price = atLeastMin(Number(suggestion.price));
+    if (Number.isFinite(price) && price > 0) {
+      setAiPrice(price);
+      put(fields.setPrice, String(price));
+    } else {
+      setAiPrice(null);
+    }
+  };
+
+  /** Once per photo, the item's own details (RAM, kilometres, ...) are asked after the form is filled. */
+  const offerDetails = (photoUri, suggestion) => {
+    if (!suggestion.details?.fields?.length) return;
+    setLastDetails({ photoUri, details: suggestion.details });
+    if (detailsAsked.current.has(photoUri)) return;
+    detailsAsked.current.add(photoUri);
+    setDetailsOffer({ photoUri, details: suggestion.details });
+  };
+
+  const closeDetails = useCallback(() => setDetailsOffer(null), []);
+
+  /** Opens the item details again to change them, even when every detail is filled. */
+  const reopenDetails = useCallback(() => {
+    setDetailsOffer((current) => current || (lastDetails ? { ...lastDetails, forced: true } : null));
+  }, [lastDetails]);
+
+  /**
+   * The seller's answer to an unsure read: 'main' (the AI's guess), an entry of `alternatives`,
+   * 'unsure' or 'retake' (nothing is filled).
+   */
+  const resolvePending = (choice) => {
+    const current = pending;
+    setPending(null);
+    if (!current) return;
+    const { suggestion, onlyEmpty } = current;
+    if (choice === 'main') {
+      applySuggestion(suggestion, onlyEmpty);
+      offerDetails(current.photoUri, suggestion);
+    } else if (choice && typeof choice === 'object') {
+      // Description, search words and price describe the AI's first guess, so only the name and type carry over.
+      applySuggestion({ title: choice.title, category: choice.category, condition: suggestion.condition }, onlyEmpty);
+    }
+  };
+
+  /** Resolves to 'done', 'confirm' (waiting for the seller in `pending`), 'blocked', 'failed' or 'skipped'. */
   const fill = async ({ photoUri, silent = false, onlyEmpty = false } = {}) => {
     if (filling) return 'skipped';
     if (!photoUri) {
       if (!silent) showAlert('Add a photo first', 'AI needs a product photo to read the details from.');
       return 'skipped';
     }
+    const run = runRef.current;
+    setPending(null);
+    setDetailsOffer(null);
     setFilling(true);
     setError('');
     try {
@@ -139,16 +236,18 @@ export function useListingAiFill({
         categories: categories.map((cat) => cat.label),
         ...(forShop ? { forShop: true } : {}),
       });
+      const stale = run !== runRef.current;
       const suggestion = data?.suggestion;
-      if (apiError || !suggestion) throw new Error(apiError || 'AI could not read that photo');
-      if (data.photoKey) {
-        if (mounted.current) {
+      if (data?.photoKey) {
+        if (mounted.current && !stale) {
           analysedPhotos.set(photoUri, data.photoKey);
           sessionUris.current.add(photoUri);
         } else {
           api.discardAiPhoto(data.photoKey);
         }
       }
+      if (stale) return 'skipped';
+      if (apiError || !suggestion) throw new Error(apiError || 'AI could not read that photo');
 
       if (suggestion.imageBlocked) {
         setAiPrice(null);
@@ -186,42 +285,16 @@ export function useListingAiFill({
         setImageFlag((current) => (current?.uri === photoUri ? null : current));
       }
 
-      // An automatic fill must not overwrite what the user already typed.
-      const put = (setter, text) => {
-        if (!text || !setter) return;
-        setter((current) => (onlyEmpty && String(current || '').trim() ? current : text));
-      };
-      put(fields.setTitle, suggestion.title);
-      put(fields.setDescription, suggestion.description);
-      if (suggestion.title) onTitleFilled?.();
-      if (Array.isArray(suggestion.searchWords) && suggestion.searchWords.length) {
-        fields.setSearchWords?.((current) => mergeSearchWords(current, suggestion.searchWords));
+      // Unsure what the item is: the seller picks before anything is filled.
+      if (suggestion.uncertain) {
+        setPending({ photoUri, suggestion, onlyEmpty });
+        return 'confirm';
       }
-      if (suggestion.category) {
-        const record = suggestion.categoryRecord;
-        const item = {
-          id: record?.id,
-          label: suggestion.category,
-          icon: record?.icon || 'pricetag-outline',
-          color: record?.color || '#5B39C6',
-          tint: record?.color || '#5B39C6',
-        };
-        upsertCategoryMemory('product', item);
-        fields.setCategory?.(suggestion.category, item);
-      }
-      if (suggestion.condition && conditions.includes(suggestion.condition)) {
-        fields.setCondition?.(suggestion.condition);
-        setAiCondition(suggestion.condition);
-      }
-      const newPrice = Number(suggestion.newPrice);
-      setAiNewPrice(!forShop && suggestion.priceSource === 'new_price' && newPrice > 0 ? newPrice : null);
-      const price = atLeastMin(Number(suggestion.price));
-      if (Number.isFinite(price) && price > 0) {
-        setAiPrice(price);
-        put(fields.setPrice, String(price));
-      }
+      applySuggestion(suggestion, onlyEmpty);
+      offerDetails(photoUri, suggestion);
       return 'done';
     } catch (err) {
+      if (run !== runRef.current) return 'skipped';
       const message = String(err?.message || '');
       if (/limit|quota|turned off/i.test(message)) {
         const text = /turned off/i.test(message) ? message : AI_LIMIT_MESSAGE;
@@ -235,7 +308,7 @@ export function useListingAiFill({
       else showAlert('AI fill failed', message || 'Could not analyse the photo. Please try again.');
       return 'failed';
     } finally {
-      setFilling(false);
+      if (run === runRef.current) setFilling(false);
     }
   };
 
@@ -261,6 +334,13 @@ export function useListingAiFill({
     keepOnlyPhoto,
     sessionPhotoKeys,
     endSession,
+    reset,
+    pending,
+    resolvePending,
+    detailsOffer,
+    closeDetails,
+    lastDetails,
+    reopenDetails,
   };
 }
 

@@ -8,6 +8,7 @@ const { mapShopCategory } = require('../utils/shopCategory');
 const { scoreSeller, searchPhrases, sellerMatches } = require('../utils/searchMatch');
 const { phoneVisible, sellerSignals } = require('../utils/token');
 const { currentAudience, sameAudienceUser } = require('../utils/audience');
+const { publicSocialLinks } = require('../utils/shopSocial');
 
 function readCoords(entity) {
   const c = entity?.coordinates || {};
@@ -66,6 +67,7 @@ function toShopSeller(shop, listings = [], userLat, userLng, showPhone = false) 
     description: shop.description || '',
     phone: showPhone ? shop.phone || '' : '',
     openingHours: shop.openingHours || '',
+    socialLinks: publicSocialLinks(shop.socialLinks),
     coordinates: coords,
   };
 }

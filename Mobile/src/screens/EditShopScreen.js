@@ -25,6 +25,7 @@ import { resolveMediaUrl } from '../utils/listing';
 import { coordsForPlaceName, formatCityDistrict } from '../utils/locations';
 import { uploadMediaUri } from '../utils/mediaUpload';
 import { pickFromLibrary } from '../utils/pickImage';
+import { SOCIAL_MAX, SOCIAL_PLATFORMS, socialLinkError } from '../utils/socialLinks';
 import { useTheme, useThemedStyles, ThemeStatusBar } from '../theme';
 
 const LOGO = 88;
@@ -38,12 +39,6 @@ const PAYMENT_ICONS = {
   'Bank transfer': 'business-outline',
   Card: 'card-outline',
 };
-const SOCIALS = [
-  { key: 'facebook', label: 'Facebook', icon: 'logo-facebook', placeholder: 'facebook.com/yourstore' },
-  { key: 'instagram', label: 'Instagram', icon: 'logo-instagram', placeholder: '@yourstore' },
-  { key: 'tiktok', label: 'TikTok', icon: 'logo-tiktok', placeholder: '@yourstore' },
-  { key: 'youtube', label: 'YouTube', icon: 'logo-youtube', placeholder: 'youtube.com/@yourstore' },
-];
 const VERIFY_COPY = {
   approved: { label: 'Verified', icon: 'shield-checkmark', tone: 'success' },
   pending: { label: 'Under review', icon: 'time-outline', tone: 'warning' },
@@ -123,8 +118,11 @@ export default function EditShopScreen({ navigation }) {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: '' }));
   };
-  const setSocial = (key) => (value) =>
+  const setSocial = (key) => (value) => {
     setForm((prev) => ({ ...prev, socialLinks: { ...prev.socialLinks, [key]: value } }));
+    const errorKey = `social_${key}`;
+    if (errors[errorKey] || errors.socialLinks) setErrors((prev) => ({ ...prev, [errorKey]: '', socialLinks: '' }));
+  };
 
   const load = useCallback(async () => {
     const { data } = await api.getMyShop();
@@ -208,6 +206,13 @@ export default function EditShopScreen({ navigation }) {
       next.establishedYear = 'Enter a valid year';
     }
     if (!form.openDays.length) next.openDays = 'Pick at least one day';
+    SOCIAL_PLATFORMS.forEach((p) => {
+      const message = socialLinkError(p, form.socialLinks[p.key]);
+      if (message) next[`social_${p.key}`] = message;
+    });
+    if (SOCIAL_PLATFORMS.filter((p) => form.socialLinks[p.key].trim()).length > SOCIAL_MAX) {
+      next.socialLinks = `You can link up to ${SOCIAL_MAX} social accounts`;
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -228,6 +233,7 @@ export default function EditShopScreen({ navigation }) {
       description: form.description.trim(),
       establishedYear: form.establishedYear.trim() ? Number(form.establishedYear) : null,
       location: form.location.trim(),
+      socialLinks: Object.fromEntries(SOCIAL_PLATFORMS.map((p) => [p.key, form.socialLinks[p.key].trim()])),
       logo: logo.url,
       coordinates: coords || coordsForPlaceName(form.location),
     };
@@ -292,6 +298,8 @@ export default function EditShopScreen({ navigation }) {
     Object.values(form.socialLinks).some(Boolean),
   ];
   const completion = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const linkedCount = SOCIAL_PLATFORMS.filter((p) => form.socialLinks[p.key].trim()).length;
+  const socialFull = linkedCount >= SOCIAL_MAX;
   const verify = VERIFY_COPY[shop.verificationStatus] || VERIFY_COPY.none;
   const verifyColor = colors[verify.tone];
 
@@ -601,17 +609,46 @@ export default function EditShopScreen({ navigation }) {
               />
             </EditSection>
 
-            <EditSection icon="share-social-outline" title="Social links" subtitle="Let customers follow your store" tint={colors.menuBlue}>
-              {SOCIALS.map((s) => (
-                <EditField
-                  key={s.key}
-                  icon={s.icon}
-                  value={form.socialLinks[s.key]}
-                  onChangeText={setSocial(s.key)}
-                  placeholder={s.placeholder}
-                  autoCapitalize="none"
-                />
-              ))}
+            <EditSection
+              icon="share-social-outline"
+              title="Social links"
+              subtitle={`Add up to ${SOCIAL_MAX}. Buyers see them on top of your store page`}
+              tint={colors.menuBlue}
+              right={
+                <View style={[styles.socialCount, socialFull && styles.socialCountFull]}>
+                  <Text style={[styles.socialCountText, socialFull && styles.socialCountTextFull]}>
+                    {linkedCount}/{SOCIAL_MAX}
+                  </Text>
+                </View>
+              }
+            >
+              {SOCIAL_PLATFORMS.map((p) => {
+                const value = form.socialLinks[p.key];
+                const locked = socialFull && !value.trim();
+                return (
+                  <EditField
+                    key={p.key}
+                    label={p.label}
+                    icon={p.icon}
+                    value={value}
+                    onChangeText={setSocial(p.key)}
+                    placeholder={locked ? `Remove a link to add ${p.label}` : p.placeholder}
+                    autoCapitalize="none"
+                    keyboardType="url"
+                    maxLength={200}
+                    editable={!locked}
+                    error={errors[`social_${p.key}`]}
+                    right={
+                      value ? (
+                        <Pressable onPress={() => setSocial(p.key)('')} hitSlop={8}>
+                          <Icon name="close-circle" size={18} color={colors.textMuted} />
+                        </Pressable>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+              {errors.socialLinks ? <Text style={styles.errorText}>{errors.socialLinks}</Text> : null}
             </EditSection>
 
             <Pressable style={styles.verifyCard} onPress={() => navigation.navigate(ROUTES.SHOP_VERIFICATION)}>
@@ -898,6 +935,23 @@ const createStyles = (colors) => ({
     color: colors.textMuted,
   },
   dayTextActive: {
+    color: colors.primary,
+  },
+  socialCount: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9,
+    backgroundColor: colors.iconBackground,
+  },
+  socialCountFull: {
+    backgroundColor: colors.pastelGreen,
+  },
+  socialCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textMuted,
+  },
+  socialCountTextFull: {
     color: colors.primary,
   },
   errorText: {

@@ -88,8 +88,6 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [saving, setSaving] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState([]);
   const viewRef = useRef({ zoom: 1, offset: { x: 0, y: 0 } });
   const panStart = useRef({ x: 0, y: 0 });
   const pinchStart = useRef({ zoom: 1, offset: { x: 0, y: 0 } });
@@ -135,8 +133,6 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
     setPhoto(null);
     setZoom(1);
     setSaving(false);
-    setBusy(false);
-    setHistory([]);
     ImageManipulator.manipulateAsync(uri, []).then((measured) => {
       if (cancelled) return;
       const nextPhoto = {
@@ -198,56 +194,6 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
     return Gesture.Simultaneous(pan, pinch);
   }, [layout, photo]);
 
-  const showPhoto = (nextPhoto) => {
-    const base = Math.max(frameW / nextPhoto.width, frameH / nextPhoto.height);
-    const start = {
-      x: (frameW - nextPhoto.width * base) / 2,
-      y: (frameH - nextPhoto.height * base) / 2,
-    };
-    viewRef.current = { zoom: 1, offset: start };
-    setPhoto(nextPhoto);
-    setZoom(1);
-    setOffset(start);
-  };
-
-  const bake = async (actions) => {
-    if (!photo || busy || saving) return;
-    setBusy(true);
-    try {
-      const out = await ImageManipulator.manipulateAsync(photo.uri, actions, {
-        compress: 1,
-        format: ImageManipulator.SaveFormat.JPEG,
-      });
-      setHistory((stack) => [...stack, photo].slice(-12));
-      showPhoto({
-        uri: out.uri || photo.uri,
-        width: out.width || photo.width,
-        height: out.height || photo.height,
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const undo = () => {
-    if (!history.length || busy || saving) return;
-    const previous = history[history.length - 1];
-    setHistory((stack) => stack.slice(0, -1));
-    showPhoto(previous);
-  };
-
-  const changeZoom = (delta) => {
-    applyView(zoom + delta, offset);
-  };
-
-  const resetView = () => {
-    if (!photo || !layout) return;
-    applyView(1, {
-      x: (layout.frameW - photo.width * layout.base) / 2,
-      y: (layout.frameH - photo.height * layout.base) / 2,
-    });
-  };
-
   const applyCrop = async () => {
     if (!photo || !layout || saving) return;
     setSaving(true);
@@ -286,7 +232,7 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
             </LinearGradient>
             <View style={styles.headerText}>
               <Text style={styles.title}>Crop photo</Text>
-              <Text style={styles.subtitle}>Drag to move · pinch to zoom · rotate, flip, straighten</Text>
+              <Text style={styles.subtitle}>Drag to move · pinch to zoom</Text>
             </View>
             <Pressable style={styles.iconBtn} onPress={onCancel} hitSlop={8}>
               <Icon name="close" size={20} color={colors.textSecondary} />
@@ -325,56 +271,6 @@ function ImageCropSheet({ visible, uri, aspect = [4, 5], maxWidth = 1080, onCanc
               </View>
             </View>
           </GestureDetector>
-
-          <Reanimated.View entering={FadeInDown.delay(120).duration(280)} style={styles.tools}>
-            {[
-              { key: 'left', icon: 'refresh', flip: true, label: 'Left', action: () => bake([{ rotate: -90 }]) },
-              { key: 'right', icon: 'refresh', label: 'Right', action: () => bake([{ rotate: 90 }]) },
-              { key: 'flipH', icon: 'swap-horizontal', label: 'Flip', action: () => bake([{ flip: ImageManipulator.FlipType.Horizontal }]) },
-              { key: 'flipV', icon: 'swap-vertical', label: 'Mirror', action: () => bake([{ flip: ImageManipulator.FlipType.Vertical }]) },
-              { key: 'tiltL', icon: 'return-down-back', label: '-5°', action: () => bake([{ rotate: -5 }]) },
-              { key: 'tiltR', icon: 'return-down-forward', label: '+5°', action: () => bake([{ rotate: 5 }]) },
-            ].map((tool) => (
-              <Pressable
-                key={tool.key}
-                style={styles.tool}
-                disabled={!photo || busy || saving}
-                onPress={tool.action}
-              >
-                <Icon
-                  name={tool.icon}
-                  size={18}
-                  color={colors.text}
-                  style={tool.flip ? { transform: [{ scaleX: -1 }] } : undefined}
-                />
-                <Text style={styles.toolLabel}>{tool.label}</Text>
-              </Pressable>
-            ))}
-          </Reanimated.View>
-
-          <View style={styles.editRow}>
-            <Pressable style={styles.undo} onPress={undo} disabled={!history.length || busy || saving}>
-              <Icon name="arrow-undo" size={16} color={history.length ? colors.text : colors.textSecondary} />
-              <Text style={[styles.undoText, !history.length && { color: colors.textSecondary }]}>Undo</Text>
-            </Pressable>
-            {busy ? <ActivityIndicator color={colors.primary} /> : <Text style={styles.editHint}>Edits apply on the photo</Text>}
-          </View>
-
-          <View style={styles.zoomRow}>
-            <Pressable style={styles.zoomBtn} onPress={() => changeZoom(-0.25)} disabled={zoom <= 1}>
-              <Icon name="remove" size={18} color={colors.text} />
-            </Pressable>
-            <View style={styles.zoomTrack}>
-              <View style={[styles.zoomFill, { width: `${((zoom - 1) / 3) * 100}%` }]} />
-            </View>
-            <Pressable style={styles.zoomBtn} onPress={() => changeZoom(0.25)} disabled={zoom >= 4}>
-              <Icon name="add" size={18} color={colors.text} />
-            </Pressable>
-            <Text style={styles.zoomLabel}>{Math.round(zoom * 100)}%</Text>
-            <Pressable style={styles.zoomBtn} onPress={resetView}>
-              <Icon name="refresh" size={16} color={colors.text} />
-            </Pressable>
-          </View>
 
           <Reanimated.View entering={FadeInDown.delay(200).duration(280)} style={styles.useWrap}>
             <PressableScale scaleTo={0.97} onPress={applyCrop} disabled={!photo || saving}>
@@ -466,54 +362,6 @@ function createStyles(colors) {
     gridV2: { left: '66.66%', top: 0, bottom: 0, width: 1 },
     gridH1: { top: '33.33%', left: 0, right: 0, height: 1 },
     gridH2: { top: '66.66%', left: 0, right: 0, height: 1 },
-    tools: {
-      flexDirection: 'row',
-      alignSelf: 'stretch',
-      gap: 6,
-      marginTop: 12,
-    },
-    tool: {
-      flex: 1,
-      minWidth: 0,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 4,
-      paddingVertical: 8,
-      borderRadius: 12,
-      backgroundColor: colors.background,
-    },
-    toolLabel: {
-      fontSize: 10,
-      fontWeight: '700',
-      color: colors.textSecondary,
-    },
-    editRow: {
-      alignSelf: 'stretch',
-      minHeight: 28,
-      marginTop: 8,
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: 8,
-    },
-    undo: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingVertical: 4,
-      paddingRight: 8,
-    },
-    undoText: {
-      fontSize: 13,
-      fontWeight: '800',
-      color: colors.text,
-    },
-    editHint: {
-      flex: 1,
-      textAlign: 'right',
-      fontSize: 11,
-      color: colors.textSecondary,
-    },
     corners: {
       ...StyleSheet.absoluteFillObject,
     },
@@ -527,39 +375,6 @@ function createStyles(colors) {
     cornerTR: { top: 8, right: 8, borderTopWidth: 3, borderRightWidth: 3 },
     cornerBL: { bottom: 8, left: 8, borderBottomWidth: 3, borderLeftWidth: 3 },
     cornerBR: { bottom: 8, right: 8, borderBottomWidth: 3, borderRightWidth: 3 },
-    zoomRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      marginTop: 14,
-      alignSelf: 'stretch',
-    },
-    zoomBtn: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: colors.background,
-    },
-    zoomTrack: {
-      flex: 1,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: colors.background,
-      overflow: 'hidden',
-    },
-    zoomFill: {
-      height: '100%',
-      backgroundColor: colors.primary,
-    },
-    zoomLabel: {
-      minWidth: 42,
-      textAlign: 'right',
-      fontSize: 12,
-      fontWeight: '800',
-      color: colors.text,
-    },
     useWrap: {
       alignSelf: 'stretch',
       marginTop: 14,

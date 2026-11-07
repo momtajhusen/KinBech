@@ -8,6 +8,7 @@ import ExplorePagination from '../components/ExplorePagination';
 import Footer from '../components/Footer';
 import SiteImage from '../components/SiteImage';
 import Breadcrumb from '../components/Breadcrumb';
+import SocialLinks from '../components/SocialLinks';
 import Inventory2Rounded from '@mui/icons-material/Inventory2Rounded';
 import LocationCityRounded from '@mui/icons-material/LocationCityRounded';
 import { IconLocation, IconShield, IconStar } from '../components/Icons';
@@ -163,6 +164,7 @@ export default function SellerProfilePage() {
                   {seller.distanceLabel ? <span><IconLocation width={14} height={14} /> {seller.distanceLabel}</span> : null}
                   {seller.location ? <span><LocationCityRounded aria-hidden /> {seller.location}</span> : null}
                 </div>
+                <SocialLinks links={seller.socialLinks} />
               </div>
             </div>
           </div>

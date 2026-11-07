@@ -33,8 +33,15 @@ import { coordinatesForPlace, resolveMediaUrl } from '../utils/listing';
 import { AlertModal, showErrorAlert, showImageSafetyAlert } from '../components/AlertModal';
 import ListingLiveModal from '../components/ListingLiveModal';
 import PublishConfirmModal from '../components/PublishConfirmModal';
+import AiItemCheckModal from '../components/AiItemCheckModal';
+import ListingDetailsModal from '../components/ListingDetailsModal';
+import SellVoiceBar, { VoiceToggle } from '../components/SellVoiceBar';
+import { useListingDetailsStep } from '../hooks/useListingDetailsStep';
+import { useSellVoice } from '../hooks/useSellVoice';
+import { useSellVoiceSetting } from '../hooks/useSellVoiceSetting';
+import { readDetails } from '../utils/listingDetails';
+import { describeControls, detailsForVoice, runVoiceTurn } from '../utils/sellVoiceControls';
 import ListingMediaPreview from '../components/ListingMediaPreview';
-import SearchWordsField from '../components/SearchWordsField';
 import { analysedPhotoKey, priceWarning, useListingAiFill, USED_PRICE_SHARE } from '../hooks/useListingAiFill';
 import { AiFillButton, AiFillNotice } from '../components/AiFillStatus';
 import PostQuotaBanner from '../components/PostQuotaBanner';
@@ -63,10 +70,6 @@ function resolveColor(colorRef, colors) {
 const VIDEO_SLOT_INDEX = EXTRA_PHOTO_SLOTS + 1;
 const MAX_MEDIA_SLOTS = MAX_LISTING_PHOTOS + MAX_LISTING_VIDEOS;
 
-function countListingPhotos(items) {
-  return (items || []).filter((item) => item && item.type !== 'video').length;
-}
-
 function countListingVideos(items) {
   return (items || []).filter((item) => item?.type === 'video').length;
 }
@@ -82,6 +85,8 @@ function assignVideoSlot(prev, videoItem) {
 }
 
 const CONDITIONS = ['New', 'Good', 'Fair'];
+// Room at the end of the form so the floating voice bar never covers the last field.
+const VOICE_BAR_SPACE = 72;
 const MEETUP_OPTIONS = ['Public place', 'Seller location', 'Buyer location'];
 
 function FloatingField({
@@ -179,7 +184,6 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const titleAnchorRef = useRef(null);
   const priceAnchorRef = useRef(null);
   const locationAnchorRef = useRef(null);
-  const searchAnchorRef = useRef(null);
   const titleRef = useRef(null);
   const descAnchorRef = useRef(null);
   const descRef = useRef(null);
@@ -206,6 +210,11 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   const [price, setPrice] = useState(editListing?.price != null ? String(editListing.price) : '');
   const priceTextRef = useRef(price);
   priceTextRef.current = price;
+  // No automatic keyboard while the details card is open or the voice helper is talking.
+  const holdFocusRef = useRef(false);
+  const voiceOnRef = useRef(false);
+  const [voicePhoto, setVoicePhoto] = useState(null);
+  const [voiceOn, setVoiceOn] = useSellVoiceSetting({ askMic: !isEdit });
   const [location, setLocation] = useState(
     () => editListing?.location || (isEdit ? '' : getHomePlace()?.location || '')
   );
@@ -339,7 +348,6 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
 
   const mainPhoto = photos[0]?.type !== 'video' ? photos[0]?.uri ?? null : null;
   const extraPhotos = photos.slice(1);
-  const photoCount = countListingPhotos(photos);
   const videoCount = countListingVideos(photos);
 
   const openMediaPreview = (index) => {
@@ -412,18 +420,37 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
     if (index === 0 && pickedUri && !isEdit) {
       // Open the keyboard for price only once AI is done, so it does not jump while the photo is read.
       const focusPrice = () => {
-        if (priceTextRef.current.trim() || TextInput.State?.currentlyFocusedInput?.()) return;
+        if (priceTextRef.current.trim() || holdFocusRef.current || TextInput.State?.currentlyFocusedInput?.()) return;
         revealField(priceAnchorRef, priceRef);
       };
       if (ai.limitReached) {
+        setVoicePhoto(pickedUri);
         setTimeout(focusPrice, 350);
       } else {
         aiFillDetails({ silent: true, photoUri: pickedUri, onlyEmpty: true }).then((result) => {
-          if (result !== 'blocked') setTimeout(focusPrice, 250);
+          if (result !== 'blocked') setVoicePhoto(pickedUri);
+          if (result !== 'blocked' && result !== 'confirm') setTimeout(focusPrice, 250);
         });
       }
     }
   }, [requireCover, clearFieldError, revealField, priceAnchorRef, priceRef, ai, aiFillDetails, isEdit, mainPhoto, checkPostLimit]);
+
+  const focusEmptyPrice = () =>
+    setTimeout(() => {
+      if (!priceTextRef.current.trim() && !holdFocusRef.current) revealField(priceAnchorRef, priceRef);
+    }, 250);
+
+  const answerAiCheck = (choice) => {
+    ai.resolvePending(choice);
+    if (choice === 'retake') {
+      pickPhoto(0);
+    } else if (choice === 'unsure') {
+      // While the voice helper talks, the keyboard would only interrupt it.
+      if (!voiceOnRef.current) revealField(titleAnchorRef, titleRef);
+    } else {
+      focusEmptyPrice();
+    }
+  };
 
   const pickVideo = async (index) => {
     setPickingIndex(index);
@@ -444,6 +471,11 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   };
 
   const removePhoto = (index) => {
+    // Details come from the cover, so a new post starts over without it.
+    if (index === 0 && !isEdit) {
+      resetForm();
+      return;
+    }
     if (previewIndex === index) setPreviewIndex(null);
     setPhotos((prev) => {
       const next = [...(prev || [])];
@@ -483,6 +515,140 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
   useEffect(() => {
     keepOnlyPhoto(mainPhoto);
   }, [mainPhoto, keepOnlyPhoto]);
+
+  const detailsStep = useListingDetailsStep({
+    ai,
+    description,
+    setDescription,
+    photoUri: mainPhoto,
+    onClosed: () => focusEmptyPrice(),
+  });
+
+  // The Hindi voice helper talks from the moment AI has read the cover photo until the listing is posted.
+  const voiceActive = !isEdit && voiceOn && Boolean(mainPhoto) && voicePhoto === mainPhoto && !submitting && !alertConfig?.live;
+  const voiceStage = ai.filling ? 'reading' : ai.pending ? 'check' : detailsStep.open ? 'details' : confirmOpen ? 'publish' : 'form';
+  const applyVoiceSet = (set, descriptionAdd) => {
+    if (set.title) {
+      setTitle(set.title);
+      clearFieldError('title');
+    }
+    if (set.category) {
+      const item = categories.find((cat) => cat.label === set.category);
+      categoryTouchedRef.current = true;
+      setCategory(set.category);
+      if (item) setAiCategory(item);
+      chipScrollRef.current?.scrollTo({ x: 0, animated: true });
+    }
+    if (set.condition && CONDITIONS.includes(set.condition)) setCondition(set.condition);
+    if (set.price) {
+      setPrice(String(set.price));
+      clearFieldError('price');
+    }
+    if (typeof set.negotiable === 'boolean') setNegotiable(set.negotiable);
+    if (descriptionAdd) {
+      setDescription((current) => (current.trim() ? `${current.trim()}\n${descriptionAdd}` : descriptionAdd));
+    }
+  };
+
+  // Everything on the screen the seller could tap right now, so the voice helper can tap it for them.
+  const voiceControls = () => {
+    const list = [];
+    const add = (id, kind, label, run, extra = {}) => list.push({ id, kind, label, run, ...extra });
+    const fieldAnchors = { photos: photoAnchorRef, title: titleAnchorRef, description: descAnchorRef, price: priceAnchorRef, location: locationAnchorRef };
+    const fieldInputs = { title: titleRef, description: descRef, price: priceRef, location: locationRef };
+    if (confirmOpen) {
+      add('publish_now', 'button', 'Final review: "Publish now" — posts the listing', () => submitListing(), { later: true });
+      add('edit_review', 'button', 'Final review: "Edit" — closes the review and goes back to the form', () => setConfirmOpen(false));
+    } else if (!detailsStep.open && !ai.pending) {
+      add('publish', 'button', 'Publish button — checks the form and opens the final review', () => publish());
+    }
+    if (detailsStep.open) {
+      add('save_details', 'button', `${detailsStep.details.label} details card: save`, () => detailsStep.save(), { later: true });
+      add('skip_details', 'button', `${detailsStep.details.label} details card: skip / close`, () => detailsStep.skip(), { later: true });
+    } else if (detailsStep.known) {
+      add('edit_details', 'button', `Open the ${detailsStep.known.label} details card to change details`, () => detailsStep.edit());
+    }
+    add('description', 'text', 'Description box: replace the whole description with this English text', (value) => setDescription(String(value)));
+    add('meetup', 'select', 'Meetup choice', (value) => setMeetup(value), { options: MEETUP_OPTIONS, value: meetup });
+    add('show_field', 'select', 'Scroll the form to a section', (value) => revealField(fieldAnchors[value]), { options: Object.keys(fieldAnchors) });
+    add('type_in', 'select', 'Open the keyboard in a field so the seller types it by hand', (value) => revealField(fieldAnchors[value], fieldInputs[value]), {
+      options: Object.keys(fieldInputs),
+      later: true,
+    });
+    if (!ai.filling) add('ai_refill', 'button', 'AI sparkle button — read the cover photo again and refill the form', () => aiFillDetails());
+    add('view_cover', 'button', 'Show the cover photo full screen', () => openMediaPreview(0), { later: true });
+    add('change_cover', 'button', 'Take or choose a new cover photo', () => pickPhoto(0), { later: true });
+    const freeSlot = Array.from({ length: VIDEO_SLOT_INDEX - 1 }, (_, i) => i + 1).find((i) => !photos[i]?.uri);
+    if (freeSlot) add('add_photo', 'button', 'Add another photo', () => pickPhoto(freeSlot), { later: true });
+    if (!photos[VIDEO_SLOT_INDEX]?.uri) add('add_video', 'button', 'Record a short video', () => pickVideo(VIDEO_SLOT_INDEX), { later: true });
+    add('clear_form', 'button', 'Clear — removes the photo and empties the whole form', () => resetForm(), { later: true });
+    add('back', 'button', 'Back — leave the sell screen', () => handleBack(), { later: true });
+    return list;
+  };
+
+  const voice = useSellVoice({
+    active: voiceActive,
+    stage: voiceStage,
+    paused: keyboardHeight > 0 || previewIndex != null || limitModal || (!!alertConfig && !alertConfig.live),
+    buildTurn: () => ({
+      form: { title, description, category, condition, price, negotiable, location, meetup },
+      categories: categories.map((cat) => cat.label),
+      conditions: CONDITIONS,
+      aiPrice: ai.aiPrice,
+      check: ai.pending ? ai.pending.suggestion : null,
+      details: detailsForVoice(detailsStep, (known) => readDetails(known, description)),
+      controls: describeControls(voiceControls()),
+    }),
+    applyTurn: (turn, when) =>
+      runVoiceTurn(turn, when, {
+        controls: voiceControls(),
+        applySet: applyVoiceSet,
+        detailsStep,
+        savedDetails: detailsStep.known ? readDetails(detailsStep.known, description) : {},
+        pending: ai.pending,
+        answerCheck: answerAiCheck,
+        confirmOpen,
+        openPublish: publish,
+        closePublish: () => setConfirmOpen(false),
+        confirmPublish: () => {
+          if (!repeatCheck.checking) submitListing();
+        },
+      }),
+  });
+  voiceOnRef.current = voiceActive && !voice.muted;
+  holdFocusRef.current = detailsStep.openRef.current || voiceOnRef.current;
+  const voiceBar = voiceActive ? <SellVoiceBar voice={voice} inline /> : null;
+
+  const formDirty = Boolean(
+    photos.some((item) => item?.uri) || title.trim() || description.trim() || price.trim() || searchWords.length
+  );
+
+  const resetForm = () => {
+    Keyboard.dismiss();
+    ai.reset();
+    setVoicePhoto(null);
+    uploadedRef.current = null;
+    setPreviewIndex(null);
+    setPhotos([]);
+    setFieldErrors({});
+    setTitle('');
+    setDescription('');
+    setSearchWords([]);
+    categoryTouchedRef.current = false;
+    setAiCategory(null);
+    setCategory(allCategories[0]?.label || 'Mobiles');
+    chipScrollRef.current?.scrollTo({ x: 0, animated: false });
+    setCondition('Good');
+    setPrice('');
+    setNegotiable(true);
+    setMeetup('Public place');
+    const home = getHomePlace();
+    if (home?.location) {
+      setLocation(home.location);
+      setPin(pinFromPlace(home));
+    }
+    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+  };
   const priceNotice = priceWarning(price, ai.aiPrice);
   const imageFlag =
     ai.imageFlag && photos.some((item) => item?.uri === ai.imageFlag.uri)
@@ -738,26 +904,22 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
       <View style={styles.flex}>
         <FormScroll
           ref={scrollRef}
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 }]}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 12 + (voiceActive ? VOICE_BAR_SPACE : 0) }]}
         >
           {!isEdit ? (
             <PostQuotaBanner quota={quota} onUpgrade={() => navigation.navigate(ROUTES.SUBSCRIPTION)} />
           ) : null}
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Photos</Text>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>Photos</Text>
+              {!isEdit && formDirty ? (
+                <Pressable onPress={resetForm} hitSlop={10}>
+                  <Text style={styles.clearText}>Clear</Text>
+                </Pressable>
+              ) : null}
+            </View>
             <View style={styles.mediaCountRow}>
-              <View style={styles.countChip}>
-                <Icon name="image" size={11} color={colors.primary} />
-                <Text style={styles.countChipText}>
-                  {photoCount}/{MAX_LISTING_PHOTOS}
-                </Text>
-              </View>
-              <View style={[styles.countChip, styles.countChipVideo]}>
-                <Icon name="videocam" size={11} color="#E53935" />
-                <Text style={[styles.countChipText, { color: '#E53935' }]}>
-                  {videoCount}/{MAX_LISTING_VIDEOS}
-                </Text>
-              </View>
+              {!isEdit ? <VoiceToggle value={voiceOn} onChange={setVoiceOn} /> : null}
               <AiFillButton filling={ai.filling} onPress={() => aiFillDetails()} />
             </View>
           </View>
@@ -925,14 +1087,6 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
             onFocus={focusField}
           />
 
-          <View ref={searchAnchorRef} collapsable={false}>
-            <SearchWordsField
-              words={searchWords}
-              onChange={setSearchWords}
-              onFocus={focusField}
-            />
-          </View>
-
           <Text style={styles.fieldLabel}>Category</Text>
           <ScrollView
             ref={chipScrollRef}
@@ -1077,18 +1231,18 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
               </Pressable>
             </View>
           ) : null}
+
+          <Pressable style={styles.continueBtn} onPress={publish} disabled={submitting}>
+            {submitting ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <Text style={styles.continueBtnText}>{isEdit ? 'Save changes' : 'Publish'}</Text>
+            )}
+          </Pressable>
         </FormScroll>
 
-        {keyboardHeight === 0 ? (
-          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 8 }]}>
-            <Pressable style={styles.continueBtn} onPress={publish} disabled={submitting}>
-              {submitting ? (
-                <ActivityIndicator color={colors.onPrimary} />
-              ) : (
-                <Text style={styles.continueBtnText}>{isEdit ? 'Save changes' : 'Publish'}</Text>
-              )}
-            </Pressable>
-          </View>
+        {keyboardHeight === 0 && voiceActive ? (
+          <SellVoiceBar voice={voice} style={[styles.voiceFloat, { bottom: insets.bottom + 8 }]} />
         ) : null}
       </View>
 
@@ -1104,7 +1258,24 @@ export default function IndividualPostListingScreen({ navigation, editListing = 
         {...(alertConfig?.live ? {} : alertConfig || {})}
       />
       <ListingLiveModal visible={!!alertConfig?.live} {...(alertConfig?.live ? alertConfig : {})} />
+      <AiItemCheckModal
+        visible={!!ai.pending}
+        photo={ai.pending?.photoUri || null}
+        suggestion={ai.pending?.suggestion}
+        onChoose={answerAiCheck}
+        voiceBar={voiceBar}
+      />
+      <ListingDetailsModal
+        visible={detailsStep.open}
+        details={detailsStep.details}
+        values={detailsStep.values}
+        onChange={detailsStep.setValue}
+        onSave={detailsStep.save}
+        onSkip={detailsStep.skip}
+        voiceBar={voiceBar}
+      />
       <PublishConfirmModal
+        voiceBar={voiceBar}
         visible={confirmOpen}
         photo={mainPhoto ? resolveMediaUrl(mainPhoto) : null}
         photoCount={photos.filter((item) => item?.uri).length}
@@ -1213,27 +1384,20 @@ const createStyles = (colors) => ({
     fontWeight: '800',
     color: colors.text,
   },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  clearText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.danger,
+  },
   mediaCountRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-  },
-  countChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 10,
-    backgroundColor: colors.iconBackground,
-  },
-  countChipVideo: {
-    backgroundColor: 'rgba(229, 57, 53, 0.1)',
-  },
-  countChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.primary,
   },
   ...formFieldStyles(colors),
   photoRow: {
@@ -1492,14 +1656,13 @@ const createStyles = (colors) => ({
   locBtn: {
     paddingLeft: 6,
   },
-  bottomBar: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  voiceFloat: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
   },
   continueBtn: {
+    marginTop: 6,
     backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 12,
